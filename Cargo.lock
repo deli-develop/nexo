@@ -3935,7 +3935,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexo-client"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "argon2",
  "nexo-crypto",
@@ -3959,7 +3959,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-crypto"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "aes-gcm",
  "ed25519-dalek",
@@ -3976,7 +3976,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-desktop"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "base64 0.22.1",
  "nexo-client",
@@ -4010,7 +4010,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-platform"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "thiserror 2.0.20",
  "windows",
@@ -4019,7 +4019,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-protocol"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "serde",
  "serde_json",
@@ -4029,7 +4029,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-server"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4060,7 +4060,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-store"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "nexo-platform",
  "nexo-protocol",

@@ -44,6 +44,7 @@ export interface MessageMenuState {
 export interface MessageMenuActions {
   reply: () => void;
   copy: () => void;
+  forward: () => void;
   edit: () => void;
   react: () => void;
   togglePin: () => void;
@@ -69,6 +70,13 @@ export function messageMenuItems(
 
   if (state.hasBody) {
     items.push({ label: "Copy text", icon: "file", onSelect: actions.copy });
+    // Only what has words. Forwarding is a re-encryption of the text into
+    // another group; an attachment would mean deciding who owns the object in
+    // the bucket afterwards, which is a question with no answer yet, so the
+    // entry is absent rather than offered and refused.
+    if (!state.retracted && !state.queued) {
+      items.push({ label: "Forward…", icon: "send", onSelect: actions.forward });
+    }
   }
 
   // Only ours, only while the window is open, and only if the message has a

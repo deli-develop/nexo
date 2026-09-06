@@ -228,8 +228,14 @@ interface AppState {
    * is what that button has always meant.
    */
   viewingHandle: string | null;
-  /** Incremented by `requestMessageSearch`; the list focuses on a change. */
-  searchRequest: number;
+  /**
+   * Whether the in-conversation search bar is open.
+   *
+   * Opened by the header's magnifier and by `Ctrl+F`, closed by `Esc`. Not
+   * persisted: a search box that is still open tomorrow is a search box
+   * somebody forgot about.
+   */
+  conversationSearchOpen: boolean;
   activeConversationId: string;
   /** User intent for the context panel, before the viewport gets a say. */
   contextPanelOpen: boolean;
@@ -266,6 +272,19 @@ interface AppState {
    * unread messages nobody can find.
    */
   unread: Record<string, number>;
+  /**
+   * Where the "unread messages" line goes, per conversation.
+   *
+   * How many incoming messages were still unread at the moment the
+   * conversation was opened — which is the last moment anyone knows, because
+   * opening it is what marks them read. Without this the line could not exist:
+   * by the time the list renders, the count it would need is already zero.
+   *
+   * Not persisted, and for the same reason the ledger next door is not: on a
+   * restart there is nothing anybody has failed to read, and a line claiming
+   * otherwise would point at a boundary that no longer means anything.
+   */
+  unreadMark: Record<string, number>;
   preferences: Preferences;
   setAccount: (account: Account | null) => void;
   setMyAvatarKey: (key: string | null) => void;
@@ -276,8 +295,7 @@ interface AppState {
   openConversation: (id: string) => void;
   toggleContextPanel: () => void;
   setListDrawer: (open: boolean) => void;
-  /** Bumped to ask the conversation list to focus its search box. */
-  requestMessageSearch: () => void;
+  setConversationSearch: (open: boolean) => void;
   setHomeSearchQuery: (query: string) => void;
   setBackdropReport: (report: BackdropReport) => void;
   toggleConversationFlag: (id: string, flag: "pinned" | "archived") => void;
@@ -298,7 +316,7 @@ export const useApp = create<AppState>()(
       locked: false,
       route: "messages",
       viewingHandle: null,
-      searchRequest: 0,
+      conversationSearchOpen: false,
       activeConversationId: "",
       contextPanelOpen: true,
       listDrawerOpen: false,
@@ -306,6 +324,7 @@ export const useApp = create<AppState>()(
       backdropReport: null,
       conversationOverrides: {},
       unread: {},
+      unreadMark: {},
       preferences: defaultPreferences,
       // Signing out drops the picture along with the identity it belonged to;
       // leaving it would show the last person's face to the next one.
@@ -330,11 +349,21 @@ export const useApp = create<AppState>()(
               : handle,
           listDrawerOpen: false,
         })),
-      openConversation: (id) => set({ activeConversationId: id, listDrawerOpen: false }),
+      openConversation: (id) =>
+        set((s) => {
+          // Last visit's line goes. `clearUnread` draws a new one a moment
+          // later if there is anything to draw it for.
+          const { [id]: _gone, ...unreadMark } = s.unreadMark;
+          return {
+            activeConversationId: id,
+            listDrawerOpen: false,
+            conversationSearchOpen: false,
+            unreadMark,
+          };
+        }),
       toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
       setListDrawer: (open) => set({ listDrawerOpen: open }),
-      requestMessageSearch: () =>
-        set((s) => ({ listDrawerOpen: false, searchRequest: s.searchRequest + 1 })),
+      setConversationSearch: (open) => set({ conversationSearchOpen: open }),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),
       toggleConversationFlag: (id, flag) =>
         set((s) => {
@@ -384,8 +413,13 @@ export const useApp = create<AppState>()(
       clearUnread: (id) =>
         set((s) => {
           if (!(id in s.unread)) return s;
-          const { [id]: _, ...rest } = s.unread;
-          return { unread: rest };
+          const { [id]: count, ...rest } = s.unread;
+          // Reading them is what fixes where the line goes, so this is the
+          // one moment it can be recorded. Kept only while the conversation
+          // stays open -- `openConversation` drops it on the way back in.
+          const unreadMark =
+            count && count > 0 ? { ...s.unreadMark, [id]: count } : s.unreadMark;
+          return { unread: rest, unreadMark };
         }),
       setBackdropReport: (backdropReport) => set({ backdropReport }),
       setPreference: (key, value) =>

@@ -466,6 +466,39 @@ fn a_restarted_client_can_still_send() {
 /// `Payload::Rename`, but creation only wrote it into the creator's own store
 /// -- so the person who named the group was the only one who ever saw the
 /// name, and everybody else fell back to a list of handles.
+/// The conversation with yourself: one member, and it has to actually work.
+///
+/// A group of one is the whole design — no second code path — so the thing
+/// worth checking is that the ordinary paths do not quietly assume somebody
+/// else is there: creating it, sending into it, and reading it back.
+#[test]
+#[ignore = "needs a running nexo-server and Postgres"]
+fn a_conversation_with_yourself_holds_what_you_put_in_it() {
+    let alice = Client::new("self");
+
+    let id = conversations::start_self_conversation(&alice.ctx()).expect("create");
+
+    // Asking twice is asking for the same one, on both sides of the wire.
+    let again = conversations::start_self_conversation(&alice.ctx()).expect("again");
+    assert_eq!(id, again, "there is only ever one of these");
+
+    conversations::send_message(&alice.ctx(), id, "a note to myself").expect("send");
+
+    let messages = alice.store.messages(&id.to_string()).expect("history");
+    assert!(
+        messages.iter().any(|m| m.body == "a note to myself"),
+        "the note should be in the local history: {messages:?}"
+    );
+
+    // And it syncs like anything else, with nobody else to hear it.
+    let outcome = conversations::sync(&alice.ctx(), id).expect("sync");
+    assert_eq!(
+        outcome.failed, 0,
+        "nothing should fail to decrypt: {outcome:?}"
+    );
+    println!("ok: a conversation with yourself round-trips");
+}
+
 #[test]
 #[ignore = "needs a running nexo-server and Postgres"]
 fn a_group_reaches_its_members_under_the_name_it_was_given() {

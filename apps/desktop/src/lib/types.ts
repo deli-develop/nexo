@@ -153,6 +153,17 @@ export interface Message {
    */
   replyTo?: QuotedMessage;
   /**
+   * Who this was originally from, when it was passed on from elsewhere.
+   *
+   * The forwarder's claim, not a fact anyone can check — nobody else was
+   * there. Absent both when the message is not a forward and when the
+   * forwarding device could not name the author, and the bubble tells those
+   * two apart by `forwarded` below.
+   */
+  forwardedFrom?: string;
+  /** Whether this arrived as a forward at all, named author or not. */
+  forwarded?: boolean;
+  /**
    * Set when this is a picture or clip meant to be opened once.
    *
    * `openable` false means the key is gone from this device — a fact about the

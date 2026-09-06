@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../app/store";
 import { firstLink, useLinkPreview } from "../../app/useLinkPreview";
 import { cn } from "../../lib/cn";
@@ -48,7 +48,9 @@ import type {
 } from "../../lib/types";
 import { Avatar } from "../../components/ui/Avatar";
 import { HandleAvatar } from "../../components/ui/HandleAvatar";
+import { jumpToMessage } from "./jump";
 import { peerHandle } from "./peer";
+import { clickSelection, type SelectionState } from "./selection";
 import { IconButton } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { DeliveryTick } from "./ConversationList";
@@ -99,6 +101,7 @@ export function MessageList({
   conversation,
   onChanged,
   onReply,
+  onForward,
 }: {
   messages: Message[];
   now: Date;
@@ -107,8 +110,41 @@ export function MessageList({
   onChanged?: () => void;
   /** Start answering this message. The composer takes it from here. */
   onReply?: (message: Message) => void;
+  onForward?: (message: Message) => void;
 }) {
   const rows = buildRows(messages, now);
+
+  // The first message you had not read when you opened this, by its id.
+  //
+  // The mark is a *count* of unread incoming messages, taken at the moment
+  // opening the conversation marked them read — so the boundary is that many
+  // incoming messages back from the end. Counting from the end rather than
+  // storing an id is what makes it survive a sync arriving while you read:
+  // those messages are newer than the line, so the line stays where it was.
+  // Several messages at once: copying a run of them, or clearing them out.
+  //
+  // The rules are `selection.ts`, unchanged and already tested — the same ones
+  // the conversation list uses, because Ctrl and Shift have to mean the same
+  // thing in both places or neither is learnable. Only the ids differ: rows
+  // here are envelope ids, which are numbers, so they are stringified at the
+  // boundary rather than making the rules generic over both.
+  const [selection, setSelection] = useState<SelectionState>({
+    selected: new Set<string>(),
+    anchor: null,
+    open: false,
+  });
+  const conversationId = conversation.id;
+  useEffect(() => {
+    setSelection({ selected: new Set<string>(), anchor: null, open: false });
+  }, [conversationId]);
+
+  const mark = useApp((s) => s.unreadMark[conversation.id]) ?? 0;
+  const firstUnreadId = useMemo(() => {
+    if (mark <= 0) return null;
+    const incoming = messages.filter((m) => m.authorId !== "me");
+    const target = incoming[incoming.length - mark];
+    return target ? target.id : null;
+  }, [messages, mark]);
   const scroller = useRef<HTMLDivElement>(null);
   const count = messages.length;
 
@@ -146,20 +182,11 @@ export function MessageList({
   // Scrolling to a quoted message, and saying which one you landed on.
   //
   // The flash is not decoration: in a wall of similar-looking bubbles, arriving
-  // somewhere with no signal leaves you unsure whether anything happened. It is
-  // removed on a timer rather than by state so a second jump to the same
-  // message re-triggers it.
+  // somewhere with no signal leaves you unsure whether anything happened.
+  // `jump.ts` holds it, because stepping through search results has to land
+  // exactly the same way.
   const jumpTo = useCallback((envelopeId: number) => {
-    const el = document.querySelector<HTMLElement>(
-      `[data-envelope-id="${envelopeId}"]`,
-    );
-    if (!el) return;
-    el.scrollIntoView({ block: "center", behavior: "smooth" });
-    el.classList.remove("quote-landed");
-    // Forces the class to be re-applied rather than coalesced away.
-    void el.offsetWidth;
-    el.classList.add("quote-landed");
-    window.setTimeout(() => el.classList.remove("quote-landed"), 1200);
+    jumpToMessage(envelopeId);
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -209,14 +236,34 @@ export function MessageList({
       >
         <ol className="mt-auto flex flex-col gap-0.5 px-4 py-4">
           {rows.map((row, index) => (
-            <li key={row.message.id} className="contents">
+            <li
+              key={row.message.id}
+              className="contents"
+              onClick={(event) => {
+                // A plain click clears, it never selects: a bulk action must
+                // not be able to gather rows by accident.
+                setSelection((current) =>
+                  clickSelection(
+                    rows.map((r) => String(r.message.id)),
+                    current,
+                    String(row.message.id),
+                    {
+                      toggle: event.ctrlKey || event.metaKey,
+                      range: event.shiftKey,
+                    },
+                  ),
+                );
+              }}
+            >
               {row.divider ? <DayDivider label={row.divider} /> : null}
+              {row.message.id === firstUnreadId ? <UnreadDivider /> : null}
               <Bubble
                 row={row}
                 index={index}
                 conversation={conversation}
                 onOpenMedia={(id) => void openMedia(id)}
                 onReply={onReply}
+                onForward={onForward}
                 onJumpTo={jumpTo}
                 onChangedHere={() => onChanged?.()}
                 onRevise={async (target, body) => {
@@ -257,7 +304,40 @@ export function MessageList({
         />
       ) : null}
 
-      {!atBottom ? (
+      {selection.selected.size > 0 ? (
+        <SelectionBar
+          count={selection.selected.size}
+          onCopy={() => {
+            // In the order they are drawn, not the order they were clicked:
+            // pasted somewhere else it has to read like the conversation.
+            const text = rows
+              .filter((r) => selection.selected.has(String(r.message.id)))
+              .map((r) => r.message.body)
+              .filter((body) => body.length > 0)
+              .join("\n");
+            void copyText(text);
+          }}
+          onDelete={async () => {
+            const ok = await confirm(
+              selection.selected.size === 1
+                ? "Delete this message here?"
+                : `Delete ${selection.selected.size} messages here?`,
+              "They go from this device only. Everyone else keeps their copy — taking a message back for everyone is a different thing, and it is in the message's own menu.",
+            );
+            if (!ok) return;
+            for (const id of selection.selected) {
+              await deleteMessageForMe(conversation.id, Number(id));
+            }
+            setSelection({ selected: new Set<string>(), anchor: null, open: false });
+            onChanged?.();
+          }}
+          onClear={() =>
+            setSelection({ selected: new Set<string>(), anchor: null, open: false })
+          }
+        />
+      ) : null}
+
+      {!atBottom && selection.selected.size === 0 ? (
         <button
           type="button"
           onClick={scrollToBottom}
@@ -276,6 +356,68 @@ export function MessageList({
           ) : null}
         </button>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * What to do with the messages you have picked.
+ *
+ * Sits where the jump-to-latest button sits and replaces it while a selection
+ * exists, because two floating controls in the same corner is one too many and
+ * the selection is the more urgent of the two.
+ *
+ * Delete is last, as every destructive entry in this app is — the same
+ * ordering the message menu asserts in `menu.test.ts`.
+ */
+function SelectionBar({
+  count,
+  onCopy,
+  onDelete,
+  onClear,
+}: {
+  count: number;
+  onCopy: () => void;
+  onDelete: () => void | Promise<void>;
+  onClear: () => void;
+}) {
+  return (
+    <div className="rounded-full bg-surface-2 ring-line-strong absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 px-2 py-1.5 shadow-lg ring-1">
+      <span className="text-text-mid px-1.5 text-meta tabular-nums">
+        {count} selected
+      </span>
+      <IconButton name="copy" label="Copy the selected messages" size={16} onClick={onCopy} />
+      <IconButton
+        name="trash"
+        label="Delete the selected messages here"
+        size={16}
+        onClick={() => void onDelete()}
+      />
+      <IconButton name="close" label="Clear the selection" size={16} onClick={onClear} />
+    </div>
+  );
+}
+
+/**
+ * Where you stopped reading.
+ *
+ * Drawn in the accent rather than the hairline the day divider uses, because
+ * the two say different things: one is a fact about the calendar, this one is
+ * about you, and a reader scanning back up needs to find it without reading
+ * any of it.
+ */
+function UnreadDivider() {
+  return (
+    <div
+      className="my-3 flex items-center gap-3"
+      role="separator"
+      aria-label="Unread messages"
+    >
+      <span className="bg-accent/40 h-px flex-1" />
+      <span className="text-accent-soft text-[11px] font-medium tracking-[0.06em] uppercase">
+        Unread
+      </span>
+      <span className="bg-accent/40 h-px flex-1" />
     </div>
   );
 }
@@ -515,6 +657,7 @@ function Bubble({
   conversation,
   onOpenMedia,
   onReply,
+  onForward,
   onJumpTo,
   onChangedHere,
   onPinnedChange,
@@ -527,6 +670,7 @@ function Bubble({
   conversation: Conversation;
   onOpenMedia: (envelopeId: number) => void;
   onReply?: ((message: Message) => void) | undefined;
+  onForward?: ((message: Message) => void) | undefined;
   onJumpTo: (envelopeId: number) => void;
   /** Opening a view-once changed the store; reload so every view agrees. */
   onChangedHere: () => void;
@@ -585,6 +729,7 @@ function Bubble({
       {
         reply: () => onReply?.(message),
         copy: () => void copyText(message.body),
+        forward: () => onForward?.(message),
         edit: () => setEditing(message.body),
         react: () => setPicking(true),
         togglePin: () => void onPinnedChange(Number(message.id), !message.pinned),
@@ -618,6 +763,10 @@ function Bubble({
       )}
       style={{ "--stagger": `${Math.min(index, 10) * 30}ms` } as CSSProperties}
       onContextMenu={onContextMenu}
+      // Double-click replies, the way every desktop messenger does it. The
+      // menu still offers it; this is the shortcut for the one entry people
+      // reach for most.
+      onDoubleClick={() => onReply?.(message)}
       // What a quote scrolls to. A queued message has a negative id, which is
       // fine: it is unique, and nothing can be replying to it yet anyway.
       data-envelope-id={message.id}
@@ -681,6 +830,23 @@ function Bubble({
             */}
             {message.replyTo && !message.retracted ? (
               <QuoteBlock quote={message.replyTo} mine={mine} onJumpTo={onJumpTo} />
+            ) : null}
+            {/* Said before the words, because it changes how they should be
+                read. The name is the forwarder's claim -- nobody else was
+                there and nothing can check it -- so when there is no name the
+                line says only that it was passed on, rather than guessing. */}
+            {message.forwarded ? (
+              <p
+                className={cn(
+                  "mb-1 flex items-center gap-1 text-[11px] italic",
+                  mine ? "text-on-accent/70" : "text-text-lo",
+                )}
+              >
+                <Icon name="send" size={10} />
+                {message.forwardedFrom
+                  ? `Forwarded from ${message.forwardedFrom}`
+                  : "Forwarded"}
+              </p>
             ) : null}
             {message.sticker ? (
               <StickerBubble sticker={message.sticker} />

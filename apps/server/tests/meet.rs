@@ -85,6 +85,43 @@ struct Party {
     handle: String,
 }
 
+/// Whether a handle is anywhere on the map, following the cursor to the end.
+///
+/// The map is paged — five hundred pins at a time, keyset on the handle — and
+/// this suite runs against a shared development database that every previous
+/// run has added to and none has cleaned up. Reading only the first page
+/// therefore asks "is this handle among the first five hundred alphabetically",
+/// which is a different question and one that quietly stops matching the first
+/// as the database fills. It passed on a fresh database and failed on a used
+/// one, which is the worst way for a test to be wrong.
+///
+/// Walking the pages asks what the test means to ask. Termination is the
+/// cursor's: each page starts strictly after the last handle of the one
+/// before, so the walk always advances.
+async fn on_map(app: &axum::Router, token: &str, handle: &str) -> bool {
+    let mut after: Option<String> = None;
+    loop {
+        let path = match &after {
+            Some(cursor) => format!("/v1/meet/pins?after={cursor}"),
+            None => "/v1/meet/pins".to_string(),
+        };
+        let (status, pins) = call(app, "GET", &path, Some(token), None).await;
+        assert!(status.is_success(), "the map returned {status}");
+
+        let page = pins.as_array().expect("the map is an array");
+        if page.is_empty() {
+            return false;
+        }
+        if page.iter().any(|pin| pin["handle"] == handle) {
+            return true;
+        }
+        match page.last().and_then(|pin| pin["handle"].as_str()) {
+            Some(last) => after = Some(last.to_string()),
+            None => return false,
+        }
+    }
+}
+
 async fn register(app: &axum::Router) -> Party {
     let handle = format!("m{}", Uuid::new_v4().simple())[..16].to_string();
     let (status, session) = call(
@@ -189,15 +226,10 @@ async fn a_blocked_person_is_off_the_map_in_both_directions() {
     place(&app, &alice, 47.0, 8.0).await;
     place(&app, &mal, 47.1, 8.1).await;
 
-    let on_map = |pins: &Value, handle: &str| -> bool {
-        pins.as_array()
-            .unwrap()
-            .iter()
-            .any(|p| p["handle"] == handle)
-    };
-
-    let (_, pins) = call(&app, "GET", "/v1/meet/pins", Some(&alice.token), None).await;
-    assert!(on_map(&pins, &mal.handle), "they start out visible");
+    assert!(
+        on_map(&app, &alice.token, &mal.handle).await,
+        "they start out visible"
+    );
 
     let (status, _) = call(
         &app,
@@ -209,13 +241,14 @@ async fn a_blocked_person_is_off_the_map_in_both_directions() {
     .await;
     assert!(status.is_success(), "block returned {status}");
 
-    let (_, pins) = call(&app, "GET", "/v1/meet/pins", Some(&alice.token), None).await;
-    assert!(!on_map(&pins, &mal.handle), "the blocked pin must be gone");
+    assert!(
+        !on_map(&app, &alice.token, &mal.handle).await,
+        "the blocked pin must be gone"
+    );
 
     // And the other way, which is the half a client-side filter would miss.
-    let (_, pins) = call(&app, "GET", "/v1/meet/pins", Some(&mal.token), None).await;
     assert!(
-        !on_map(&pins, &alice.handle),
+        !on_map(&app, &mal.token, &alice.handle).await,
         "blocking removes both pins, not one"
     );
 }

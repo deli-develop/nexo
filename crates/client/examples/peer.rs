@@ -153,8 +153,16 @@ fn main() {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
                 contents.extend_from_slice(&seed.to_le_bytes());
             }
-            conversations::send_attachment(&ctx, id, "big.jpg", "image/jpeg", &contents, None, None)
-                .expect("send an attachment");
+            conversations::send_attachment(
+                &ctx,
+                id,
+                "big.jpg",
+                "image/jpeg",
+                &contents,
+                None,
+                None,
+            )
+            .expect("send an attachment");
             println!("sent {} bytes", contents.len());
         }
         "send" => {

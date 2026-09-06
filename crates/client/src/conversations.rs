@@ -447,6 +447,87 @@ pub fn open_with<T: Transport>(
     start_with(ctx, &handle)
 }
 
+/// What the conversation with yourself is called.
+pub const SELF_TITLE: &str = "Saved messages";
+
+/// The conversation you have with yourself.
+///
+/// A place for notes, links and files, and the thing people reach for most in
+/// every messenger that has one. It is an ordinary MLS group that happens to
+/// have one member, so everything a conversation can do it can do — search,
+/// attachments, pinning, stickers — without a second code path that would
+/// drift from the first.
+///
+/// # What it is not
+///
+/// It is not a cloud drive. Every other messenger's version of this syncs
+/// across devices, and this one cannot: the server stores ciphertext it cannot
+/// read, history is local, and there is one device per account. What is kept
+/// here is kept on this machine, and the UI has to say so rather than let
+/// somebody assume otherwise.
+///
+/// # Why the server keeps only one
+///
+/// The id is minted here, so two launches racing could each mint one. The
+/// server hands back the existing conversation instead of making a second, the
+/// same way it does for a DM, and this adopts whatever it is given.
+pub fn start_self_conversation<T: Transport>(
+    ctx: &Context<'_, T>,
+) -> Result<ConversationId, ConversationError> {
+    // Already have one? The store is asked first, so the ordinary case costs
+    // nothing at all.
+    if let Some(existing) = ctx
+        .store
+        .conversations()?
+        .into_iter()
+        .find(|c| c.kind.as_deref() == Some("self"))
+        && let Ok(id) = existing.id.parse()
+    {
+        return Ok(id);
+    }
+
+    let conversation_id = ConversationId::new_v4();
+    let conversation = Conversation::create(
+        ctx.provider,
+        ctx.signer,
+        ctx.credential.clone(),
+        conversation_id,
+        now_ms(),
+    )?;
+
+    let id = conversation_id.to_string();
+    // No members: the server reads that as "with yourself", and hands back the
+    // one that already exists rather than making a second.
+    let settled = ctx.transport.create_conversation(&id, &[])?;
+
+    if settled != id {
+        // The server had one already. The group just built is dropped rather
+        // than kept beside it -- `start_with` does the same, and for the same
+        // reason: two MLS groups for one conversation is a state nothing else
+        // in this crate knows how to read.
+        ctx.store.remember_conversation(&settled)?;
+        ctx.store.set_conversation_cursor(&settled, 0)?;
+        ctx.store.set_conversation_title(&settled, SELF_TITLE)?;
+        ctx.store.set_conversation_meta(&settled, "self", &[])?;
+        mls_state::save(ctx.provider, ctx.store)?;
+        return settled.parse::<ConversationId>().map_err(|error| {
+            ConversationError::Transport(TransportError::Rejected(format!(
+                "the server named a conversation this client cannot read: {error}"
+            )))
+        });
+    }
+
+    mls_state::save(ctx.provider, ctx.store)?;
+    ctx.store.remember_conversation(&id)?;
+    ctx.store.set_conversation_cursor(&id, 0)?;
+    // Named here rather than sent, unlike a group's title: there is nobody to
+    // tell, and `title_from` has no members to build a name out of.
+    ctx.store.set_conversation_title(&id, SELF_TITLE)?;
+    ctx.store.set_conversation_meta(&id, "self", &[])?;
+    let _ = conversation;
+    Ok(conversation_id)
+}
+
 /// Starts a group conversation with several people at once.
 ///
 /// The same order as [`start_with`], repeated per member: each KeyPackage is
@@ -680,6 +761,62 @@ pub fn send_message<T: Transport>(
     body: &str,
 ) -> Result<Sent, ConversationError> {
     send_written(ctx, conversation_id, body, None)
+}
+
+/// Passes a message on to another conversation.
+///
+/// A forward is a *re-encryption*, not a move: the plaintext this device
+/// already holds is encrypted afresh into the target group and sent as a new
+/// message of its own. There is no other way for it to work — the target group
+/// has different keys, and the server never had the plaintext to copy.
+///
+/// `forwarded_from` is what the caller believes the original author to be, and
+/// travels with it so the reader is told this is second-hand. `None` is the
+/// honest answer when the forwarding device cannot name the author, which is
+/// the ordinary case for a group message.
+///
+/// **Text only, deliberately.** Forwarding an attachment would mean either
+/// re-uploading its ciphertext — expensive, and a second object nobody ever
+/// deletes — or pointing a second conversation at the first one's object,
+/// which raises a question this crate has no answer for yet: whose object is
+/// it, and what happens to the forward when the original is deleted. Until
+/// that is decided, the menu does not offer forwarding for anything but text,
+/// and this refuses it rather than quietly forwarding a caption.
+pub fn forward_message<T: Transport>(
+    ctx: &Context<'_, T>,
+    from: ConversationId,
+    envelope_id: i64,
+    to: ConversationId,
+    forwarded_from: Option<String>,
+) -> Result<Sent, ConversationError> {
+    let encoded = ctx
+        .store
+        .message_payload(envelope_id)?
+        .ok_or(ConversationError::NotAMember)?;
+
+    // The body comes from the payload rather than the stored preview, because
+    // the preview is what a list shows and may be prose invented for something
+    // that has no words of its own.
+    let body = match Payload::decode(encoded.as_bytes()) {
+        Payload::Text { body, .. } | Payload::Reply { body, .. } => body,
+        // A reply forwards as its own words: the message it answered is not in
+        // the target conversation, so carrying the reference would draw a
+        // quote of something nobody there can see.
+        _ => return Err(ConversationError::NotAnAttachment),
+    };
+    if body.is_empty() {
+        return Err(ConversationError::NotAnAttachment);
+    }
+
+    // `from` is not read beyond this point: the message has been found by its
+    // envelope id, which is unique across conversations. It is in the
+    // signature because a caller that did not know which conversation it was
+    // forwarding out of would be a caller that had lost track of what it was
+    // doing.
+    let _ = from;
+
+    let payload = Payload::forwarded(&body, forwarded_from);
+    send_message_payload(ctx, to, payload, &body)
 }
 
 /// Sends a message answering another one.

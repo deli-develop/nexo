@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, c.epoch,\n                    (SELECT max(e.id) FROM envelopes e WHERE e.conversation_id = c.id)\n                        AS latest_envelope_id\n             FROM conversations c\n             WHERE c.kind = 'self'\n               AND EXISTS (SELECT 1 FROM conversation_members m\n                           WHERE m.conversation_id = c.id AND m.user_id = $1)\n             ORDER BY c.created_at ASC\n             LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "epoch",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "latest_envelope_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "ec4367bf647cb34c117b7931288fbba75dfc39c8c023b595990fa556a26869df"
+}

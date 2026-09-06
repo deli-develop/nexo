@@ -142,6 +142,33 @@ pub enum Payload {
         /// that would give every old message the same nil name.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<Uuid>,
+        /// Who wrote it first, when this message is a forward of another.
+        ///
+        /// The sender's word, not the server's: nobody but the forwarder knows
+        /// where it came from, and nobody else can check it. So the UI says
+        /// "forwarded" as a claim by the person who forwarded it, which is the
+        /// only thing it truthfully can.
+        ///
+        /// `None` covers both "not a forward" and "forwarded, but this device
+        /// could not name the original author" — a group message whose sender
+        /// it cannot resolve. Absence has to be representable for the second
+        /// case, which is why it is not a defaulted empty string.
+        ///
+        /// Defaulted and skipped when absent, like `id` above, so every
+        /// message sent before this existed stays byte-identical.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        forwarded_from: Option<String>,
+        /// Whether this is a forward at all.
+        ///
+        /// Separate from the name above because `Option<String>` cannot tell
+        /// "not a forward" from "a forward whose author could not be named",
+        /// and the reader is owed the difference: the first is an ordinary
+        /// message, the second says plainly that it came from somewhere else
+        /// without claiming to know where. Skipped when false, so a message
+        /// that is not a forward is byte-identical to one sent before this
+        /// field existed.
+        #[serde(default, skip_serializing_if = "is_not_forwarded")]
+        forwarded: bool,
     },
     /// A file. The bytes live in object storage; the key to them is here.
     ///
@@ -468,6 +495,11 @@ fn yes() -> bool {
     true
 }
 
+/// So `forwarded: false` is left out of the wire entirely.
+fn is_not_forwarded(forwarded: &bool) -> bool {
+    !*forwarded
+}
+
 impl Payload {
     /// A plain text message, with a fresh name.
     ///
@@ -480,6 +512,22 @@ impl Payload {
         Self::Text {
             body: body.into(),
             id: Some(Uuid::new_v4()),
+            forwarded_from: None,
+            forwarded: false,
+        }
+    }
+
+    /// A message passed on from somewhere else.
+    ///
+    /// `from` is what the forwarding device believes the original author to be
+    /// — `None` when it cannot tell, which is the honest answer for a group
+    /// message whose sender it could not resolve.
+    pub fn forwarded(body: impl Into<String>, from: Option<String>) -> Self {
+        Self::Text {
+            body: body.into(),
+            id: Some(Uuid::new_v4()),
+            forwarded_from: from,
+            forwarded: true,
         }
     }
 
@@ -582,6 +630,8 @@ impl Payload {
                 None => Payload::Text {
                     body: String::from_utf8_lossy(bytes).into_owned(),
                     id: None,
+                    forwarded_from: None,
+                    forwarded: false,
                 },
             },
         }
@@ -889,6 +939,51 @@ pub struct MeetRequest {
 mod tests {
     use super::*;
 
+    /// A forward carries both facts, and an ordinary message carries neither.
+    ///
+    /// The second half is the compatibility claim: adding these fields must
+    /// not change a byte of what a non-forward puts on the wire, or every
+    /// message this build sends becomes something older builds have to
+    /// tolerate for no reason.
+    #[test]
+    fn forwarding_is_carried_without_changing_ordinary_messages() {
+        let plain = Payload::text("hello");
+        let json = String::from_utf8(plain.encode()).expect("payloads are utf-8");
+        assert!(
+            !json.contains("forwarded"),
+            "a message that is not a forward must not mention forwarding: {json}"
+        );
+
+        let named = Payload::forwarded("hello", Some("ada".into()));
+        assert_eq!(Payload::decode(&named.encode()), named);
+        match Payload::decode(&named.encode()) {
+            Payload::Text {
+                forwarded,
+                forwarded_from,
+                ..
+            } => {
+                assert!(forwarded);
+                assert_eq!(forwarded_from.as_deref(), Some("ada"));
+            }
+            other => panic!("expected text, got {other:?}"),
+        }
+
+        // The case `Option<String>` alone could not express: passed on, but
+        // this device could not say by whom.
+        let anonymous = Payload::forwarded("hello", None);
+        match Payload::decode(&anonymous.encode()) {
+            Payload::Text {
+                forwarded,
+                forwarded_from,
+                ..
+            } => {
+                assert!(forwarded, "still a forward with no name on it");
+                assert_eq!(forwarded_from, None);
+            }
+            other => panic!("expected text, got {other:?}"),
+        }
+    }
+
     #[test]
     fn a_text_payload_round_trips() {
         let payload = Payload::text("hello");
@@ -1089,6 +1184,8 @@ mod tests {
             Payload::Text {
                 body: "just a message".into(),
                 id: None,
+                forwarded_from: None,
+                forwarded: false,
             }
         );
     }
@@ -1104,6 +1201,8 @@ mod tests {
             Payload::Text {
                 body: "from before names".into(),
                 id: None,
+                forwarded_from: None,
+                forwarded: false,
             }
         );
         assert_eq!(Payload::decode(before).id(), None);
@@ -1174,6 +1273,8 @@ mod tests {
             Payload::Text {
                 body: r#"{"hello": "world"}"#.into(),
                 id: None,
+                forwarded_from: None,
+                forwarded: false,
             }
         );
     }

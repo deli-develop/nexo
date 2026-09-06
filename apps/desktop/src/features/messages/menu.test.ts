@@ -9,6 +9,7 @@ import {
 const actions: MessageMenuActions = {
   reply: vi.fn(),
   copy: vi.fn(),
+  forward: vi.fn(),
   edit: vi.fn(),
   react: vi.fn(),
   togglePin: vi.fn(),
@@ -43,6 +44,7 @@ describe("messageMenuItems", () => {
     expect(labels({})).toEqual([
       "Reply",
       "Copy text",
+      "Forward…",
       "Edit",
       "React",
       "Pin on this device",
@@ -106,7 +108,21 @@ describe("messageMenuItems", () => {
   it("offers nothing to revise on a message with no name", () => {
     // Sent before message ids existed. Nothing can refer to it.
     const items = labels({ clientId: undefined });
-    expect(items).toEqual(["Copy text", "Pin on this device", "Delete for me"]);
+    // Forwarding survives: it needs the words, not the name. Only the things
+    // that refer to the message by name are gone.
+    expect(items).toEqual([
+      "Copy text",
+      "Forward…",
+      "Pin on this device",
+      "Delete for me",
+    ]);
+  });
+
+  it("does not offer to forward what there is nothing left of", () => {
+    // A retracted message has no body to pass on, and a queued one has not
+    // reached the first conversation yet.
+    expect(labels({ retracted: true })).not.toContain("Forward…");
+    expect(labels({ queued: true })).not.toContain("Forward…");
   });
 
   it("marks both deletions destructive", () => {

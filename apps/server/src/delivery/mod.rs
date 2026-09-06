@@ -350,16 +350,20 @@ async fn create_conversation(
     caller: Caller,
     Json(request): Json<CreateConversationRequest>,
 ) -> Result<(StatusCode, Json<ConversationView>), DeliveryError> {
-    if request.members.is_empty() {
-        return Err(DeliveryError::Invalid(
-            "A conversation needs at least one other member.".into(),
-        ));
-    }
-
     // 'dm' is exactly two people. Everything else is a group -- and a 1:1 is
     // still an ordinary two-member MLS group (brief 4.2); the distinction here
     // is for the UI, not for the crypto.
-    let kind = if request.members.len() == 1 {
+    //
+    // No other members is a conversation with yourself: a place to keep notes,
+    // links and files. It used to be refused here, on the reasoning that a
+    // conversation nobody else is in can never carry a message -- which is
+    // true of a group and false of this one, where the sender and the reader
+    // are the same person. It is an ordinary one-member MLS group and every
+    // path below treats it as one; only the fan-out has nobody to reach, which
+    // costs nothing.
+    let kind = if request.members.is_empty() {
+        "self"
+    } else if request.members.len() == 1 {
         "dm"
     } else {
         "group"
@@ -407,6 +411,38 @@ async fn create_conversation(
     //
     // Oldest wins, so both sides of a race converge on the same answer whoever
     // asks first.
+    // One of these per person, for the reason the DM case gives below: two
+    // launches can both look, both see none, and both create one. There is no
+    // pair to key on, so the caller is the key.
+    if kind == "self"
+        && let Some(existing) = sqlx::query!(
+            "SELECT c.id, c.epoch,
+                    (SELECT max(e.id) FROM envelopes e WHERE e.conversation_id = c.id)
+                        AS latest_envelope_id
+             FROM conversations c
+             WHERE c.kind = 'self'
+               AND EXISTS (SELECT 1 FROM conversation_members m
+                           WHERE m.conversation_id = c.id AND m.user_id = $1)
+             ORDER BY c.created_at ASC
+             LIMIT 1",
+            caller.user_id
+        )
+        .fetch_optional(&state.db)
+        .await?
+    {
+        return Ok((
+            StatusCode::OK,
+            Json(ConversationView {
+                conversation_id: existing.id,
+                kind: kind.to_string(),
+                epoch: existing.epoch,
+                latest_envelope_id: existing.latest_envelope_id,
+                members: Vec::new(),
+                member_devices: Vec::new(),
+            }),
+        ));
+    }
+
     if let (true, Some(&other_id)) = (kind == "dm", member_ids.first())
         && let Some(existing) = sqlx::query!(
             "SELECT c.id, c.epoch,

@@ -114,6 +114,13 @@ pub struct MessageView {
     /// what this device holds and the page cannot know that.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply: Option<ReplyView>,
+    /// Who a forwarded message says it came from, when it says anything.
+    ///
+    /// `None` while `forwarded` is true is the honest "passed on, author
+    /// unknown" — the bubble then says only that it was forwarded.
+    pub forwarded_from: Option<String>,
+    /// Whether this arrived as a forward at all.
+    pub forwarded: bool,
     /// Set when the message is a picture or clip meant to be opened once.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view_once: Option<ViewOnceView>,
@@ -310,6 +317,24 @@ fn sticker_in(payload: Option<&str>) -> Option<StickerView> {
 ///
 /// Only a queued reply needs this: once the message reaches the `messages`
 /// table it has a `reply_to` column, and reading a column beats decoding JSON.
+/// Who a forwarded message says it came from, when it says anything.
+///
+/// The sender's claim, like everything else inside an envelope: no one else
+/// was there, and nothing can check it. The UI presents it as a claim.
+fn forwarding(payload: Option<&str>) -> (bool, Option<String>) {
+    let Some(payload) = payload else {
+        return (false, None);
+    };
+    match Payload::decode(payload.as_bytes()) {
+        Payload::Text {
+            forwarded,
+            forwarded_from,
+            ..
+        } => (forwarded, forwarded_from.filter(|who| !who.is_empty())),
+        _ => (false, None),
+    }
+}
+
 fn reply_target(payload: Option<&str>) -> Option<String> {
     match Payload::decode(payload?.as_bytes()) {
         Payload::Reply { target, .. } => Some(target.to_string()),
@@ -898,10 +923,17 @@ pub async fn acknowledge_key_change(
 /// Runs against the FTS5 index inside the encrypted store, so the term never
 /// leaves the machine. A server-side search would need the plaintext, and the
 /// server has none to search.
+///
+/// `conversation_id` scopes it to one conversation — what the in-chat find bar
+/// asks for, as against the list's search across everything. The filter goes
+/// into the query rather than onto its result because `LIMIT` runs last:
+/// filtering afterwards would search the newest messages anywhere and then
+/// keep whichever happened to be in this chat.
 #[tauri::command]
 pub async fn search_messages(
     state: State<'_, ClientState>,
     term: String,
+    conversation_id: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<SearchHitView>, ConversationErrorView> {
     with_client(&state, move |client| {
@@ -910,7 +942,7 @@ pub async fn search_messages(
         let limit = limit.unwrap_or(50).clamp(1, 200);
         let hits = client
             .store
-            .search_messages(&term, limit)
+            .search_messages(&term, conversation_id.as_deref(), limit)
             .map_err(|e| ConversationErrorView::from(conversations::ConversationError::Store(e)))?;
 
         Ok(hits
@@ -940,6 +972,47 @@ pub struct SearchHitView {
 }
 
 /// Sends a message.
+/// Opens the conversation you have with yourself, making it if there is none.
+///
+/// Idempotent on both sides: the store is checked first, and the server hands
+/// back the existing one rather than making a second.
+#[tauri::command]
+pub async fn open_self_conversation(
+    state: State<'_, ClientState>,
+) -> Result<String, ConversationErrorView> {
+    with_client(&state, move |client| {
+        let id = conversations::start_self_conversation(&client.context())?;
+        Ok(id.to_string())
+    })
+    .await
+}
+
+/// Passes a message on to another conversation.
+///
+/// `forwarded_from` is what this device believes the original author to be,
+/// and it is the page's answer rather than the core's: the shell knows what it
+/// drew on the bubble, and for a group message that is often nothing. `None`
+/// means "forwarded, author unknown", which the reader is shown as such.
+///
+/// Text only — see `conversations::forward_message` for why an attachment is
+/// not simply the same thing with a bigger payload.
+#[tauri::command]
+pub async fn forward_message(
+    state: State<'_, ClientState>,
+    conversation_id: String,
+    envelope_id: i64,
+    to_conversation_id: String,
+    forwarded_from: Option<String>,
+) -> Result<(), ConversationErrorView> {
+    with_client(&state, move |client| {
+        let from = parse_id(&conversation_id)?;
+        let to = parse_id(&to_conversation_id)?;
+        conversations::forward_message(&client.context(), from, envelope_id, to, forwarded_from)?;
+        Ok(())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn send_message(
     state: State<'_, ClientState>,
@@ -975,6 +1048,8 @@ pub async fn send_message(
             edited_at_ms: None,
             reactions: Vec::new(),
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             view_once: None,
             sticker: None,
         })
@@ -1028,6 +1103,8 @@ pub async fn send_reply(
             // refreshes after a send, and a half-resolved quote drawn for one
             // frame is worse than one that appears complete.
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             view_once: None,
             sticker: None,
         })
@@ -1095,6 +1172,8 @@ pub async fn send_view_once(
             edited_at_ms: None,
             reactions: Vec::new(),
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             sticker: None,
             view_once: Some(ViewOnceView {
                 // Ours never was. We kept the file we picked; a key that let us
@@ -1212,6 +1291,8 @@ pub async fn send_sticker(
             edited_at_ms: None,
             reactions: Vec::new(),
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             view_once: None,
             sticker: Some(StickerView {
                 pack,
@@ -1582,6 +1663,8 @@ pub async fn conversation_messages(
                 // message lands in `messages` and gets its own column.
                 reply: reply_target(item.payload.as_deref())
                     .map(|target| resolve_reply(&target, &by_name)),
+                forwarded_from: forwarding(item.payload.as_deref()).1,
+                forwarded: forwarding(item.payload.as_deref()).0,
                 // A view-once never queues: it uploads first, so by the time
                 // there is a message there is a server that has it.
                 view_once: None,
@@ -1614,7 +1697,10 @@ pub async fn conversation_messages(
                 let outgoing = m.sender_device_id.is_none();
                 let client_id_for_view_once = m.client_id.clone();
                 let payload_for_sticker = m.payload.clone();
+                let (forwarded, forwarded_from) = forwarding(m.payload.as_deref());
                 MessageView {
+                    forwarded,
+                    forwarded_from,
                     envelope_id: m.envelope_id,
                     outgoing,
                     sender_device_id: m.sender_device_id,
@@ -1793,6 +1879,8 @@ pub async fn send_attachment(
             edited_at_ms: None,
             reactions: Vec::new(),
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             view_once: None,
             sticker: None,
         })
@@ -1911,6 +1999,8 @@ pub async fn send_voice_message(
             edited_at_ms: None,
             reactions: Vec::new(),
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             view_once: None,
             sticker: None,
         })
@@ -2089,6 +2179,8 @@ mod tests {
             edited_at_ms: None,
             reactions: Vec::new(),
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             view_once: None,
             sticker: None,
         };
@@ -2286,6 +2378,8 @@ mod tests {
             edited_at_ms: None,
             reactions: Vec::new(),
             reply: None,
+            forwarded_from: None,
+            forwarded: false,
             view_once: None,
             sticker: None,
         };

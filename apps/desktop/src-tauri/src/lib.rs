@@ -101,6 +101,8 @@ pub fn run() {
             conversations::rename_conversation,
             conversations::mark_verified,
             conversations::search_messages,
+            conversations::forward_message,
+            conversations::open_self_conversation,
             conversations::acknowledge_key_change,
             conversations::set_conversation_avatar,
             conversations::conversation_avatar,

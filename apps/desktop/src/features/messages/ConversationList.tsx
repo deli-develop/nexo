@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { isMuted, useApp } from "../../app/store";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
@@ -9,6 +9,7 @@ import {
   deleteConversation,
   deleteFolder,
   listFolders,
+  openSelfConversation,
   searchMessages,
   setFolderMember,
   type Folder,
@@ -193,19 +194,6 @@ export function ConversationList({
   const [matching, setMatching] = useState<ReadonlySet<string> | null>(null);
   const term = query.trim();
 
-  // Focused when the header's magnifier is pressed. That button used to open
-  // a notice saying full-text search "arrives with the local encrypted store
-  // (M2)" -- which shipped, and which this box has been using ever since:
-  // `searchMessages` runs the FTS index over message bodies. The control was
-  // apologising for something the app already did.
-  const searchBox = useRef<HTMLInputElement>(null);
-  const searchRequest = useApp((s) => s.searchRequest);
-  useEffect(() => {
-    if (searchRequest === 0) return;
-    searchBox.current?.focus();
-    searchBox.current?.select();
-  }, [searchRequest]);
-
   useEffect(() => {
     if (!term) {
       setMatching(null);
@@ -214,7 +202,7 @@ export function ConversationList({
     let cancelled = false;
     // Debounced: a query per keystroke would run an FTS scan per keystroke.
     const timer = window.setTimeout(() => {
-      void searchMessages(term, 200)
+      void searchMessages(term, { limit: 200 })
         .then((hits) => {
           if (!cancelled) setMatching(new Set(hits.map((h) => h.conversation_id)));
         })
@@ -404,7 +392,6 @@ export function ConversationList({
       <div className="flex items-end gap-2 px-3 py-3">
         <div className="min-w-0 flex-1">
           <Field
-            ref={searchBox}
             label="Search"
             hideLabel
             icon="search"
@@ -421,6 +408,34 @@ export function ConversationList({
           onClick={onStart}
         />
       </div>
+
+      {/* Always here, whether or not it has been used yet, because a place to
+          keep things is only useful if you can find it before you need it.
+          Hidden while searching: it matches nothing and would sit above the
+          results pretending to. */}
+      {term === "" ? (
+        <button
+          type="button"
+          onClick={() => {
+            void openSelfConversation()
+              .then((id) => open(id))
+              .catch((error) => notify("Nexo", asConversationError(error).message));
+          }}
+          className="hover:bg-fill-hover flex w-full items-center gap-3 border-b border-[var(--hairline)] px-3 py-2 text-left"
+        >
+          <span className="bg-fill text-text-mid ring-line flex size-9 shrink-0 items-center justify-center rounded-full ring-1">
+            <Icon name="pin" size={15} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="text-text-hi block truncate text-body font-medium">
+              Saved messages
+            </span>
+            <span className="text-text-lo block truncate text-[11px]">
+              Notes and files, on this machine
+            </span>
+          </span>
+        </button>
+      ) : null}
 
       {/*
         The folder rail. Absent entirely until there is a folder, because a row

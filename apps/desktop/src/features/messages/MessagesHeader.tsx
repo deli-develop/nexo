@@ -38,7 +38,8 @@ export function MessagesHeader({
   const contextOpen = useApp((s) => s.contextPanelOpen);
   const toggleContext = useApp((s) => s.toggleContextPanel);
   const setDrawer = useApp((s) => s.setListDrawer);
-  const requestMessageSearch = useApp((s) => s.requestMessageSearch);
+  const searchOpen = useApp((s) => s.conversationSearchOpen);
+  const setConversationSearch = useApp((s) => s.setConversationSearch);
   const mute = useApp((s) => s.muteConversation);
   const overrides = useApp((s) => s.conversationOverrides);
   const layout = useLayout();
@@ -144,14 +145,10 @@ export function MessagesHeader({
             <div className="no-drag flex items-center gap-0.5">
               <IconButton
                 name="search"
-                label="Search messages"
+                label="Search in conversation"
                 size={17}
-                // Points at the search that exists rather than apologising for
-                // one that does. This used to open a notice promising full-text
-                // search "with the local encrypted store (M2)" -- long shipped,
-                // and the conversation list has been running it against the FTS
-                // index the whole time.
-                onClick={requestMessageSearch}
+                active={searchOpen}
+                onClick={() => setConversationSearch(!searchOpen)}
               />
               <IconButton
                 name="pencil"

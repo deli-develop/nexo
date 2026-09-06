@@ -187,6 +187,8 @@ const glyphs = {
     </>
   ),
   chevronLeft: <path d="m14.5 5-7 7 7 7" />,
+  chevronUp: <path d="m5 14.5 7-7 7 7" />,
+  chevronDown: <path d="m5 9.5 7 7 7-7" />,
   trash: <path d="M4.5 6.5h15M9.5 6.5v-2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 6.5l.9 13a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4l.9-13" />,
   pencil: <path d="M4 20h4L20.2 7.8a2.7 2.7 0 0 0-4-4L4 16z" />,
   /* The three the app's own text-field menu needs. Cut used to borrow the

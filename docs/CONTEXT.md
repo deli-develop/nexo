@@ -147,6 +147,9 @@ crosses into the WebView is already decrypted, and nothing else does.
 
 ```
 app/          Zustand store + hooks. store.ts is the state; use*.ts the seams to Rust.
+              useShortcuts.ts is the whole keyboard: every chord in one listener,
+              because a chord is global by nature and spreading them lets two
+              surfaces claim the same one with no way to see the collision.
 components/ui     Buttons, avatars, panes, controls, the hand-drawn icon set.
 components/chrome TopBar and IconRail.
 features/{auth,home,meet,messages,profile,settings}  The five destinations plus auth.
@@ -159,6 +162,8 @@ features/{auth,home,meet,messages,profile,settings}  The five destinations plus 
               profile/MyStories.tsx is the other shape the same data takes: a
               gallery of your own stories, one tile per story rather than one
               circle per person. Posting lives on the profile, never in the strip.
+              messages/jump.ts is how anything lands on one message -- quotes and
+              search results both, so they land the same way.
 lib/          Typed wrappers around invoke(): auth, conversations, feed, profiles, blocks, meet.
               media.ts is the exception -- no invoke, just the rule that picks
               which player a bubble draws for an attachment.
@@ -252,6 +257,7 @@ Read cost matters. Sizes are approximate and current.
 | [`RELEASING.md`](RELEASING.md) | 9 KB | Tag, build, sign, publish, updater manifest. |
 | [`PIN-ROTATION.md`](PIN-ROTATION.md) | 2 KB | Exactly what the PIN does and does not buy. |
 | [`SIGNAL-ANALYSIS.md`](SIGNAL-ANALYSIS.md) | 9 KB | Why MLS and not the Signal protocol. |
+| [`TELEGRAM-FEATURES.md`](TELEGRAM-FEATURES.md) | 12 KB | Which Telegram features fit this app, which cannot, and why. Read before proposing one. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | 7 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
@@ -371,6 +377,25 @@ move.
   ```
 
   Forgetting this fails on someone else's machine, not yours.
+- **A conversation can have one member, and `kind` has three values.**
+  `'dm'`, `'group'` and `'self'` — the last is the conversation somebody has
+  with themselves, an ordinary one-member MLS group whose fan-out reaches
+  nobody. `create_conversation` reads an empty member list as that, and hands
+  back the existing one rather than making a second, the same way it does for
+  a DM. Anything matching on `kind` has to answer for the third case; the
+  CHECK constraint in `20260906120000_self_conversations.sql` is what stops a
+  fourth appearing by accident.
+- **The server's tests share one development database and never clean up.**
+  `apps/server/tests/*` connect to `DATABASE_URL` and skip when it is absent;
+  they invent unique handles so they do not collide, but every run leaves its
+  rows behind. So a test must assert on *its own* data, never on a global
+  listing containing it. `a_blocked_person_is_off_the_map_in_both_directions`
+  read the first page of `/v1/meet/pins` and asked whether a handle was in it —
+  which is "is it among the first five hundred alphabetically", not "is it on
+  the map". It passed on a fresh database for months and started failing once
+  the local one held more than `PAGE` pins. It now follows the cursor. CI never
+  saw it because CI is always fresh, which is exactly what makes this class of
+  test wrong in the direction nobody notices.
 - **Two `cargo deny` passes, never one.** The Windows client and the Linux
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.

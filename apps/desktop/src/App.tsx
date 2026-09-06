@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { totalUnread, useApp } from "./app/store";
 import { startSyncAgent } from "./app/syncAgent";
 import { useAutoLock } from "./app/useAutoLock";
+import { useShortcuts } from "./app/useShortcuts";
 import { useLayout } from "./app/useLayout";
 import { useMaximized } from "./app/useWindow";
 import { IconRail } from "./components/chrome/IconRail";
@@ -80,6 +81,10 @@ function AppShell({ account }: { account: Account }) {
   // §8: after N minutes idle, Rust drops the store and the lock screen takes
   // over (the shell's parent draws it instead of this tree).
   useAutoLock();
+
+  // The keyboard. Handed the list in the order it is drawn, so Ctrl+Tab steps
+  // the way the eye does.
+  useShortcuts(useMemo(() => live.conversations.map((c) => c.id), [live.conversations]));
 
   // The close handler runs in Rust and defaults to quit; the stored preference
   // is pushed across at startup and whenever Settings changes it.

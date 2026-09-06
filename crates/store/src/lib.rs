@@ -1920,7 +1920,12 @@ impl EncryptedStore {
     ///
     /// Prefix-matched on the last token, so results appear while typing rather
     /// than only on a completed word.
-    pub fn search_messages(&self, term: &str, limit: i64) -> Result<Vec<SearchHit>, StoreError> {
+    pub fn search_messages(
+        &self,
+        term: &str,
+        conversation_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<SearchHit>, StoreError> {
         let cleaned = term.trim();
         if cleaned.is_empty() {
             return Ok(Vec::new());
@@ -1938,23 +1943,32 @@ impl EncryptedStore {
         let query = tokens.join(" ");
 
         let mut statement = self.connection.prepare(
+            // The conversation filter is inside the query rather than applied
+            // to its result, and that is not a tidiness point: `LIMIT` runs
+            // last, so filtering afterwards would search the newest N messages
+            // *anywhere* and then show whichever happened to be in this
+            // conversation. In a quiet chat beside a busy one that finds
+            // nothing, which reads as "no matches" rather than as a truncated
+            // search.
             "SELECT m.envelope_id, m.conversation_id, m.body, m.sent_at_ms,
                     m.sender_device_id
              FROM messages_fts f
              JOIN messages m ON m.envelope_id = f.rowid
              WHERE messages_fts MATCH ?1
+               AND (?2 IS NULL OR m.conversation_id = ?2)
              ORDER BY m.sent_at_ms DESC
-             LIMIT ?2",
+             LIMIT ?3",
         )?;
-        let rows = statement.query_map(rusqlite::params![query, limit], |row| {
-            Ok(SearchHit {
-                envelope_id: row.get(0)?,
-                conversation_id: row.get(1)?,
-                body: row.get(2)?,
-                sent_at_ms: row.get(3)?,
-                outgoing: row.get::<_, Option<String>>(4)?.is_none(),
-            })
-        })?;
+        let rows =
+            statement.query_map(rusqlite::params![query, conversation_id, limit], |row| {
+                Ok(SearchHit {
+                    envelope_id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    body: row.get(2)?,
+                    sent_at_ms: row.get(3)?,
+                    outgoing: row.get::<_, Option<String>>(4)?.is_none(),
+                })
+            })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -3069,12 +3083,18 @@ mod tests {
         let dir = TempDir::new("delete-fts");
         let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
         a_message(&store, 1, "pemmican");
-        assert_eq!(store.search_messages("pemmican", 10).unwrap().len(), 1);
+        assert_eq!(
+            store.search_messages("pemmican", None, 10).unwrap().len(),
+            1
+        );
 
         store.delete_message("c1", 1).unwrap();
 
         assert!(
-            store.search_messages("pemmican", 10).unwrap().is_empty(),
+            store
+                .search_messages("pemmican", None, 10)
+                .unwrap()
+                .is_empty(),
             "a flag instead of a delete would have left this findable"
         );
     }
@@ -3283,11 +3303,16 @@ mod tests {
         let dir = TempDir::new("retract-fts");
         let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
         a_named_message(&store, 1, "m1", "quinoa");
-        assert_eq!(store.search_messages("quinoa", 10).unwrap().len(), 1);
+        assert_eq!(store.search_messages("quinoa", None, 10).unwrap().len(), 1);
 
         store.retract_message("c1", "m1", 9_000).unwrap();
 
-        assert!(store.search_messages("quinoa", 10).unwrap().is_empty());
+        assert!(
+            store
+                .search_messages("quinoa", None, 10)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -3304,9 +3329,9 @@ mod tests {
         assert_eq!(rows[0].body, "the meeting is at six");
         assert_eq!(rows[0].edited_at_ms, Some(9_000));
 
-        assert_eq!(store.search_messages("six", 10).unwrap().len(), 1);
+        assert_eq!(store.search_messages("six", None, 10).unwrap().len(), 1);
         assert!(
-            store.search_messages("five", 10).unwrap().is_empty(),
+            store.search_messages("five", None, 10).unwrap().is_empty(),
             "the old words go with the old body"
         );
     }
@@ -3325,6 +3350,38 @@ mod tests {
             .unwrap();
 
         assert_eq!(store.messages("c1").unwrap()[0].body, "");
+    }
+
+    /// Searching inside one conversation must not be the global search with
+    /// the wrong rows thrown away afterwards.
+    ///
+    /// `LIMIT` runs last, so a filter applied to the result would search the
+    /// newest N messages anywhere and then keep whichever were in this
+    /// conversation. Beside a busy chat, a quiet one would find nothing and
+    /// call it "no matches".
+    #[test]
+    fn searching_one_conversation_does_not_lose_hits_to_the_limit() {
+        let dir = TempDir::new("search-scope");
+        let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
+
+        // The wanted hit is the oldest message, in the quiet conversation.
+        store
+            .insert_message(1, "quiet", None, "pemmican", 1_000)
+            .unwrap();
+        for id in 2..40 {
+            store
+                .insert_message(id, "busy", None, "pemmican", 1_000 + id)
+                .unwrap();
+        }
+
+        let scoped = store
+            .search_messages("pemmican", Some("quiet"), 10)
+            .unwrap();
+        assert_eq!(scoped.len(), 1, "the quiet conversation has one match");
+        assert_eq!(scoped[0].conversation_id, "quiet");
+
+        let global = store.search_messages("pemmican", None, 10).unwrap();
+        assert_eq!(global.len(), 10, "unscoped search still takes the newest");
     }
 
     #[test]
@@ -3451,7 +3508,7 @@ mod tests {
         a_message(&store, 1, "the eagle has landed");
         a_message(&store, 2, "nothing to report");
 
-        let hits = store.search_messages("eagle", 10).unwrap();
+        let hits = store.search_messages("eagle", None, 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].envelope_id, 1);
         assert_eq!(hits[0].conversation_id, "c1");
@@ -3464,8 +3521,8 @@ mod tests {
         let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
         a_message(&store, 1, "the eagle has landed");
 
-        assert_eq!(store.search_messages("eag", 10).unwrap().len(), 1);
-        assert_eq!(store.search_messages("the eag", 10).unwrap().len(), 1);
+        assert_eq!(store.search_messages("eag", None, 10).unwrap().len(), 1);
+        assert_eq!(store.search_messages("the eag", None, 10).unwrap().len(), 1);
     }
 
     /// The term is text somebody typed, not a query language.
@@ -3481,13 +3538,13 @@ mod tests {
         a_message(&store, 2, r#"she said "hello" once"#);
 
         assert_eq!(
-            store.search_messages("AND", 10).unwrap().len(),
+            store.search_messages("AND", None, 10).unwrap().len(),
             1,
             "AND is a word here, not an operator"
         );
         // The point is that this does not error.
-        assert!(store.search_messages("\"hello\"", 10).is_ok());
-        assert!(store.search_messages("*", 10).is_ok());
+        assert!(store.search_messages("\"hello\"", None, 10).is_ok());
+        assert!(store.search_messages("*", None, 10).is_ok());
     }
 
     #[test]
@@ -3495,7 +3552,7 @@ mod tests {
         let dir = TempDir::new("fts-empty");
         let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
         a_message(&store, 1, "something");
-        assert!(store.search_messages("   ", 10).unwrap().is_empty());
+        assert!(store.search_messages("   ", None, 10).unwrap().is_empty());
     }
 
     /// The index must not drift from the messages it indexes.
@@ -3508,14 +3565,20 @@ mod tests {
         let dir = TempDir::new("fts-delete");
         let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
         a_message(&store, 1, "ephemeral");
-        assert_eq!(store.search_messages("ephemeral", 10).unwrap().len(), 1);
+        assert_eq!(
+            store.search_messages("ephemeral", None, 10).unwrap().len(),
+            1
+        );
 
         store
             .connection()
             .execute("DELETE FROM messages WHERE envelope_id = 1", [])
             .unwrap();
         assert!(
-            store.search_messages("ephemeral", 10).unwrap().is_empty(),
+            store
+                .search_messages("ephemeral", None, 10)
+                .unwrap()
+                .is_empty(),
             "the index must forget what the table forgot"
         );
     }
@@ -3558,7 +3621,7 @@ mod tests {
         let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
         assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
         assert_eq!(
-            store.search_messages("beforehand", 10).unwrap().len(),
+            store.search_messages("beforehand", None, 10).unwrap().len(),
             1,
             "existing history must be searchable after the upgrade"
         );

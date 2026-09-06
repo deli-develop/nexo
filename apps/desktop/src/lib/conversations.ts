@@ -71,6 +71,11 @@ export interface Message {
    * whatever the bytes happen to look like.
    */
   unsupported: string | null;
+  /** Who a forwarded message says it came from. `null` when the forwarder
+   *  could not name the author — `forwarded` still says it is one. */
+  forwarded_from: string | null;
+  /** Whether this arrived as a forward at all. */
+  forwarded: boolean;
   /**
    * Pinned **on this device**.
    *
@@ -536,9 +541,51 @@ export interface SearchHit {
  */
 export function searchMessages(
   term: string,
-  limit?: number,
+  options?: { conversationId?: string; limit?: number },
 ): Promise<SearchHit[]> {
-  return invoke<SearchHit[]>("search_messages", { term, limit: limit ?? null });
+  return invoke<SearchHit[]>("search_messages", {
+    term,
+    conversationId: options?.conversationId ?? null,
+    limit: options?.limit ?? null,
+  });
+}
+
+/**
+ * Opens the conversation you have with yourself, making it if there is none.
+ *
+ * A place for notes, links and files. It is an ordinary one-member group, so
+ * everything a conversation does works in it — but it is **not** a cloud
+ * drive: what is kept here is on this machine, because the server stores
+ * ciphertext it cannot read and history is local.
+ */
+export function openSelfConversation(): Promise<string> {
+  return invoke<string>("open_self_conversation");
+}
+
+/**
+ * Passes a message on to another conversation.
+ *
+ * A forward is a re-encryption: the target group has different keys, so the
+ * message is sent afresh rather than moved. `forwardedFrom` is what this
+ * device believes the original author to be — omit it when it cannot tell,
+ * which is the ordinary case in a group, and the reader is told only that it
+ * was forwarded.
+ *
+ * Text only. `conversations.rs` explains why an attachment is a separate
+ * question rather than a bigger payload.
+ */
+export function forwardMessage(
+  conversationId: string,
+  envelopeId: number,
+  toConversationId: string,
+  forwardedFrom?: string,
+): Promise<void> {
+  return invoke<void>("forward_message", {
+    conversationId,
+    envelopeId,
+    toConversationId,
+    forwardedFrom: forwardedFrom ?? null,
+  });
 }
 
 /** Adds someone to a conversation that already exists. */

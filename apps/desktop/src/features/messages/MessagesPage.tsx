@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Recording } from "./useRecorder";
-import { pickFile } from "../../lib/native";
+import { notify, pickFile } from "../../lib/native";
 import { useApp } from "../../app/store";
 import { useTyping } from "../../app/useTyping";
 import type { LiveConversations } from "../../app/useConversations";
@@ -10,6 +10,7 @@ import type { Conversation, Message } from "../../lib/types";
 import {
   acknowledgeKeyChange,
   asConversationError,
+  forwardMessage,
   startConversation,
   startGroup,
 } from "../../lib/conversations";
@@ -22,6 +23,9 @@ import { RemoteImage } from "../../components/ui/RemoteImage";
 import { Panel } from "../../components/ui/Surface";
 import { Composer } from "./Composer";
 import { ContextPanel } from "./ContextPanel";
+import { ConversationSearch } from "./ConversationSearch";
+import { ForwardPicker } from "./ForwardPicker";
+import { peerHandle } from "./peer";
 import { ConversationList } from "./ConversationList";
 import { MessageList } from "./MessageList";
 
@@ -435,6 +439,11 @@ function ChatPane({
   const typing = useTyping(conversationId);
   useEffect(() => setReplyingTo(undefined), [conversationId]);
 
+  const [forwarding, setForwarding] = useState<Message | undefined>(undefined);
+  const account = useApp((s) => s.account);
+  const searchOpen = useApp((s) => s.conversationSearchOpen);
+  const setConversationSearch = useApp((s) => s.setConversationSearch);
+
   // The picker restricts to what a view-once can be; Rust sniffs the bytes and
   // refuses anything else regardless, since a chosen extension proves nothing.
   async function pickAndSendOnce() {
@@ -503,12 +512,55 @@ function ChatPane({
         </div>
       ) : (
         <>
+          {/* Above the list, where a find bar belongs: it narrows what is
+              below it rather than floating over it. */}
+          {forwarding ? (
+            <ForwardPicker
+              excludeId={conversation.id}
+              onClose={() => setForwarding(undefined)}
+              onPick={async (target) => {
+                try {
+                  // What this device believes the author to be, and nothing
+                  // more: our own handle when it is ours, the other person's
+                  // in a DM, and nothing at all in a group, where the sender
+                  // of a message cannot be resolved to a name here. The reader
+                  // is then told only that it was forwarded, which is true.
+                  const from =
+                    forwarding.authorId === "me"
+                      ? account?.handle
+                      : conversation.kind === "dm"
+                        ? peerHandle(conversation, account?.handle)
+                        : undefined;
+                  await forwardMessage(
+                    conversation.id,
+                    Number(forwarding.id),
+                    target,
+                    from,
+                  );
+                  setForwarding(undefined);
+                  await notify("Forwarded", "The message was sent on.");
+                } catch (error) {
+                  await notify(
+                    "Couldn't forward that",
+                    asConversationError(error).message,
+                  );
+                }
+              }}
+            />
+          ) : null}
+          {searchOpen ? (
+            <ConversationSearch
+              conversationId={conversation.id}
+              onClose={() => setConversationSearch(false)}
+            />
+          ) : null}
           <MessageList
             messages={messages}
             now={now}
             conversation={conversation}
             onChanged={onChanged}
             onReply={setReplyingTo}
+            onForward={setForwarding}
           />
           {typing ? (
             // Above the composer, where the next message will appear -- the

@@ -107,7 +107,7 @@ export function Stories() {
                 {count > 1 ? (
                   <span
                     aria-hidden="true"
-                    className="bg-accent absolute -right-0.5 -bottom-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] leading-none text-white"
+                    className="bg-accent text-on-accent absolute -right-0.5 -bottom-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] leading-none tabular-nums"
                   >
                     ×{count}
                   </span>

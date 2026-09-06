@@ -5,10 +5,24 @@ import { cn } from "../../lib/cn";
 import { MENU_SURFACE } from "./ContextMenu";
 import { Icon, type IconName } from "./Icon";
 
+/**
+ * One focus indicator, not two.
+ *
+ * This carried `focus:border-accent/60` while `tokens.css` draws a 2px accent
+ * outline at 2px offset on every `:focus-visible` element in the app. A focused
+ * field therefore wore two concentric accent lines two pixels apart -- and
+ * because a text input counts as focus-visible even when clicked, that happened
+ * on every click, not only from the keyboard. The outline is the app's focus
+ * language and it stays; what the field adds is its own small acknowledgement,
+ * a lift in the fill, which is a different signal rather than a second copy of
+ * the same one.
+ */
 const control =
   "w-full rounded-control border border-line bg-fill px-3 text-body " +
-  "text-text-hi placeholder:text-text-lo transition-colors duration-[var(--motion-fast)] " +
-  "ease-[var(--ease-state)] hover:border-line-strong focus:border-accent/60";
+  "text-text-hi placeholder:text-text-lo " +
+  "transition-[background-color,border-color] duration-[var(--motion-fast)] " +
+  "ease-[var(--ease-state)] hover:border-line-strong focus:bg-fill-hover " +
+  "disabled:cursor-not-allowed disabled:bg-fill-disabled disabled:text-text-disabled";
 
 export interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
   /**
@@ -107,14 +121,23 @@ export function Toggle({ checked, onChange, label, description, disabled }: Togg
   return (
     <label
       className={cn(
-        "flex items-start justify-between gap-6 py-2.5",
-        disabled && "opacity-45",
+        "group flex items-start justify-between gap-6 py-2.5",
+        disabled ? "cursor-not-allowed" : "cursor-pointer",
       )}
     >
       <span className="flex flex-col gap-0.5">
-        <span className="text-text-hi text-body">{label}</span>
+        <span className={cn("text-body", disabled ? "text-text-disabled" : "text-text-hi")}>
+          {label}
+        </span>
         {description ? (
-          <span className="text-text-mid text-meta leading-relaxed">{description}</span>
+          <span
+            className={cn(
+              "text-meta leading-relaxed",
+              disabled ? "text-text-disabled" : "text-text-mid",
+            )}
+          >
+            {description}
+          </span>
         ) : null}
       </span>
       <button
@@ -125,8 +148,17 @@ export function Toggle({ checked, onChange, label, description, disabled }: Togg
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
-          checked ? "bg-accent" : "bg-surface-3 border border-line",
+          // The whole row is the hit target, so the track has to answer a
+          // pointer that is anywhere on it -- not only one that found the
+          // 44x24 switch. It had no hover state at all, which is what made a
+          // settings list of these read as a printed table rather than as
+          // controls.
+          "relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
+          disabled
+            ? "border-line bg-fill-disabled"
+            : checked
+              ? "bg-accent border-transparent group-hover:bg-accent-soft"
+              : "bg-surface-3 border-line-strong group-hover:bg-fill-active",
         )}
       >
         <span
@@ -135,7 +167,12 @@ export function Toggle({ checked, onChange, label, description, disabled }: Togg
             // same at rest; only one of them animates without asking the
             // browser to lay the page out again on every frame, which is
             // what made this particular switch judder.
-            "absolute top-1/2 left-[3px] size-4.5 -translate-y-1/2 rounded-full bg-white shadow ring-1 ring-line-strong transition-transform duration-[var(--motion-fast)] ease-[var(--ease-state)]",
+            // `bg-white` and a bare Tailwind `shadow` were both raw values --
+            // rule 1 of COMPONENTS.md -- and the shadow's default is tuned for
+            // white pages, so it vanished on these surfaces. Both are tokens
+            // now, which is also what lets the knob stay legible when the
+            // light theme turns the unchecked track almost white.
+            "bg-on-accent absolute top-1/2 left-[3px] size-4.5 -translate-y-1/2 rounded-full shadow-[var(--shadow-knob)] ring-1 ring-line-strong transition-transform duration-[var(--motion-fast)] ease-[var(--ease-state)]",
             checked ? "translate-x-[19px]" : "translate-x-0",
           )}
         />
@@ -295,17 +332,23 @@ export function Select<T extends string>({
         onKeyDown={onKeyDown}
         className={cn(
           "rounded-control text-text-hi flex h-9 items-center gap-2 border border-line bg-fill px-3 text-body",
-          "transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)] hover:border-line-strong",
+          "transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
+          "hover:border-line-strong hover:bg-fill-hover active:bg-fill-active",
           className,
         )}
       >
         <span className="flex-1 text-left">{current?.label ?? value}</span>
+        {/* `chevronDown`, flipped. This drew `chevronLeft` rotated -90deg when
+            closed and +90deg when open, so the glyph travelled a full 180deg
+            through the horizontal on every open -- a swing nobody chose, and a
+            left-pointing arrow standing in for a down-pointing one when the set
+            already has both. */}
         <Icon
-          name="chevronLeft"
+          name="chevronDown"
           size={14}
           className={cn(
             "text-text-lo shrink-0 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-state)]",
-            open ? "rotate-90" : "-rotate-90",
+            open && "rotate-180",
           )}
         />
       </button>
@@ -366,7 +409,11 @@ export function Tabs<T extends string>({ tabs, active, onChange, className }: Ta
             aria-selected={selected}
             onClick={() => onChange(tab.id)}
             className={cn(
-              "group rounded-control relative flex items-center gap-2 px-3 py-2 text-body outline-none transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)] focus-visible:ring-1 focus-visible:ring-accent",
+              // No `outline-none` and no private ring. Every other focusable
+              // thing in the app wears the 2px accent outline from tokens.css;
+              // a tab that swapped it for a 1px inset ring was the only control
+              // whose keyboard focus looked like a different product.
+              "group rounded-control relative flex items-center gap-2 px-3 py-2 text-body transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
               selected ? "text-text-hi font-medium" : "text-text-mid hover:text-text-hi",
             )}
           >

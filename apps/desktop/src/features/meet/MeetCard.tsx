@@ -136,7 +136,7 @@ export function MeetCard({
                 maxLength={500}
                 onChange={(event) => setBody(event.target.value)}
                 placeholder={`Why are you writing to ${pin.display_name}?`}
-                className="text-text-hi placeholder:text-text-lo rounded-control mt-1.5 w-full resize-none bg-surface-3 px-3 py-2 text-[13px] outline-none focus:ring-1 focus:ring-accent"
+                className="text-text-hi placeholder:text-text-lo rounded-control mt-1.5 w-full resize-none bg-surface-3 px-3 py-2 text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-accent"
               />
             </label>
             <div className="mt-3 flex gap-2">

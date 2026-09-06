@@ -45,7 +45,7 @@ export function Pill({
 }) {
   const tones = {
     neutral: "bg-fill-hover text-text-mid",
-    accent: "bg-accent text-white",
+    accent: "bg-accent text-on-accent",
     success: "bg-success/16 text-success",
     warning: "bg-warning/16 text-warning",
     danger: "bg-danger/16 text-danger",

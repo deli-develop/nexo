@@ -409,7 +409,7 @@ function PostComposer({
         onChange={(event) => setTitle(event.target.value)}
         aria-label="Title"
         placeholder="Title (optional)"
-        className="text-text-hi placeholder:text-text-lo rounded-control mb-2 w-full bg-surface-3 px-3 py-2 text-body font-medium outline-none focus:ring-1 focus:ring-accent"
+        className="text-text-hi placeholder:text-text-lo rounded-control mb-2 w-full bg-surface-3 px-3 py-2 text-body font-medium outline-none focus-visible:ring-1 focus-visible:ring-accent"
       />
 
       {linking || linkUrl ? (
@@ -420,7 +420,7 @@ function PostComposer({
           placeholder="https://example.com"
           spellCheck={false}
           autoFocus
-          className="text-text-hi placeholder:text-text-lo rounded-control mb-2 w-full bg-surface-3 px-3 py-2 font-mono text-[12px] outline-none focus:ring-1 focus:ring-accent"
+          className="text-text-hi placeholder:text-text-lo rounded-control mb-2 w-full bg-surface-3 px-3 py-2 font-mono text-[12px] outline-none focus-visible:ring-1 focus-visible:ring-accent"
         />
       ) : null}
 

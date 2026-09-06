@@ -56,8 +56,46 @@
   /* The primary button's glow.
      Derived from --accent-hue rather than written as a fixed rgba, so it
      follows a changed accent. A hardcoded violet stayed violet while the
-     button beside it turned red, which is worse than having no glow. */
+     button beside it turned red, which is worse than having no glow.
+
+     Spent on the pointer, not at rest. This file's own opening rule is that a
+     screen with nothing happening on it has no colour in it at all; a violet
+     glow burning under a button that nobody is touching breaks that rule in
+     the one place the eye goes first. `Button` raises it on hover and drops it
+     again on press, so the glow means "you are on it" rather than "this is a
+     button". */
   --shadow-accent: 0 6px 20px -8px hsl(var(--accent-hue) 93% 60% / 0.9);
+
+  /* What is drawn on top of an accent fill: the primary button's label, the
+     unread badge's count, the outgoing bubble's text and timestamp.
+
+     It exists because three files already asked for `text-on-accent` and
+     nothing answered. Tailwind only emits a colour utility for a `--color-*`
+     it can find, so those three classes compiled to nothing at all and the
+     text fell back to whatever it inherited -- on the active conversation row,
+     on the retry button under a failed message, and on the timestamp inside
+     every outgoing bubble. Everywhere else the same colour was written as a
+     raw `text-white`, which is the other half of the same bug: eighteen
+     literals that no theme could follow.
+
+     Honest note on contrast: white on the dark accent measures 4.29:1 at the
+     default hue, a little under the 4.5:1 §7.4 asks for. Raising it means
+     darkening --color-accent, which changes the outgoing bubble, the rail and
+     the focus ring at the same time -- a palette decision, not a token one. It
+     is recorded here rather than quietly rounded up. */
+  --color-on-accent: #ffffff;
+
+  /* Disabled: one answer, because there were five.
+     `opacity-40`, `-45`, `-50`, `-60` and a bare `opacity-45` were all in the
+     tree at once, so the same state looked different on a button, a menu row
+     and a toggle. Opacity was the wrong instrument anyway -- it fades the
+     label, the border and the background by the same amount, which is how a
+     disabled control ends up looking broken rather than unavailable, and it
+     drags text under every contrast floor on the way. These name a foreground
+     and a fill instead, so the control keeps its shape and only loses its
+     invitation. */
+  --color-text-disabled: #5a5a63;
+  --color-fill-disabled: rgba(255, 255, 255, 0.03);
 
   /* Status. Used where a state is being reported, never for decoration. */
   --color-success: #3dd68c;
@@ -109,6 +147,17 @@
   --hairline: var(--color-line);
   --glass-edge: rgba(255, 255, 255, 0.12);
   --glass-blur: 24px;
+
+  /* A small thing lifted off the surface it slides on: the toggle's knob, and
+     anything else that has to read as sitting *on* a track rather than in it.
+
+     It replaces a bare Tailwind `shadow`, whose default is two stacked
+     `rgb(0 0 0 / 0.1)` layers tuned for white pages. On these surfaces that
+     lands as almost nothing in dark mode and as a grey smudge in light. Here
+     it is in `:root` rather than `@theme` on purpose -- it is spent through
+     `shadow-[var(--shadow-knob)]`, so no utility name references it and
+     Tailwind would prune it out of `@theme` without a word. */
+  --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
 
   /* The luminance of the field behind the window card.
 
@@ -205,6 +254,12 @@
     --color-text-mid: #55555e;
     --color-text-lo: #6e6e78;
 
+    /* Lighter than --text-lo, not darker: on a white surface a disabled label
+       recedes by losing contrast, where on a dark one it recedes by losing
+       brightness. The same hex in both themes would read as emphasis here. */
+    --color-text-disabled: #a2a2ac;
+    --color-fill-disabled: rgba(18, 18, 24, 0.025);
+
     --color-line: rgba(18, 18, 24, 0.1);
     --color-line-strong: rgba(18, 18, 24, 0.16);
     --color-fill: rgba(18, 18, 24, 0.035);
@@ -213,6 +268,7 @@
     --color-scrim: rgba(18, 18, 24, 0.35);
 
     --glass-edge: rgba(255, 255, 255, 0.75);
+    --shadow-knob: 0 1px 2px rgba(18, 18, 24, 0.18), 0 2px 5px -2px rgba(18, 18, 24, 0.14);
     --field-base: #cfcfd6;
     --field-shade: rgba(18, 18, 30, 0.18);
     /* Higher than dark: dark text over a bright wallpaper loses contrast
@@ -251,6 +307,10 @@
   --color-text-mid: #55555e;
   --color-text-lo: #6e6e78;
 
+  /* See the note in the media-query block above. */
+  --color-text-disabled: #a2a2ac;
+  --color-fill-disabled: rgba(18, 18, 24, 0.025);
+
   --color-line: rgba(18, 18, 24, 0.1);
   --color-line-strong: rgba(18, 18, 24, 0.16);
   --color-fill: rgba(18, 18, 24, 0.035);
@@ -263,6 +323,10 @@
   --field-shade: rgba(18, 18, 30, 0.18);
   --field-veil: 74%;
   --grain: 0.025;
+
+  /* Softer and shorter than the dark one: on a white track a shadow this size
+     at dark-mode strength reads as dirt rather than as lift. */
+  --shadow-knob: 0 1px 2px rgba(18, 18, 24, 0.18), 0 2px 5px -2px rgba(18, 18, 24, 0.14);
 
   color-scheme: light;
 }
@@ -304,11 +368,42 @@ body {
 }
 
 /* §7.4: a visible focus ring on every interactive element is non-negotiable,
-   so it is a global default rather than something each component opts into. */
+   so it is a global default rather than something each component opts into.
+
+   No `border-radius` here, and that is the fix rather than the omission. This
+   rule used to set `border-radius: 4px`, which does not round the outline --
+   it rounds *the element*, every focusable element in the app, overriding
+   whatever radius it was given. So focusing a control (10px), a bubble (18px)
+   or a pane (14px) snapped its corners to 4px for as long as the focus was on
+   it, and the ring traced the wrong shape on the way. An outline already
+   follows the element's own `border-radius`; the only thing needed here was to
+   stop fighting it. */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+/* The parts nobody draws.
+
+   A selection, a caret and a scrollbar ship with the browser's own idea of
+   what an application looks like, and that idea belongs to no design system.
+   Left alone they are the clearest tell that a window was assembled rather
+   than built: Chromium's selection is a flat blue that exists in none of these
+   tokens, and it lands on top of an app whose whole premise is one accent over
+   neutral surfaces.
+
+   The selection is the accent at low strength rather than the accent itself --
+   it sits *behind* text that must stay readable, so it may tint the ground and
+   nothing more. Keeping the foreground unset is deliberate: overriding it is
+   what makes selected text in a coloured bubble turn invisible. */
+::selection {
+  background-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* The caret is the one part of a text field the app never draws and the user
+   watches the entire time they type. */
+:root {
+  caret-color: var(--color-accent);
 }
 
 /* WebView2 draws a wide, pale scrollbar by default; it reads as a Windows
@@ -316,6 +411,20 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-strong) transparent;
+}
+
+/* Figures that sit in a column -- unread counts, durations, remaining
+   attempts, file sizes, the clock on a bubble -- are read against each other,
+   so their digits have to occupy the same width. Inter ships proportional
+   numerals by default, which is right for prose and wrong for a count that
+   changes while you look at it: 11 is visibly narrower than 00, so a badge
+   twitches as it counts and a timer's colon walks left and right. Five call
+   sites had already reached for `tabular-nums` one at a time; this is the same
+   decision made once, for the roles that need it. */
+.tabular,
+time,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------------------

@@ -125,7 +125,7 @@ export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search"
             aria-label="Search emoji"
-            className="text-text-hi placeholder:text-text-lo rounded-control bg-surface-3 w-full py-1.5 pr-2 pl-8 text-meta outline-none focus:ring-1 focus:ring-accent"
+            className="text-text-hi placeholder:text-text-lo rounded-control bg-surface-3 w-full py-1.5 pr-2 pl-8 text-meta outline-none focus-visible:ring-1 focus-visible:ring-accent"
           />
         </div>
       </div>

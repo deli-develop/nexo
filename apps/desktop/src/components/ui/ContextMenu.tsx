@@ -136,7 +136,7 @@ export function ContextMenu({
 }
 
 const ROW_CLASS =
-  "rounded-control flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left text-meta transition-colors duration-[var(--motion-fast)] disabled:opacity-40";
+  "rounded-control flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left text-meta transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)] disabled:cursor-not-allowed disabled:text-text-disabled";
 
 function toneClass(danger: boolean | undefined): string {
   return danger

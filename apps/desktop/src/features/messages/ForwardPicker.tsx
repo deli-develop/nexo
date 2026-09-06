@@ -88,7 +88,7 @@ export function ForwardPicker({
                     setBusy(false);
                   }
                 }}
-                className="rounded-control hover:bg-fill-hover flex w-full items-center gap-3 px-2 py-2 text-left disabled:opacity-50"
+                className="rounded-control flex w-full items-center gap-3 px-2 py-2 text-left transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)] enabled:hover:bg-fill-hover enabled:active:bg-fill-active disabled:cursor-not-allowed disabled:text-text-disabled"
               >
                 <ConversationAvatar
                   conversationId={c.conversation_id}

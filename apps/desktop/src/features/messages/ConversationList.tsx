@@ -467,12 +467,12 @@ export function ConversationList({
             }}
             placeholder="Folder name"
             aria-label="Name the new folder"
-            className="rounded-control bg-surface-3 text-text-hi placeholder:text-text-lo min-w-0 flex-1 px-2 py-1 text-meta outline-none focus:ring-1 focus:ring-accent"
+            className="rounded-control bg-surface-3 text-text-hi placeholder:text-text-lo min-w-0 flex-1 px-2 py-1 text-meta outline-none focus-visible:ring-1 focus-visible:ring-accent"
           />
           <button
             type="submit"
             disabled={!newName.trim()}
-            className="text-accent-soft text-meta disabled:opacity-50"
+            className="text-accent-soft text-meta transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)] enabled:hover:text-accent disabled:cursor-not-allowed disabled:text-text-disabled"
           >
             Create
           </button>
@@ -928,7 +928,7 @@ export function ConversationRow({
           {last ? relativeTime(last.at, now) : ""}
         </span>
         {conversation.unread > 0 ? (
-          <span className="bg-accent min-w-[18px] rounded-full px-1.5 text-center text-[11px] leading-[18px] font-semibold text-white">
+          <span className="bg-accent text-on-accent min-w-[18px] rounded-full px-1.5 text-center text-[11px] leading-[18px] font-semibold tabular-nums">
             {conversation.unread}
           </span>
         ) : fromMe && last ? (

@@ -252,7 +252,7 @@ export function ProfilePage({ now }: { now: Date }) {
               title="Add to your story — your contacts can see it for 24 hours"
               disabled={live.saving || posting}
               onClick={() => void addStory()}
-              className="bg-accent ring-surface-2 focus-visible:ring-accent absolute right-0 bottom-0 flex size-7 items-center justify-center rounded-full text-white ring-4 outline-none transition-transform duration-[var(--motion-fast)] ease-[var(--ease-state)] hover:scale-110 focus-visible:scale-110 disabled:opacity-60"
+              className="bg-accent text-on-accent ring-surface-2 absolute right-0 bottom-0 flex size-7 items-center justify-center rounded-full ring-4 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-state)] enabled:hover:scale-110 disabled:cursor-not-allowed disabled:bg-fill-disabled disabled:text-text-disabled"
             >
               <Icon name="plus" size={15} />
             </button>

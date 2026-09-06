@@ -51,6 +51,36 @@ rule one below.
    difference only shows up as judder while the app is busy.
 7. **New components start here.** A second use is the bar for extraction from
    a feature into `components/ui`; a first use is not.
+8. **Three states, not two, and `enabled:` guards them.** A control needs a
+   rest, a hover and a press, and the neutral fills exist to be spent in that
+   order — `fill` (4%), `fill-hover` (7%), `fill-active` (11%). Spending the
+   strongest one on the hover leaves the press with nothing to say, which is
+   what a 1px nudge was standing in for. Interactive states are written
+   `enabled:hover:` / `enabled:active:` rather than fenced off with
+   `disabled:pointer-events-none`: killing pointer events also kills the
+   cursor and any `title`, on the one control that most needs to explain
+   itself. And a press only moves something with a body — `ghost` has none, so
+   it does not move.
+9. **Disabled is `--color-text-disabled` over `--color-fill-disabled`, never
+   an opacity.** Five different opacities were in the tree at once. Opacity
+   fades the label, the border and the fill by the same amount, so the control
+   reads as broken rather than unavailable and its text drops under every
+   contrast floor on the way. A disabled control keeps its shape and loses
+   only its invitation.
+10. **One focus language, and it is keyboard-only.** `tokens.css` draws a 2px
+    accent outline at 2px offset on every `:focus-visible` element; a component
+    does not add a second ring beside it, and it never sets `border-radius` in
+    a focus rule — that rounds the *element*, not the outline. The one
+    exception is a control nested inside a bordered container, where an offset
+    outline would be clipped: those use `outline-none` plus
+    `focus-visible:ring-1 focus-visible:ring-accent`. `focus:` is always wrong
+    here — it fires on a mouse click and draws a keyboard affordance for a
+    pointer.
+11. **What sits on an accent fill is `text-on-accent`.** Not `text-white`.
+    Three call sites already asked for the token before it existed, so their
+    classes compiled to nothing; eighteen others wrote the literal, which no
+    theme could follow. White on a *scrim* — a lightbox, a story overlay — is
+    a different thing and stays as it is.
 
 ## `components/ui`
 

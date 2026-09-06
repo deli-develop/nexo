@@ -292,7 +292,7 @@ function CommentComposer({
           }}
           aria-label={placeholder}
           placeholder={placeholder}
-          className="text-text-hi placeholder:text-text-lo rounded-control min-h-[34px] max-h-[240px] flex-1 resize-y overflow-y-auto bg-surface-3 px-3 py-1.5 text-meta leading-relaxed outline-none focus:ring-1 focus:ring-accent [field-sizing:content]"
+          className="text-text-hi placeholder:text-text-lo rounded-control min-h-[34px] max-h-[240px] flex-1 resize-y overflow-y-auto bg-surface-3 px-3 py-1.5 text-meta leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-accent [field-sizing:content]"
         />
       </div>
 

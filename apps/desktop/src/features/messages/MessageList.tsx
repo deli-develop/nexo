@@ -350,7 +350,7 @@ export function MessageList({
         >
           <Icon name="chevronLeft" size={14} className="-rotate-90" />
           {missed > 0 ? (
-            <span className="bg-accent rounded-full px-1.5 py-0.5 font-mono text-[11px] text-white">
+            <span className="bg-accent text-on-accent rounded-full px-1.5 py-0.5 font-mono text-[11px] tabular-nums">
               {missed}
             </span>
           ) : null}
@@ -635,7 +635,7 @@ function ViewOnceBubble({
             type="button"
             disabled={busy}
             onClick={() => void open()}
-            className="rounded-control bg-accent text-on-accent px-2.5 py-1.5 text-[12px] font-medium disabled:opacity-60"
+            className="rounded-control bg-accent text-on-accent px-2.5 py-1.5 text-[12px] font-medium enabled:hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-fill-disabled disabled:text-text-disabled"
           >
             {busy ? "Opening…" : `Open ${noun.toLowerCase()}`}
           </button>
@@ -867,7 +867,7 @@ function Bubble({
                   autoFocus
                   onChange={(event) => setEditing(event.target.value)}
                   aria-label="Edit this message"
-                  className="text-text-hi rounded-control bg-surface-2 resize-none px-2 py-1.5 text-message outline-none focus:ring-1 focus:ring-accent"
+                  className="text-text-hi rounded-control bg-surface-2 resize-none px-2 py-1.5 text-message outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 />
                 <div className="flex gap-2">
                   <button
@@ -899,7 +899,7 @@ function Bubble({
                 className={cn(
                   "rounded-bubble px-3.5 py-2 text-message leading-6 whitespace-pre-wrap",
                   mine
-                    ? "bg-accent text-white"
+                    ? "bg-accent text-on-accent"
                     : "bg-surface-3 text-text-hi border border-line",
                   // The corner nearest the sender squares off inside a run, so
                   // a run reads as one block rather than a stack of pills.

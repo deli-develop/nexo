@@ -72,9 +72,12 @@ export function UnlockPin() {
         to try it against. Five wrong guesses and only the password will do.
       </p>
       <p className="text-text-mid max-w-[70ch] text-body leading-relaxed">
-        A PIN is required. Auto-lock is what protects an unattended machine, and it only
-        protects anything if getting back in is quick enough that nobody turns it off —
-        so there is no way to remove the PIN, only to change it.
+        A PIN is optional, and this is where it lives. Auto-lock is what protects an
+        unattended machine, and it only protects anything if getting back in is quick
+        enough that nobody turns it off — which is the whole argument for having one.
+        Without it the lock screen asks for your full password instead. Once set, it can
+        be changed but not taken away: a lock screen that accepts a PIN somebody has
+        forgotten they set is worse than either answer.
       </p>
 
       {status?.set && !changing ? (
@@ -83,8 +86,8 @@ export function UnlockPin() {
           <span className="text-text-lo text-meta">
             {status.attempts_left} of 5 attempts remaining
           </span>
-          {/* Change, not Remove. A PIN is required (see the note above the
-              component), so the only thing left to offer is a different one. */}
+          {/* Change, not Remove. Setting one is optional; un-setting one is
+              not offered, for the reason in the note above. */}
           <Button variant="secondary" disabled={busy} onClick={() => setChanging(true)}>
             Change
           </Button>

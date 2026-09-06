@@ -111,10 +111,16 @@ export function clearPin(): Promise<void> {
 }
 
 /**
- * Unlocks with the PIN. `null` means it was wrong.
+ * Unlocks with the PIN. `null` means it was wrong — and nothing else does.
  *
- * Only ever reopens what is already on this machine — it never creates a
- * session, and the server has never heard of the PIN.
+ * Only ever reopens what is already on this machine: locking dropped the store
+ * connection and the MLS state, and the tokens stayed in the Rust process, so
+ * this needs no server. The server has never heard of the PIN.
+ *
+ * The one path that does reach the network — an app that opened offline and
+ * so never installed a session — reports its failures as errors (`unreachable`,
+ * `signed_out`) rather than as `null`. Reading either of those as a wrong PIN
+ * is what made the correct one show "That PIN is wrong."
  */
 export function unlockWithPin(pin: string): Promise<Account | null> {
   return invoke<Account | null>("unlock_with_pin", { pin });

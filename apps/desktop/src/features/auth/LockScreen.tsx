@@ -21,11 +21,16 @@ import {
  * conversation in the DOM underneath, one `display:none` away from readable —
  * the shell renders this or the app, never both.
  *
- * Unlocking is a real sign-in. Locking dropped the store connection and the
- * MLS state on the Rust side, so there is nothing lighter to resume: the
- * password re-derives the verifier and reopens everything, which is exactly
- * the guarantee the lock claims to make. It follows that unlocking needs the
- * server, like login does; the honest trade is stated in `lock.rs`.
+ * The two ways in are not the same weight, and the difference is the network.
+ * The **password** is a real sign-in: it re-derives the verifier against the
+ * server's salt, which is the guarantee the lock claims to make, and it cannot
+ * happen offline. The **PIN** never leaves this machine — locking dropped the
+ * store connection and the MLS state but not the tokens, so a correct PIN
+ * reopens both from disk with no round trip. Both are stated in `lock.rs`.
+ *
+ * Only a wrong PIN is drawn as a wrong PIN. `unlockWithPin` resolving to
+ * `null` is the sole thing that means the digits were wrong; the failures that
+ * are not about the digits arrive as errors and say what they were.
  *
  * The handle is shown, not asked: this machine knows who it belongs to, and
  * being locked should not look like being signed out.
@@ -82,6 +87,14 @@ export function LockScreen({
         const e = asAuthError(raw);
         setError(e.message);
         if (e.kind === "pin_locked") setStatus({ set: true, attempts_left: 0 });
+        // The PIN was right and the session is gone, so no number of further
+        // tries at it will help. Offering the password is the only thing left
+        // that can work, and switching to it beats leaving somebody on a field
+        // that has already done its job.
+        if (e.kind === "signed_out") {
+          setUsePassword(true);
+          setPin("");
+        }
       } finally {
         setBusy(false);
       }

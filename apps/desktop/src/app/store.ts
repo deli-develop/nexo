@@ -138,6 +138,19 @@ export interface Preferences {
    */
   lockTimeout: LockTimeout;
   /**
+   * §8: whether the unlock-PIN offer has been answered on this machine.
+   *
+   * True once somebody has either set a PIN from the offer or waved it past,
+   * so the question is asked once rather than at every sign-in. It exists
+   * because the PIN used to be a *gate* — the app would not open until one
+   * existed — which charged a screen for a convenience and charged it again on
+   * the sign-in after every sign-out, since signing out erases the PIN.
+   *
+   * Reset by signing out, along with the PIN it belongs to: the next person to
+   * sign in on this machine has not been asked anything.
+   */
+  pinOfferAnswered: boolean;
+  /**
    * §8: closing the window hides to the tray instead of quitting. Off by
    * default — an app that keeps running after being closed has surprised its
    * user. The value is pushed to Rust, where the close handler lives.
@@ -181,6 +194,7 @@ export const defaultPreferences: Preferences = {
   linkPreviews: false,
   notificationDetail: "sender",
   lockTimeout: "15",
+  pinOfferAnswered: false,
   closeToTray: false,
   homeChat: true,
   homeChatWidth: 380,

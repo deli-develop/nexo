@@ -30,6 +30,7 @@ import { confirm } from "../../lib/native";
  */
 export function useSignOut(): { signOut: () => Promise<void>; busy: boolean } {
   const setAccount = useApp((s) => s.setAccount);
+  const setPreference = useApp((s) => s.setPreference);
   const [busy, setBusy] = useState(false);
 
   const signOut = useCallback(async () => {
@@ -46,11 +47,15 @@ export function useSignOut(): { signOut: () => Promise<void>; busy: boolean } {
       } catch {
         // See above: the disk is already wiped.
       }
+      // The PIN went with the store it unwrapped, so the answer somebody gave
+      // to the PIN offer went with it too. The next person to sign in on this
+      // machine has not been asked anything yet.
+      setPreference("pinOfferAnswered", false);
       setAccount(null);
     } finally {
       setBusy(false);
     }
-  }, [busy, setAccount]);
+  }, [busy, setAccount, setPreference]);
 
   return { signOut, busy };
 }

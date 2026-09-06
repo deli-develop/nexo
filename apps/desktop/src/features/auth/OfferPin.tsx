@@ -7,15 +7,24 @@ import { Callout } from "../../components/ui/Feedback";
 import { Panel } from "../../components/ui/Surface";
 
 /**
- * The step that stands between signing in and the app, until a PIN exists.
+ * The unlock PIN, offered once after signing in.
  *
- * # Why a PIN is required rather than offered
+ * # Why it is offered and not required
  *
- * Auto-lock is what protects an unattended machine, and it only protects
- * anything if getting back in is quick. Without a PIN, every lock costs a full
- * password — so people lengthen the timer, or turn it off, and the protection
- * that was optional in theory becomes absent in practice. Requiring the cheap
- * way back in is what makes the expensive protection survivable.
+ * It used to be a gate: the app would not open until a PIN existed. The
+ * argument was that auto-lock only protects an unattended machine if getting
+ * back in is quick, so people who have to retype a whole password lengthen the
+ * timer or switch it off — and a cheap way back in is what keeps the expensive
+ * protection switched on.
+ *
+ * That argument is still right about auto-lock. It was wrong about where to
+ * spend it. Standing between somebody and their own messages, at every sign-in,
+ * is too much to charge for a convenience — and it charged it hardest exactly
+ * when things had already gone wrong, since signing out erases the PIN, so the
+ * sign-in that followed a sign-out was met by the same wall again. The
+ * discovery it was buying is worth one screen, not a toll gate: the offer is
+ * made once per machine, either answer is final, and Settings keeps it
+ * available afterwards.
  *
  * # What it is not
  *
@@ -28,10 +37,19 @@ import { Panel } from "../../components/ui/Surface";
  * # Why it replaces the shell rather than covering it
  *
  * The same rule as `LockScreen`: nothing readable may sit in the DOM behind a
- * gate. It is drawn *instead of* the app, so there is no conversation
- * underneath to reach with a screen reader or a stray tab press.
+ * screen that is standing in for the app. It is drawn *instead of* the shell,
+ * so there is no conversation underneath to reach with a screen reader or a
+ * stray tab press.
  */
-export function RequirePin({ account, onSet }: { account: Account; onSet: () => void }) {
+export function OfferPin({
+  account,
+  onSet,
+  onSkip,
+}: {
+  account: Account;
+  onSet: () => void;
+  onSkip: () => void;
+}) {
   const [pin, setPin] = useState("");
   const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
@@ -62,7 +80,8 @@ export function RequirePin({ account, onSet }: { account: Account; onSet: () => 
         </h1>
         <p className="text-text-mid mt-2 text-body leading-relaxed">
           Nexo locks itself when you leave it. The PIN is how you get back in without
-          typing your whole password, {account.display_name}.
+          typing your whole password, {account.display_name}. You can skip this and set
+          one later in Settings — without one, the lock screen asks for your password.
         </p>
 
         <Callout tone="neutral" icon="shield">
@@ -92,13 +111,18 @@ export function RequirePin({ account, onSet }: { account: Account; onSet: () => 
           />
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 flex items-center gap-3">
           <Button
             variant="primary"
             disabled={short || pin !== again || busy}
             onClick={() => void save()}
           >
             {busy ? "Setting…" : "Set PIN and continue"}
+          </Button>
+          {/* A real way past, not a smaller gate. The offer is made once, so
+              this answer has to be as final as the other one. */}
+          <Button variant="secondary" disabled={busy} onClick={onSkip}>
+            Not now
           </Button>
         </div>
 

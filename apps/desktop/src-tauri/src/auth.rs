@@ -172,9 +172,23 @@ async fn publish_key_packages_for(client_state: &State<'_, ClientState>, when: &
     let problem = tauri::async_runtime::spawn_blocking(move || {
         let guard = handle.lock().ok()?;
         let logged_in = guard.as_ref()?;
-        conversations::publish_key_packages(&logged_in.context(), nexo_crypto::KEY_PACKAGE_TARGET)
-            .err()
-            .map(|e| e.to_string())
+        let problem = conversations::publish_key_packages(
+            &logged_in.context(),
+            nexo_crypto::KEY_PACKAGE_TARGET,
+        )
+        .err()
+        .map(|e| e.to_string());
+
+        // The same duty every authenticated call carries: a refresh token the
+        // transport rotated mid-call has to reach the store, or the next resume
+        // replays a spent one and the server revokes the whole account.
+        if let Some(rotated) = logged_in.transport.take_rotated_refresh_token()
+            && let Err(error) = logged_in.store.set_refresh_token(&rotated)
+        {
+            tracing::error!(%error, "could not persist a rotated refresh token");
+        }
+
+        problem
     })
     .await
     .ok()
@@ -490,8 +504,29 @@ pub async fn clear_pin() -> Result<(), AuthErrorView> {
 /// what is already on this machine. It never creates a session — a wrong PIN,
 /// or one guessed too many times, leaves the lock screen exactly where it was
 /// and the password is still the way through.
+///
+/// # `Ok(None)` means the PIN was wrong, and nothing else does
+///
+/// This used to answer `None` for three different things: a wrong PIN, a server
+/// that could not be reached, and a session the server had retired. The lock
+/// screen has one reading for `None` — "That PIN is wrong" — so entering the
+/// *correct* PIN with the API down accused the person at the keyboard of
+/// mistyping, and then offered them five tries at something that was never
+/// going to work. The two failures that are not about the PIN come back as
+/// errors now, with a `kind` the screen can tell apart.
+///
+/// # Why unlocking no longer needs the server
+///
+/// It never had to. Locking drops [`ClientState`] — the store connection and
+/// the MLS provider — and leaves [`SessionState`] alone, so the tokens are
+/// still in this process. Rebuilding the client from them reopens the store
+/// from disk and restores MLS with no round trip, which is exactly what the
+/// lock screen promises ("the PIN works on this machine only, and never leaves
+/// it"). Going through a full resume meant an app whose data is entirely local
+/// could not be reopened without the network.
 #[tauri::command]
 pub async fn unlock_with_pin(
+    state: State<'_, SessionState>,
     client_state: State<'_, ClientState>,
     pin: String,
 ) -> Result<Option<AccountView>, AuthErrorView> {
@@ -513,11 +548,34 @@ pub async fn unlock_with_pin(
         return Ok(None);
     }
 
-    // The same path a restart takes. The PIN proved who is at the keyboard; it
-    // is not a credential the server has ever heard of, and nothing here
-    // pretends otherwise.
+    // The tokens survived the lock, so this is the ordinary case: reopen from
+    // them. The guard is taken in its own block and dropped before `install`,
+    // which locks the same mutex.
+    let held = {
+        let guard = state.0.lock().map_err(|_| AuthErrorView {
+            kind: "internal",
+            message: "Something went wrong. Try again.".to_string(),
+        })?;
+        guard.as_ref().map(|s| Session {
+            account: s.account.clone(),
+            access_token: s.access_token.clone(),
+            refresh_token: s.refresh_token.clone(),
+        })
+    };
+
+    if let Some(session) = held {
+        let account = AccountView::from(session.account.clone());
+        install(&state, &client_state, session).await?;
+        tracing::info!("unlocked with the PIN");
+        return Ok(Some(account));
+    }
+
+    // No tokens in this process. Reachable when the app opened offline: the
+    // account came off disk and no session was ever installed. There is
+    // nothing local left to rebuild from, so this is the one path that has to
+    // ask the server — and its two failures are reported as themselves.
     let slot = client_state.0.clone();
-    let account = tauri::async_runtime::spawn_blocking(move || {
+    let (account, session) = tauri::async_runtime::spawn_blocking(move || {
         let resumed = client::resume().map_err(|e| {
             tracing::error!(%e, "resuming after a PIN unlock failed");
             AuthErrorView {
@@ -525,15 +583,44 @@ pub async fn unlock_with_pin(
                 message: "Something went wrong. Try again.".to_string(),
             }
         })?;
-        let client::Resumed::Active(logged_in) = resumed else {
-            return Ok::<Option<AccountView>, AuthErrorView>(None);
+        let logged_in = match resumed {
+            client::Resumed::Active(logged_in) => logged_in,
+            // The PIN was right and the store is here; the server is not.
+            client::Resumed::Offline => {
+                return Err(AuthErrorView {
+                    kind: "unreachable",
+                    message: "That PIN is right, but the server can't be reached. Check your \
+                              connection and try again."
+                        .to_string(),
+                });
+            }
+            // The PIN was right and the session is gone. The password is the
+            // only way back, and saying so beats blaming the digits.
+            client::Resumed::SignedOut => {
+                return Err(AuthErrorView {
+                    kind: "signed_out",
+                    message: "That PIN is right, but this device's session has ended. Sign in \
+                              with your password."
+                        .to_string(),
+                });
+            }
         };
+
         let account = AccountView::from(logged_in.session.account.clone());
+        let session = Session {
+            account: logged_in.session.account.clone(),
+            access_token: logged_in.session.access_token.clone(),
+            refresh_token: logged_in.session.refresh_token.clone(),
+        };
         let Ok(mut guard) = slot.lock() else {
-            return Ok(None);
+            tracing::error!("the client state lock was poisoned");
+            return Err(AuthErrorView {
+                kind: "internal",
+                message: "Something went wrong. Try again.".to_string(),
+            });
         };
         *guard = Some(*logged_in);
-        Ok(Some(account))
+        Ok((account, session))
     })
     .await
     .map_err(|e| {
@@ -544,7 +631,13 @@ pub async fn unlock_with_pin(
         }
     })??;
 
-    Ok(account)
+    // Both halves, or neither. The socket in `stream.rs` follows this state and
+    // reconnects with whatever access token it finds, so leaving the pre-lock
+    // one here would reopen the stream on a token that has since aged out.
+    *state.0.lock().expect("session lock") = Some(session);
+
+    tracing::info!("unlocked with the PIN after a resume");
+    Ok(Some(account))
 }
 
 fn pin_failed(error: pin::PinError) -> AuthErrorView {

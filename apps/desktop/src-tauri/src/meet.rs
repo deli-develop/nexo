@@ -73,7 +73,22 @@ where
         let client = guard
             .as_ref()
             .ok_or_else(|| failure("signed_out", "You are not signed in."))?;
-        work(client)
+        let outcome = work(client);
+
+        // An access token ages on the clock, so the transport may have traded
+        // the refresh token for a new pair mid-call. Writing the new one down
+        // is not optional: whatever is stored is what the next resume replays,
+        // and a spent refresh token is what the server reads as theft -- it
+        // revokes every session for the account. The conversation, feed and
+        // media paths have always done this; the map did not, so a rotation
+        // that happened to land on a Meet call was the one that went missing.
+        if let Some(rotated) = client.transport.take_rotated_refresh_token()
+            && let Err(error) = client.store.set_refresh_token(&rotated)
+        {
+            tracing::error!(%error, "could not persist a rotated refresh token");
+        }
+
+        outcome
     })
     .await
     .map_err(|_| failure("internal", "That did not finish."))?

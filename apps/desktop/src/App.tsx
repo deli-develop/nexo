@@ -17,7 +17,7 @@ import { ProfilePage } from "./features/profile/ProfilePage";
 import { PublicProfile } from "./features/profile/PublicProfile";
 import { AuthPage } from "./features/auth/AuthPage";
 import { LockScreen } from "./features/auth/LockScreen";
-import { RequirePin } from "./features/auth/RequirePin";
+import { OfferPin } from "./features/auth/OfferPin";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { pinStatus, restoreSession, type Account } from "./lib/auth";
 import { myProfile } from "./lib/feed";
@@ -186,6 +186,8 @@ export function App() {
   const locked = useApp((s) => s.locked);
   const setMyAvatarKey = useApp((s) => s.setMyAvatarKey);
   const setLocked = useApp((s) => s.setLocked);
+  const pinOfferAnswered = useApp((s) => s.preferences.pinOfferAnswered);
+  const setPreference = useApp((s) => s.setPreference);
   const maximized = useMaximized();
 
   useEffect(() => {
@@ -233,9 +235,8 @@ export function App() {
   // Whether this machine has an unlock PIN. `null` while the question is out.
   //
   // Asked for every signed-in account, not only new ones: an account that was
-  // already signed in when the requirement arrived has the same unattended
-  // machine to protect, and letting it through would make the rule apply to
-  // whoever happened to install later.
+  // already signed in when the offer arrived has the same unattended machine
+  // to protect.
   const [hasPin, setHasPin] = useState<boolean | null>(null);
   useEffect(() => {
     if (!account) {
@@ -248,8 +249,8 @@ export function App() {
         if (!cancelled) setHasPin(status.set);
       })
       .catch(() => {
-        // A keystore that will not answer is not a reason to hold someone out
-        // of their own messages. Settings still asks for a PIN, loudly.
+        // A keystore that will not answer is not a reason to ask for a PIN it
+        // could not store either. Settings still offers one.
         if (!cancelled) setHasPin(true);
       });
     return () => {
@@ -275,13 +276,26 @@ export function App() {
 
   // Before the shell, and after the lock screen: a locked app asks for the PIN
   // it already has, and only an unlocked one can be missing it.
-  if (account && hasPin === false) {
+  //
+  // Offered once and never again, either way. This was a gate — no PIN, no app
+  // — and the cost landed on the wrong person: signing out erases the PIN, so
+  // the sign-in that followed a sign-out hit the same wall, and somebody who
+  // simply did not want one hit it at every sign-in forever. `OfferPin` says
+  // what the requirement was buying and why one screen is enough to buy it.
+  if (account && hasPin === false && !pinOfferAnswered) {
     return (
       <div className="relative h-full overflow-hidden">
         <div className="app-field absolute inset-0 flex flex-col overflow-hidden">
           <TopBar maximized={maximized} />
           <div className="min-h-0 flex-1">
-            <RequirePin account={account} onSet={() => setHasPin(true)} />
+            <OfferPin
+              account={account}
+              onSet={() => {
+                setHasPin(true);
+                setPreference("pinOfferAnswered", true);
+              }}
+              onSkip={() => setPreference("pinOfferAnswered", true)}
+            />
           </div>
         </div>
         <DialogHost />
@@ -297,6 +311,10 @@ export function App() {
       </>
     );
 
+  // Signed in, with the PIN question still out. The frame and nothing in it:
+  // rendering `AuthPage` here put the sign-in form back on screen for as long
+  // as the keystore took to answer, one keystroke after somebody had finished
+  // using it.
   return (
     <div className="relative h-full overflow-hidden">
       <div className="app-field absolute inset-0 flex flex-col overflow-hidden">
@@ -304,7 +322,7 @@ export function App() {
             is an account -- otherwise the window cannot be moved or closed. */}
         <TopBar maximized={maximized} />
         <div className="min-h-0 flex-1">
-          {checked ? <AuthPage onSignedIn={onSignedIn} /> : null}
+          {checked && !account ? <AuthPage onSignedIn={onSignedIn} /> : null}
         </div>
       </div>
       <DialogHost />

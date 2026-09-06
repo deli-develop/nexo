@@ -1052,3 +1052,61 @@ SQLCipher `Connection` and the MLS provider, neither of which is `Sync`, so
 real concurrency means a connection pool and reworked provider access — a
 change to the two things the invariants guard hardest, and one that deserves
 its own design rather than a line in a fix pass.
+
+---
+
+### Since v0.1.23: the lock screen refused a correct PIN
+
+One bug with two faces, both reported from a real run, and one design decision
+reversed because of them.
+
+- **A correct PIN was answered with "That PIN is wrong."** `unlock_with_pin`
+  verified the PIN locally — that part always worked — and then called
+  `client::resume`, which trades the stored refresh token for a fresh access
+  token over the network. All three of `resume`'s outcomes collapsed into
+  `Ok(None)`, and the lock screen has exactly one reading for `None`. So a
+  server that could not be reached, and a session the server had retired, both
+  came back as an accusation of mistyping — followed by an offer of five more
+  tries at something that could not work, since a correct PIN also resets the
+  attempt counter to five.
+
+  Fixed in two parts. `Ok(None)` now means the PIN was wrong and nothing else
+  does; the two failures that are not about the PIN arrive as errors carrying
+  `unreachable` and `signed_out`, which the lock screen tells apart. And
+  unlocking no longer asks the server at all in the ordinary case: locking
+  drops `ClientState` and leaves `SessionState`, so the tokens are still in
+  the process and rebuilding the client from them reopens the store and the
+  MLS state from disk. That is what the lock screen had been promising all
+  along — "the PIN works on this machine only, and never leaves it" — while
+  the code behind it could not unlock an offline machine whose data is
+  entirely local.
+
+- **The map never wrote down a rotated refresh token.** `meet.rs::with_client`
+  was the one authenticated path missing the drain that `conversations.rs`,
+  `feed.rs` and `media.rs` all perform: the transport replaces a refresh token
+  in place when the access token ages, and the shell has to persist the new one
+  because the next resume replays whatever is stored. A spent refresh token is
+  what the server reads as theft, and it answers by revoking every session for
+  the account — which is one way the resume above failed, and it took the whole
+  account with it. `publish_key_packages_for` in `auth.rs` had the same gap.
+  Both now drain. `client::build` also prefers the store's copy of the refresh
+  token over the session's, since the store is where every rotation is written
+  and the session's copy is whatever was issued when it began.
+
+- **The unlock PIN is offered, not required.** It used to be a gate: signing in
+  led to "Choose an unlock PIN" and the app would not open until one existed.
+  The argument for it is still true — auto-lock only protects an unattended
+  machine if getting back in is quick, so a costly unlock makes people lengthen
+  the timer or switch it off — but it was being paid for in the wrong currency.
+  The screen stood between somebody and their own messages at *every* sign-in,
+  and hardest after a sign-out, since signing out erases the PIN along with the
+  store it unwrapped. `RequirePin.tsx` is now `OfferPin.tsx`: the same screen
+  with a *Not now* beside the *Set PIN*, shown once per machine
+  (`preferences.pinOfferAnswered`, reset by signing out), with Settings keeping
+  it available afterwards. The lock screen already fell back to the password
+  when no PIN was set, so nothing else had to change.
+
+Smaller, in the same round: a successful sign-in put the sign-in form back on
+screen for as long as `pin_status` took to answer, because the gate below it
+required a non-`null` answer and the fall-through rendered `AuthPage`. It now
+renders the window frame and nothing in it.

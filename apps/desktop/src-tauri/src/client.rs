@@ -118,6 +118,20 @@ pub fn build(session: Session, transport: HttpTransport) -> Result<LoggedIn, Bui
         .map_err(|e| BuildError::Keystore(e.to_string()))?;
     let store = EncryptedStore::open(&path, &store_key)?;
 
+    // The store's refresh token wins over the session's.
+    //
+    // They agree right after a login or a resume, because both write what they
+    // were just issued. They stop agreeing once the transport rotates one
+    // mid-call: `with_client` writes the new one to the store, and nothing
+    // updates the `Session` the shell is holding. Reopening after a lock is
+    // where that shows -- the transport that did the rotating went with the
+    // dropped client, so the only live token is the one in the store, and
+    // handing the new transport the older one replays a spent token. The
+    // server reads that as theft and revokes every session for the account.
+    if let Ok(Some(stored)) = store.refresh_token() {
+        transport.set_refresh_token(stored.as_str());
+    }
+
     // The provider is rebuilt from the store, so a restart continues the
     // conversations rather than starting new ones.
     let provider = nexo_client::mls_state::load(&store)?;

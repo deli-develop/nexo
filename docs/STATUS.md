@@ -1102,8 +1102,13 @@ reversed because of them.
   and hardest after a sign-out, since signing out erases the PIN along with the
   store it unwrapped. `RequirePin.tsx` is now `OfferPin.tsx`: the same screen
   with a *Not now* beside the *Set PIN*, shown once per machine
-  (`preferences.pinOfferAnswered`, reset by signing out), with Settings keeping
-  it available afterwards. The lock screen already fell back to the password
+  (`preferences.pinOfferAnswered`), with Settings keeping it available
+  afterwards. That flag is deliberately **not** reset by signing out, and the
+  first attempt got this wrong: signing out erases the PIN, so re-arming the
+  offer on top of that put the same screen in front of the very next sign-in --
+  the toll gate again, one click cheaper. Being asked once introduces a
+  feature; being asked after every sign-out is the thing that was being
+  removed. The lock screen already fell back to the password
   when no PIN was set, so nothing else had to change.
 
 Smaller, in the same round: a successful sign-in put the sign-in form back on

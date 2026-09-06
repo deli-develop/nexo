@@ -146,8 +146,11 @@ export interface Preferences {
    * existed — which charged a screen for a convenience and charged it again on
    * the sign-in after every sign-out, since signing out erases the PIN.
    *
-   * Reset by signing out, along with the PIN it belongs to: the next person to
-   * sign in on this machine has not been asked anything.
+   * Deliberately *not* reset by signing out. Signing out does erase the PIN,
+   * so the machine genuinely has none afterwards — but re-arming the offer on
+   * that fact is what put "Choose an unlock PIN" in front of the very next
+   * sign-in, which is the thing the offer was made skippable to stop doing.
+   * Asked once per machine means once; Settings sets a PIN at any time after.
    */
   pinOfferAnswered: boolean;
   /**

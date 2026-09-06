@@ -30,7 +30,6 @@ import { confirm } from "../../lib/native";
  */
 export function useSignOut(): { signOut: () => Promise<void>; busy: boolean } {
   const setAccount = useApp((s) => s.setAccount);
-  const setPreference = useApp((s) => s.setPreference);
   const [busy, setBusy] = useState(false);
 
   const signOut = useCallback(async () => {
@@ -47,15 +46,22 @@ export function useSignOut(): { signOut: () => Promise<void>; busy: boolean } {
       } catch {
         // See above: the disk is already wiped.
       }
-      // The PIN went with the store it unwrapped, so the answer somebody gave
-      // to the PIN offer went with it too. The next person to sign in on this
-      // machine has not been asked anything yet.
-      setPreference("pinOfferAnswered", false);
+      // The answer to the PIN offer is *not* reset here, and that is the whole
+      // point of it.
+      //
+      // Signing out erases the PIN along with the store key it unwraps, so
+      // `pin_status` honestly reports "no PIN" afterwards -- and re-arming the
+      // offer on top of that put "Choose an unlock PIN" in front of the very
+      // next sign-in, which is the thing the offer was made skippable to stop
+      // doing. Being asked once is a feature being introduced; being asked
+      // again every time you sign out and back in is a toll gate wearing a
+      // Not now button. Somebody who wants a PIN after this sets one in
+      // Settings, where it has lived all along.
       setAccount(null);
     } finally {
       setBusy(false);
     }
-  }, [busy, setAccount, setPreference]);
+  }, [busy, setAccount]);
 
   return { signOut, busy };
 }

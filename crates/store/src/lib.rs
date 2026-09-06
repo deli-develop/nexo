@@ -1518,12 +1518,26 @@ impl EncryptedStore {
         client_id: &str,
         retracted_at_ms: i64,
     ) -> Result<(), StoreError> {
-        self.connection.execute(
+        let transaction = self.connection.unchecked_transaction()?;
+        transaction.execute(
             "UPDATE messages
              SET body = '', payload = NULL, retracted_at_ms = ?3
              WHERE conversation_id = ?1 AND client_id = ?2",
             rusqlite::params![conversation_id, client_id, retracted_at_ms],
         )?;
+        // The reactions go with it.
+        //
+        // They were left behind, and the tombstone rendered as "You took this
+        // back" with a thumbs-up still under it: a reaction to content that no
+        // longer exists, and a signal about a message somebody asked every app
+        // to forget. Taking a message back has to take back what was hung on
+        // it.
+        transaction.execute(
+            "DELETE FROM message_reactions
+             WHERE conversation_id = ?1 AND message_client_id = ?2",
+            rusqlite::params![conversation_id, client_id],
+        )?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -3095,6 +3109,38 @@ mod tests {
         assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
         assert!(store.pinned_messages("c1").unwrap().is_empty());
         assert_eq!(store.messages("c1").unwrap().len(), 1, "history survived");
+    }
+
+    /// Taking a message back takes back what was hung on it.
+    ///
+    /// The tombstone used to read "You took this back" with the reactions
+    /// still under it -- a response to content that is gone, and a signal
+    /// about a message somebody asked every app to forget.
+    #[test]
+    fn retracting_a_message_removes_its_reactions() {
+        let dir = TempDir::new("retract-reactions");
+        let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
+
+        store
+            .set_reaction("c1", "m1", "them", "\u{1F44D}", true, 1)
+            .unwrap();
+        assert!(
+            store
+                .reactions("c1", Some("me"))
+                .unwrap()
+                .contains_key("m1"),
+            "the reaction should be there before the retraction"
+        );
+
+        store.retract_message("c1", "m1", 2).unwrap();
+
+        assert!(
+            !store
+                .reactions("c1", Some("me"))
+                .unwrap()
+                .contains_key("m1"),
+            "a retracted message must carry no reactions"
+        );
     }
 
     #[test]

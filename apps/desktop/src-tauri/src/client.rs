@@ -13,6 +13,23 @@
 //! `Send` but not `Sync` — so it lives behind a mutex, and each command takes
 //! the lock *inside* the blocking closure rather than holding a guard across an
 //! await.
+//!
+//! # What the lock does and does not cover
+//!
+//! One mutex covers the store, the MLS provider and the transport together,
+//! so commands that touch any of them run one at a time. That is deliberate
+//! and stays: the connection and the provider are not `Sync`, and giving them
+//! real concurrency means a connection pool and reworked provider access.
+//!
+//! What is *not* deliberate is holding it across the network. A download is
+//! neither a store read nor an MLS operation, and holding the lock for one
+//! made every other call queue behind it — opening a photo measurably delayed
+//! the draft save of the message being typed at the time, and a playing video
+//! did it once per range request. So the transport is an `Arc`: the media
+//! paths take the lock long enough to read the payload and clone the handle,
+//! let go, and download with nothing held. The rule for anything added later
+//! is the same — take the lock for the store and MLS work, release it before
+//! the network.
 
 use std::sync::{Arc, Mutex};
 
@@ -32,7 +49,14 @@ pub struct LoggedIn {
     /// Tokens. Never crosses the IPC boundary.
     pub session: Session,
     /// The network.
-    pub transport: HttpTransport,
+    ///
+    /// Shared rather than owned, so a slow call can go on using it after the
+    /// client lock has been let go. The transport is internally synchronised
+    /// and holds the access and refresh tokens, so it must be the *same* one
+    /// — a copy would rotate its own tokens and the two would disagree about
+    /// which refresh token is live, which is the one mistake the server reads
+    /// as theft.
+    pub transport: Arc<HttpTransport>,
     /// MLS storage and crypto, restored from the encrypted store.
     pub provider: OpenMlsRustCrypto,
     /// The encrypted local store.
@@ -47,7 +71,7 @@ impl LoggedIn {
     /// A borrow of everything the conversation layer needs.
     pub fn context(&self) -> Context<'_, HttpTransport> {
         Context {
-            transport: &self.transport,
+            transport: &*self.transport,
             provider: &self.provider,
             store: &self.store,
             signer: &self.signer,
@@ -86,6 +110,7 @@ pub enum BuildError {
 /// The transport is handed in already carrying its access token, because the
 /// caller is the only one that knows whether it came from a login or a resume.
 pub fn build(session: Session, transport: HttpTransport) -> Result<LoggedIn, BuildError> {
+    let transport = Arc::new(transport);
     let path = nexo_store::default_path().ok_or(BuildError::NoAppData)?;
     let keystore = DpapiStore::new().map_err(|e| BuildError::Keystore(e.to_string()))?;
 

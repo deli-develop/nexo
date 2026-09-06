@@ -119,7 +119,7 @@ pub async fn meet_pins(state: State<'_, ClientState>) -> Result<MapView, MeetErr
     with_client(&state, |client| {
         let map = meet::map(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             now_ms(),
@@ -154,7 +154,7 @@ pub async fn meet_pins(state: State<'_, ClientState>) -> Result<MapView, MeetErr
 pub async fn meet_me(state: State<'_, ClientState>) -> Result<Option<PinView>, MeetErrorView> {
     with_client(&state, |client| {
         let mine = meet::me(&Context {
-            transport: &client.transport,
+            transport: &*client.transport,
             store: &client.store,
         })?;
         Ok(mine.map(|p| PinView {
@@ -200,7 +200,7 @@ pub async fn meet_set_me(
         };
         let stored = meet::set_me(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             &update,
@@ -223,7 +223,7 @@ pub async fn meet_set_me(
 pub async fn meet_leave(state: State<'_, ClientState>) -> Result<(), MeetErrorView> {
     with_client(&state, |client| {
         meet::leave(&Context {
-            transport: &client.transport,
+            transport: &*client.transport,
             store: &client.store,
         })?;
         Ok(())
@@ -240,7 +240,7 @@ pub async fn meet_consent(
     with_client(&state, move |client| {
         meet::accept_agreement(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             version,
@@ -266,7 +266,7 @@ pub async fn meet_requests(
 ) -> Result<Vec<RequestView>, MeetErrorView> {
     with_client(&state, |client| {
         let requests = meet::requests(&Context {
-            transport: &client.transport,
+            transport: &*client.transport,
             store: &client.store,
         })?;
         Ok(requests
@@ -301,7 +301,7 @@ pub async fn meet_send_request(
     with_client(&state, move |client| {
         let request = meet::open_request(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             &handle,
@@ -326,7 +326,7 @@ pub async fn meet_accept_request(
     with_client(&state, move |client| {
         meet::answer(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             id,
@@ -354,7 +354,7 @@ pub async fn meet_search(
     with_client(&state, move |client| {
         let found = meet::search(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             &term,
@@ -401,7 +401,7 @@ pub async fn meet_create_invite(
     with_client(&state, move |client| {
         let minted = meet::create_invite(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             label.as_deref(),
@@ -421,7 +421,7 @@ pub async fn meet_create_invite(
 pub async fn meet_invites(state: State<'_, ClientState>) -> Result<Vec<InviteView>, MeetErrorView> {
     with_client(&state, |client| {
         let list = meet::invites(&Context {
-            transport: &client.transport,
+            transport: &*client.transport,
             store: &client.store,
         })?;
         Ok(list
@@ -449,7 +449,7 @@ pub async fn meet_revoke_invite(
     with_client(&state, move |client| {
         meet::revoke_invite(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             id,
@@ -586,7 +586,7 @@ pub async fn meet_report(
     with_client(&state, move |client| {
         meet::report(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             &subject_kind,
@@ -608,7 +608,7 @@ pub async fn meet_decline_request(
     with_client(&state, move |client| {
         meet::answer(
             &Context {
-                transport: &client.transport,
+                transport: &*client.transport,
                 store: &client.store,
             },
             id,

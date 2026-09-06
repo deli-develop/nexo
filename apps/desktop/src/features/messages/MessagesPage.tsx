@@ -3,7 +3,7 @@ import type { Recording } from "./useRecorder";
 import { pickFile } from "../../lib/native";
 import { useApp } from "../../app/store";
 import { useTyping } from "../../app/useTyping";
-import { useConversations } from "../../app/useConversations";
+import type { LiveConversations } from "../../app/useConversations";
 import { useLayout } from "../../app/useLayout";
 import { searchable, useUserSearch } from "../../app/useUserSearch";
 import type { Conversation, Message } from "../../lib/types";
@@ -32,7 +32,14 @@ import { MessageList } from "./MessageList";
  * panel collapses and its content is reachable from the header button; below
  * 860px the conversation list becomes an overlay drawer over the chat.
  */
-export function MessagesPage({ now }: { now: Date }) {
+export function MessagesPage({
+  now,
+  live,
+}: {
+  now: Date;
+  /** Mounted once by the shell and shared with the header — see `AppShell`. */
+  live: LiveConversations;
+}) {
   const activeId = useApp((s) => s.activeConversationId);
   const contextOpen = useApp((s) => s.contextPanelOpen);
   const drawerOpen = useApp((s) => s.listDrawerOpen);
@@ -47,7 +54,6 @@ export function MessagesPage({ now }: { now: Date }) {
   const overrides = useApp((s) => s.conversationOverrides);
   const layout = useLayout();
 
-  const live = useConversations(activeId || undefined);
   const [starting, setStarting] = useState(false);
 
   const base = live.conversations.find((c) => c.id === activeId);

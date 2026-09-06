@@ -5,7 +5,7 @@ that work here starts with a **targeted** read instead of an exploratory one:
 where every concern lives, which file answers which question, and what must not
 be broken.
 
-`docs/` holds ~235 KB of prose. Reading it all to change one handler is the
+`docs/` holds ~320 KB of prose. Reading it all to change one handler is the
 expensive mistake this file prevents.
 
 **How to use it:** find your task in [Task → where](#task--where), open the two
@@ -98,6 +98,7 @@ packages/design-tokens   Colour, type, radius, motion. CSS authored, JSON derive
 | `crates/client/src/outbox.rs` | The offline queue. | Send-while-offline behaviour. |
 | `crates/client/src/pin.rs` | PIN unlock — a wrapped copy of the store key, DPAPI-bound. | The lock screen path. See [`PIN-ROTATION.md`](PIN-ROTATION.md). |
 | `crates/client/src/feed.rs`, `mls_state.rs`, `transport.rs` | Feed calls, MLS persistence, the transport trait. | As named. |
+| `crates/client/examples/peer.rs` | A headless second client — register, start, send, sync, list — keeping its store under a per-handle directory in `%TEMP%`. Behind `required-features = ["http"]`. | Driving the desktop app against a real peer. The GUI is one process with one account and the single-instance plugin means no second window, so the other side of a conversation runs here. |
 
 ### Server (`apps/server`)
 
@@ -245,25 +246,25 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 17 KB | This file. Where things are. |
-| [`STATUS.md`](STATUS.md) | 7 KB | What works today, what is known broken. **Read before assuming a feature is missing.** |
-| [`COMPONENTS.md`](COMPONENTS.md) | 9 KB | The UI component reference. |
-| [`RELEASING.md`](RELEASING.md) | 8 KB | Tag, build, sign, publish, updater manifest. |
-| [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Exactly what the PIN does and does not buy. |
-| [`SIGNAL-ANALYSIS.md`](SIGNAL-ANALYSIS.md) | 10 KB | Why MLS and not the Signal protocol. |
-| [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 10 KB | What must ship beside the `.exe`. |
+| [`CONTEXT.md`](CONTEXT.md) | 24 KB | This file. Where things are. |
+| [`STATUS.md`](STATUS.md) | 62 KB | What works today, what is known broken. **Read before assuming a feature is missing.** |
+| [`COMPONENTS.md`](COMPONENTS.md) | 8 KB | The UI component reference. |
+| [`RELEASING.md`](RELEASING.md) | 9 KB | Tag, build, sign, publish, updater manifest. |
+| [`PIN-ROTATION.md`](PIN-ROTATION.md) | 2 KB | Exactly what the PIN does and does not buy. |
+| [`SIGNAL-ANALYSIS.md`](SIGNAL-ANALYSIS.md) | 9 KB | Why MLS and not the Signal protocol. |
+| [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
-| [`DEVELOPMENT.md`](DEVELOPMENT.md) | 8 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
-| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 17 KB | Adversaries in and out of scope; what is deliberately not protected. |
-| [`TUTORIAL.md`](TUTORIAL.md) | 18 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
-| [`OPS.md`](OPS.md) | 19 KB | The Hetzner runbook. Deploy, TLS, backups, incidents. |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | 7 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
+| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 33 KB | Adversaries in and out of scope; what is deliberately not protected. |
+| [`TUTORIAL.md`](TUTORIAL.md) | 17 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
+| [`OPS.md`](OPS.md) | 21 KB | The Hetzner runbook. Deploy, TLS, backups, incidents. |
 | [`PLAN.md`](PLAN.md) | 22 KB | Milestones M0–M9 and the open risks. |
-| [`BRIEF.md`](BRIEF.md) | 28 KB | The original specification. The source of the §-numbers other docs cite. |
+| [`BRIEF.md`](BRIEF.md) | 26 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 30 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |
-| [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 39 KB | Why each technology decision beat its alternative. Background, not instruction. |
+| [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 37 KB | Why each technology decision beat its alternative. Background, not instruction. |
 
 **The two big ones are reference, not reading.** `BRIEF.md` and
-`RESEARCH-COMPARISON.md` are together 67 KB. When another document cites
+`RESEARCH-COMPARISON.md` are together 63 KB. When another document cites
 "brief §4.3", open that section — `grep -n "^### 4.3" docs/BRIEF.md` gives the
 line, then read the range. Reading either end to end is almost never the right
 move.
@@ -320,6 +321,34 @@ move.
   emitted. The worker died on a `text/html` 404, the map still drew, and every
   worker task ran on the main thread instead. Use `?worker&url` for anything
   with imports of its own.
+- **The client lock covers the store and MLS, never the network.** One mutex
+  in `apps/desktop/src-tauri/src/client.rs` guards the store, the MLS provider
+  and the transport together, because neither the `rusqlite::Connection` nor
+  the provider is `Sync`. Holding it across a download is what made opening a
+  photo delay an unrelated draft save by a second, and a playing video stutter
+  the whole app once per range request. The transport is therefore an `Arc`,
+  and the media paths take the lock only to read the payload and clone that
+  handle before letting go. Anything added later follows the same rule: hold
+  it for the store and MLS work, release it before the network.
+- **An open store cannot be deleted on Windows, and the wipe erases keys
+  first.** `nexo_store::delete` unlinks the database, and Windows refuses while
+  any handle is open — so anything wiping the store must drop `LoggedIn` (which
+  owns the `EncryptedStore`) *before* calling it. Sign-out did not, the unlink
+  failed with `os error 32`, and because the wipe was written as a chain of
+  `?`s that failure also skipped erasing the store key and the unlock PIN: the
+  app reported a successful sign-out with the database, its key and the PIN all
+  still on disk. `session::wipe_local` now erases the PIN and the key before it
+  touches the file, so a unlink that still fails leaves ciphertext nobody can
+  open, and no step can skip the ones after it. `delete_account` is split into
+  `delete_account_on_server` and `wipe_local` for the same reason: the server
+  has to answer first, and the handles have to close before the wipe, and the
+  only moment that satisfies both is between the two.
+- **A conversation's title is not a handle.** `title` is a label — for a DM
+  with no member list yet it is literally `"Unnamed conversation"` — and
+  looking it up as an account sends a doomed request on every render.
+  `features/messages/peer.ts::peerHandle` reads the member list and answers
+  `undefined` rather than guessing. The core records fixing the same
+  conflation once for groups; it survived in the UI for the untitled DM.
 - **The local store's schema version is one constant.**
   `crates/store/src/lib.rs` `SCHEMA_VERSION` and the last `PRAGMA
   user_version` in `migrate()` must agree; a test fails if they drift. Add a

@@ -918,9 +918,16 @@ the app worked, so nothing looked wrong.
 
   The map still drew — WebGL canvas, pins, zoom — so nothing looked broken,
   while everything MapLibre means to do off the main thread was happening on
-  it. This is the most likely cause of the horizontal banding while dragging
-  that the Meet&Greet section above records as an unexplained known gap; that
-  claim should be re-tested now rather than assumed fixed.
+  it.
+
+  **The banding is not this, and the guess here was wrong.** This paragraph
+  used to name the worker as the likely cause of the horizontal banding the
+  Meet&Greet section records, and asked for a re-test. The re-test has now been
+  done, by attaching to a release build and reading the target list: a `worker`
+  target is present and the module loads, so `?worker&url` did what it was
+  supposed to. The banding is still there, and visible while the map sits
+  still rather than only while dragging. Whatever causes it, it is not the
+  worker. The gap stays open with one cause ruled out.
 
   Fixed with `?worker&url`, which builds the worker with its imports included
   and still yields a same-origin asset URL — so the CSP reasoning in that file's
@@ -935,3 +942,113 @@ That is expected after the reinstall — the conversation *list* is server-side
 metadata, while history is local-only and went with the old store. Worth knowing
 that it also means a fresh identity keypair was generated for this device, which
 is the silent-rotation case §4 of the threat model calls out.
+
+---
+
+### Since v0.1.22: nine bugs found by driving the running app
+
+Found the way the last three were — attaching to the WebView2 of a real build
+over CDP and driving every surface — plus, this time, watching the process's
+own TCP connections from outside and running the client's live tests against a
+local server. Two of the nine were only visible from outside the process, and
+none of them failed a test that existed.
+
+**The socket itself was checked and is healthy**, which is worth writing down
+because it was the thing under suspicion: signed out, the app holds no
+connection and makes no IPC call; signing in brings up two long-lived TLS
+connections that then survived 32 minutes and a send without dropping;
+`send_message` took 101 ms and reused the pooled connection rather than
+opening one. `drain_stream` running every 500 ms is deliberate and costs about
+2 ms a call.
+
+- **Signing out did not delete the local store.** The worst of the nine.
+  `nexo_store::delete` unlinks the database, Windows refuses while it is open,
+  and `logout` ran with `LoggedIn` — which owns the connection — still in
+  place. The unlink failed with `os error 32`, and since the wipe was a chain
+  of `?`s that failure also skipped erasing the store key and the unlock PIN.
+  So sign-out reported success and left the database, the DPAPI-wrapped key
+  that opens it, and the PIN on disk, under a dialog that says "deletes its
+  local message store. Anything not synced is gone." Fixed by closing the
+  client first and by erasing the keys before the file, so a unlink that still
+  fails leaves ciphertext with no key rather than readable history.
+  `crates/client/tests/wipe.rs` covers both.
+
+- **Signing out left the previous conversation on screen.** `App` kept the
+  account in a local `useState` *and* mirrored it into the store; `useSignOut`
+  cleared only the mirror. The account chip emptied while the shell stayed
+  mounted — conversation list, message bodies, safety numbers and a live
+  composer, all belonging to a session that had ended. One copy now, in the
+  store.
+
+- **A second account inherited the first one's store.** Nothing keyed the store
+  by user, so signing a different handle in showed that account another's
+  conversations and message bodies — and `login` reused the stored identity
+  keypair, giving two accounts one cryptographic identity. Reachable without
+  doing anything strange: a retired refresh token drops the app to the sign-in
+  screen with the store still there. `register` and `login` now refuse a store
+  that belongs to someone else, and name them.
+
+- **A group could be marked verified against no digits.** A safety number is a
+  fingerprint over two identity keys, so there is none for a group — but the
+  panel drew the compare-these-digits instruction over an empty box with a live
+  "Mark as verified" under it, and pressing it recorded the verification and
+  then claimed "You compared these digits with this group and they matched",
+  green shield included. Rule 5, in the one place being wrong about what is
+  proven matters most. Groups now get an honest panel and no button.
+
+- **A group's name never reached its members.** `rename` has always sent the
+  title as an encrypted `Payload::Rename`, because the server holds no title;
+  creation only wrote it locally. The person who named the group was the only
+  one who saw the name. Now sent at creation too, after every member is
+  admitted so they are at an epoch that can read it.
+
+- **A conversation's title was used as a handle.** For a DM with no member list
+  the title is the literal string "Unnamed conversation", and `MessageList`
+  handed it to `HandleAvatar` as an account — so every visit to Messages or
+  Home sent `profile("unnamed conversation")` to the server and took a 404 for
+  it, twelve times in one session. The same conflation the core already
+  records fixing once for groups.
+
+- **A 404 arrived as an internal error.** `TransportError::NotFound` fell
+  through to `_` in the feed's error mapping and reached the page as
+  `kind: "internal"`, "Something went wrong. Try again." — so a thing that is
+  not there and a client that is broken were the same answer.
+
+- **Videos sealed whole could never play.** `stream_info` answers only for the
+  segmented encoding, and everything sent before `encrypt_segmented` existed
+  has `segmented: false`; the media scheme turned that into a 404. Meanwhile
+  the page picks the player from the declared MIME alone, so those attachments
+  got a `<video>` whose source always failed and which drew a dead player at
+  0:00. The scheme now falls back to the whole file and answers ranges out of
+  it.
+
+- **The profile's post list dropped everything but the body**, so a link post
+  — which has a title and a URL and no body — rendered as a blank card, an
+  image post as an empty one, and every title everywhere vanished. The feed had
+  always shown all of it.
+
+Smaller, in the same round: reactions survived "Delete for everyone", leaving a
+thumbs-up under "You took this back"; deleting a post asked for no confirmation
+while taking back a message always has; a folder's delete button was
+`hidden group-hover:flex`, which takes it out of the tab order as well as out
+of sight, and a folder chip has no menu; and the header's magnifier opened a
+notice promising full-text search "with the local encrypted store (M2)" — long
+shipped, and the conversation list has been running it against the FTS index
+ever since.
+
+**Checked and cleared, so nobody re-opens them:** Enter *does* submit the
+new-folder name — that field sits in a real `<form>` with a submit button, and
+an earlier report to the contrary was an artifact of dispatching a synthetic
+key event, which does not trigger a native default action. And auto-lock could
+not be shown to be broken: the timer registers and ticks, and the one run that
+overshot its deadline had pointer activity in it, which is what the timer
+watches.
+
+**Known and deliberately not fixed here:** one slow media decrypt blocks every
+other IPC call. `with_client` holds a single mutex over `LoggedIn` for the
+whole operation, so a 1.5-second `attachment_data_url` measurably delayed an
+unrelated `set_draft` behind it. Fixing it is not a bug fix: `LoggedIn` owns a
+SQLCipher `Connection` and the MLS provider, neither of which is `Sync`, so
+real concurrency means a connection pool and reworked provider access — a
+change to the two things the invariants guard hardest, and one that deserves
+its own design rather than a line in a fix pass.

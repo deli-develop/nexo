@@ -228,6 +228,8 @@ interface AppState {
    * is what that button has always meant.
    */
   viewingHandle: string | null;
+  /** Incremented by `requestMessageSearch`; the list focuses on a change. */
+  searchRequest: number;
   activeConversationId: string;
   /** User intent for the context panel, before the viewport gets a say. */
   contextPanelOpen: boolean;
@@ -274,6 +276,8 @@ interface AppState {
   openConversation: (id: string) => void;
   toggleContextPanel: () => void;
   setListDrawer: (open: boolean) => void;
+  /** Bumped to ask the conversation list to focus its search box. */
+  requestMessageSearch: () => void;
   setHomeSearchQuery: (query: string) => void;
   setBackdropReport: (report: BackdropReport) => void;
   toggleConversationFlag: (id: string, flag: "pinned" | "archived") => void;
@@ -294,6 +298,7 @@ export const useApp = create<AppState>()(
       locked: false,
       route: "messages",
       viewingHandle: null,
+      searchRequest: 0,
       activeConversationId: "",
       contextPanelOpen: true,
       listDrawerOpen: false,
@@ -328,6 +333,8 @@ export const useApp = create<AppState>()(
       openConversation: (id) => set({ activeConversationId: id, listDrawerOpen: false }),
       toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
       setListDrawer: (open) => set({ listDrawerOpen: open }),
+      requestMessageSearch: () =>
+        set((s) => ({ listDrawerOpen: false, searchRequest: s.searchRequest + 1 })),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),
       toggleConversationFlag: (id, flag) =>
         set((s) => {

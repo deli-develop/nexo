@@ -11,6 +11,7 @@ import { HomePage } from "./features/home/HomePage";
 import { MeetPage } from "./features/meet/MeetPage";
 import { MessagesHeader } from "./features/messages/MessagesHeader";
 import { MessagesPage } from "./features/messages/MessagesPage";
+import { useConversations } from "./app/useConversations";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { PublicProfile } from "./features/profile/PublicProfile";
 import { AuthPage } from "./features/auth/AuthPage";
@@ -60,6 +61,18 @@ function AppShell({ account }: { account: Account }) {
   const now = useMemo(() => new Date(), []);
   const unread = totalUnread(unreadLedger);
 
+  // One live view of the conversations, for the whole Messages route.
+  //
+  // The header and the page are siblings and each used to call
+  // `useConversations` for itself. Every hook instance subscribes to the sync
+  // agent and re-reads on each pass, so one 4-second poll produced two
+  // identical rounds of `list_conversations`, `conversation_messages` and
+  // `safety_number` -- the last of which is an MLS operation -- and, worse,
+  // two independent copies of the same state that could disagree about what
+  // is on screen. Mounted here, where both can be handed the same one.
+  const activeId = useApp((s) => s.activeConversationId);
+  const live = useConversations(activeId || undefined);
+
   // The one sync loop (M8): flush the offline queue, pull, badge, toast. It
   // lives for as long as someone is signed in and stops with the shell.
   useEffect(() => startSyncAgent(), []);
@@ -80,7 +93,7 @@ function AppShell({ account }: { account: Account }) {
     <div className="relative h-full overflow-hidden">
       <div className="app-field absolute inset-0 flex flex-col overflow-hidden">
         <TopBar maximized={maximized}>
-          {route === "messages" ? <MessagesHeader now={now} /> : null}
+          {route === "messages" ? <MessagesHeader now={now} live={live} /> : null}
           {route === "home" ? (
             <PageTitleCell
               title="Home"
@@ -117,7 +130,7 @@ function AppShell({ account }: { account: Account }) {
           <IconRail unread={unread} />
           {route === "home" ? <HomePage now={now} /> : null}
           {route === "meet" ? <MeetPage /> : null}
-          {route === "messages" ? <MessagesPage now={now} /> : null}
+          {route === "messages" ? <MessagesPage now={now} live={live} /> : null}
           {route === "profile" ? (
             viewingHandle ? (
               <PublicProfile handle={viewingHandle} now={now} />
@@ -144,18 +157,17 @@ function AppShell({ account }: { account: Account }) {
  * opens to its own account rather than to a sign-in prompt it cannot satisfy.
  */
 export function App() {
-  // Mirrored into the store as well as held here. The local copy drives the
-  // sign-in/app switch below; the store copy is what the feed, the composer,
-  // and the profile read without four levels of prop drilling.
-  const [account, setLocalAccount] = useState<Account | null>(null);
-  const setStoreAccount = useApp((s) => s.setAccount);
-  const setAccount = useCallback(
-    (next: Account | null) => {
-      setLocalAccount(next);
-      setStoreAccount(next);
-    },
-    [setStoreAccount],
-  );
+  // One copy, in the store, and the sign-in/app switch below reads it.
+  //
+  // There used to be two: a local `useState` that drove the switch and a
+  // mirror in the store that everything else read. Signing out only cleared
+  // the mirror -- `useSignOut` reaches for the store's setter, which is the
+  // obvious one to reach for -- so the account chip emptied while the shell
+  // stayed mounted, leaving the conversation list, the message bodies and the
+  // safety numbers of a session that had just ended on screen behind a live
+  // composer. Two sources of truth for "who is signed in" is one too many.
+  const account = useApp((s) => s.account);
+  const setAccount = useApp((s) => s.setAccount);
   const [checked, setChecked] = useState(false);
 
   // Theme, accent, depth and transparency, on the root element. Here rather
@@ -167,7 +179,6 @@ export function App() {
   // and doing that mid-sign-in would throw away a half-typed password.
   useAutoUpdate(checked);
   const locked = useApp((s) => s.locked);
-  const storeAccount = useApp((s) => s.account);
   const setMyAvatarKey = useApp((s) => s.setMyAvatarKey);
   const setLocked = useApp((s) => s.setLocked);
   const maximized = useMaximized();
@@ -202,7 +213,7 @@ export function App() {
   // Failure is silent on purpose: not knowing your avatar means the fallback,
   // which is what was drawn before anyway. It is not worth a banner.
   useEffect(() => {
-    if (!storeAccount) return;
+    if (!account) return;
     let cancelled = false;
     void myProfile()
       .then((me) => {
@@ -212,7 +223,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [storeAccount, setMyAvatarKey]);
+  }, [account, setMyAvatarKey]);
 
   // Whether this machine has an unlock PIN. `null` while the question is out.
   //

@@ -45,6 +45,13 @@ pub enum SessionError {
     /// Identity key material was rejected.
     #[error(transparent)]
     Identity(#[from] nexo_crypto::identity::IdentityError),
+    /// The store on this machine belongs to somebody else.
+    ///
+    /// Carries the handle it belongs to, because the only way out is to sign
+    /// in as that account and sign out of it, and a message that cannot name
+    /// it is a message nobody can act on.
+    #[error("this device is signed in as @{0}")]
+    DifferentAccount(String),
 }
 
 /// A signed-in session.
@@ -158,6 +165,7 @@ where
     )?;
 
     let store = open_store(keystore, store_path)?;
+    guard_store_belongs_to(&store, handle)?;
     store.set_identity(&*identity.secret_bytes(), &public)?;
     store.set_account(tokens.user_id, handle, display_name, &tokens.device_id)?;
     store.set_refresh_token(&tokens.refresh_token)?;
@@ -196,6 +204,7 @@ where
     let verifier = derive_verifier(password, &salt, salt_response.argon2)?;
 
     let store = open_store(keystore, store_path)?;
+    guard_store_belongs_to(&store, handle)?;
     let identity = match store.identity()? {
         Some((secret, _public)) => IdentityKeypair::from_secret_bytes(&secret)?,
         None => IdentityKeypair::generate(),
@@ -376,10 +385,29 @@ where
 {
     let server = transport.logout(refresh_token);
 
-    nexo_store::delete(store_path)?;
-    keystore
-        .erase(nexo_platform::STORE_KEY_NAME)
-        .map_err(|e| SessionError::Keystore(e.to_string()))?;
+    // The keys go before the file, and no step is allowed to skip another.
+    //
+    // Both rules are here because of the same failure. This used to read
+    // `delete(...)?; erase(...)?; pin::clear(...)?`, and on Windows the unlink
+    // fails whenever anything still holds the database open -- so the `?` on
+    // the first line returned early and the store key and the PIN were never
+    // erased. Sign-out reported an error nobody surfaced, and left the
+    // database *and* the key that opens it sitting on disk.
+    //
+    // Erasing first inverts the worst case. If the unlink still fails -- a
+    // handle this crate does not own, a virus scanner holding the file -- what
+    // is left behind is ciphertext with no key anywhere on the machine, rather
+    // than a readable history. And every step now runs regardless of what the
+    // ones before it did; the first failure is remembered and reported at the
+    // end.
+    let mut failure: Option<SessionError> = None;
+    let mut remember = |result: Result<(), SessionError>| {
+        if let Err(e) = result
+            && failure.is_none()
+        {
+            failure = Some(e);
+        }
+    };
 
     // The unlock PIN goes with it.
     //
@@ -389,7 +417,17 @@ where
     // the previous account's failed-attempt counter was still counting. The
     // PIN only ever unlocked the store that was just deleted, so keeping it is
     // not caution -- it is a dead credential with a live prompt in front of it.
-    crate::pin::clear(keystore).map_err(|e| SessionError::Keystore(e.to_string()))?;
+    remember(crate::pin::clear(keystore).map_err(|e| SessionError::Keystore(e.to_string())));
+    remember(
+        keystore
+            .erase(nexo_platform::STORE_KEY_NAME)
+            .map_err(|e| SessionError::Keystore(e.to_string())),
+    );
+    remember(nexo_store::delete(store_path).map_err(SessionError::from));
+
+    if let Some(e) = failure {
+        return Err(e);
+    }
 
     // Only now surface a server-side failure, and only as an error the caller
     // can report rather than one that skipped the wipe.
@@ -424,19 +462,91 @@ pub fn delete_account<T: Transport, S: SecureStore>(
 where
     S::Error: 'static,
 {
+    delete_account_on_server(transport, handle, password)?;
+    wipe_local(keystore, store_path)
+}
+
+/// Proves the password to the server and deletes the account there.
+///
+/// Split out from [`delete_account`] so a shell that holds the store open can
+/// close it between the two halves. On Windows an open database cannot be
+/// unlinked, and the order this function exists to preserve -- server first,
+/// disk second -- leaves no other moment to do it in.
+pub fn delete_account_on_server<T: Transport>(
+    transport: &T,
+    handle: &str,
+    password: &str,
+) -> Result<(), SessionError> {
     let salt_response = transport.salt(handle)?;
     let salt = unhex(&salt_response.salt)?;
     let verifier = derive_verifier(password, &salt, salt_response.argon2)?;
 
     // Before anything local. If this refuses, nothing has been lost.
     transport.delete_account(&hex(&verifier))?;
-
-    nexo_store::delete(store_path)?;
-    keystore
-        .erase(nexo_platform::STORE_KEY_NAME)
-        .map_err(|e| SessionError::Keystore(e.to_string()))?;
-    crate::pin::clear(keystore).map_err(|e| SessionError::Keystore(e.to_string()))?;
     Ok(())
+}
+
+/// Destroys everything this machine holds for an account: the PIN, the store
+/// key, then the database itself.
+///
+/// The order and the error handling are the ones [`logout`] explains: keys
+/// first, so a unlink that cannot happen leaves ciphertext with no key rather
+/// than a readable history, and one failure never skips the steps after it.
+///
+/// The caller must have dropped every handle to the store before calling this.
+pub fn wipe_local<S: SecureStore>(
+    keystore: &S,
+    store_path: &std::path::Path,
+) -> Result<(), SessionError>
+where
+    S::Error: 'static,
+{
+    let mut failure: Option<SessionError> = None;
+    let mut remember = |result: Result<(), SessionError>| {
+        if let Err(e) = result
+            && failure.is_none()
+        {
+            failure = Some(e);
+        }
+    };
+    remember(crate::pin::clear(keystore).map_err(|e| SessionError::Keystore(e.to_string())));
+    remember(
+        keystore
+            .erase(nexo_platform::STORE_KEY_NAME)
+            .map_err(|e| SessionError::Keystore(e.to_string())),
+    );
+    remember(nexo_store::delete(store_path).map_err(SessionError::from));
+
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Refuses a store that belongs to a different account.
+///
+/// A store is one account's. Nothing about it is keyed by user, so signing a
+/// second account into an existing one hands that account the first one's
+/// conversations, its message bodies, its peers and its verification state --
+/// and `login` would go further and reuse the stored identity keypair, giving
+/// two accounts one cryptographic identity and carrying safety numbers across
+/// the boundary they exist to mark.
+///
+/// This is reachable without anybody doing anything strange: a refresh token
+/// the server has retired drops the app to the sign-in screen with the store
+/// still on disk, and the next handle typed there need not be the same one.
+///
+/// It refuses rather than wiping. The data belongs to the account named in the
+/// error, not to the one signing in, and destroying somebody's only copy of
+/// their history -- the server keeps none -- is not a decision this function
+/// gets to make on its own. Signing out is what erases it, and it now does.
+fn guard_store_belongs_to(store: &EncryptedStore, handle: &str) -> Result<(), SessionError> {
+    match store.account()? {
+        Some(existing) if !existing.handle.eq_ignore_ascii_case(handle) => {
+            Err(SessionError::DifferentAccount(existing.handle))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn open_store<S: SecureStore>(

@@ -596,9 +596,43 @@ function PostsTab({
           className="rounded-panel border border-line bg-fill p-4"
         >
           <div className="flex items-start gap-3">
-            <p className="text-text-hi flex-1 text-body leading-relaxed whitespace-pre-wrap">
-              {post.body}
-            </p>
+            {/* A post is not only its body.
+                This used to render `post.body` and nothing else, so a link
+                post -- which carries a title and a URL and no body at all --
+                drew a completely blank card, an image post drew an empty one
+                with the pictures only visible under Media, and every title
+                anywhere was dropped. The feed had always shown all of it; only
+                the profile threw it away. */}
+            <div className="flex-1 space-y-1.5">
+              {post.title ? (
+                <p className="text-text-hi font-display text-[15px] font-medium">
+                  {post.title}
+                </p>
+              ) : null}
+              {post.body ? (
+                <p className="text-text-hi text-body leading-relaxed whitespace-pre-wrap">
+                  {post.body}
+                </p>
+              ) : null}
+              {post.link_url ? (
+                <button
+                  type="button"
+                  onClick={() => void openUrl(post.link_url as string)}
+                  className="text-accent-soft inline-flex max-w-full items-center gap-1.5 text-meta hover:opacity-80"
+                >
+                  <Icon name="link" size={12} />
+                  <span className="truncate">{post.link_url}</span>
+                </button>
+              ) : null}
+              {post.media_keys.length > 0 ? (
+                <p className="text-text-lo inline-flex items-center gap-1.5 text-meta">
+                  <Icon name="image" size={12} />
+                  {post.media_keys.length === 1
+                    ? "1 picture"
+                    : `${post.media_keys.length} pictures`}
+                </p>
+              ) : null}
+            </div>
             <IconButton
               name="pin"
               label={

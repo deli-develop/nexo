@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isMuted, useApp } from "../../app/store";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
@@ -98,7 +98,13 @@ function FolderChip({
           type="button"
           aria-label={`Delete the folder ${label}`}
           onClick={() => void onRemove()}
-          className="bg-surface-2 text-text-lo hover:text-text-hi ring-line absolute -top-1 -right-1 hidden size-4 items-center justify-center rounded-full ring-1 group-hover:flex"
+          // Faded, not absent. It used to be `hidden group-hover:flex`, and
+          // `display: none` takes an element out of the tab order as well as
+          // out of sight -- so the only way to delete a folder was to know it
+          // was there and put a pointer on it. There is no menu on a folder
+          // chip and no other route. Opacity keeps it reachable, and
+          // `group-focus-within` means tabbing to it reveals it.
+          className="bg-surface-2 text-text-lo hover:text-text-hi ring-line absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full opacity-0 ring-1 transition-opacity duration-[var(--motion-fast)] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
         >
           <Icon name="close" size={9} />
         </button>
@@ -186,6 +192,19 @@ export function ConversationList({
   // description.
   const [matching, setMatching] = useState<ReadonlySet<string> | null>(null);
   const term = query.trim();
+
+  // Focused when the header's magnifier is pressed. That button used to open
+  // a notice saying full-text search "arrives with the local encrypted store
+  // (M2)" -- which shipped, and which this box has been using ever since:
+  // `searchMessages` runs the FTS index over message bodies. The control was
+  // apologising for something the app already did.
+  const searchBox = useRef<HTMLInputElement>(null);
+  const searchRequest = useApp((s) => s.searchRequest);
+  useEffect(() => {
+    if (searchRequest === 0) return;
+    searchBox.current?.focus();
+    searchBox.current?.select();
+  }, [searchRequest]);
 
   useEffect(() => {
     if (!term) {
@@ -385,6 +404,7 @@ export function ConversationList({
       <div className="flex items-end gap-2 px-3 py-3">
         <div className="min-w-0 flex-1">
           <Field
+            ref={searchBox}
             label="Search"
             hideLabel
             icon="search"

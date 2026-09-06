@@ -52,6 +52,13 @@ impl From<nexo_client::transport::TransportError> for FeedErrorView {
             // up to 2000 characters." -- so passing them through is more useful
             // than replacing them with something generic.
             TransportError::Rejected(detail) => failure("rejected", detail),
+            // A thing that is not there is not a malfunction. This used to
+            // fall into the arm below and reach the page as
+            // `kind: "internal"`, "Something went wrong. Try again." -- so a
+            // handle that does not exist and a client that is broken were the
+            // same answer, and nothing could tell them apart or say the
+            // truthful thing about either.
+            TransportError::NotFound => failure("not_found", "That isn't there any more."),
             _ => failure("internal", "Something went wrong. Try again."),
         }
     }
@@ -386,7 +393,37 @@ pub async fn profile(
 /// Your own profile, with nothing hidden.
 #[tauri::command]
 pub async fn my_profile(state: State<'_, ClientState>) -> Result<MyProfile, FeedErrorView> {
-    with_client(&state, |client| Ok(client.transport.my_profile()?)).await
+    with_client(&state, |client| {
+        let mine = client.transport.my_profile()?;
+
+        // Write the display name back into the account row, which is the only
+        // thing that ever corrects it.
+        //
+        // `session::login` keeps whatever name the store already had, because
+        // the login response carries none and defaulting to the handle would
+        // rename the account on every sign-in. On a store with no account row
+        // yet that fallback *is* the handle, and nothing afterwards replaced
+        // it: the rail and the message header read "@handle" while the profile
+        // page -- which asks the server -- read the real name, and editing the
+        // profile did not reconcile them either. This is the fetch that knows
+        // both, so it is the one that settles it.
+        // Best effort: this is a cached copy of something the server just
+        // told us, so failing to write it is not a reason to fail the read.
+        if let Ok(Some(account)) = client.store.account()
+            && account.display_name != mine.profile.display_name
+            && let Err(e) = client.store.set_account(
+                account.user_id,
+                &account.handle,
+                &mine.profile.display_name,
+                &account.device_id,
+            )
+        {
+            tracing::warn!(%e, "could not cache the display name");
+        }
+
+        Ok(mine)
+    })
+    .await
 }
 
 /// What the Edit Profile form sends.

@@ -17,8 +17,6 @@
 //! DPAPI-wrapped store key beside it. Nothing here is a second implementation
 //! of anything — it is `nexo_client` used the way the Tauri shell uses it.
 
-#![cfg(feature = "http")]
-
 use std::path::PathBuf;
 
 use nexo_client::conversations::{self, Context};
@@ -26,13 +24,13 @@ use nexo_client::transport::Transport;
 use nexo_client::{HttpTransport, session};
 use nexo_crypto::identity::IdentityKeypair;
 use nexo_crypto::mls::credential_for;
+use nexo_platform::dpapi::DpapiStore;
+use nexo_protocol::{ConversationId, DeviceId};
+use nexo_store::EncryptedStore;
 use openmls::prelude::CredentialWithKey;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider;
-use nexo_platform::dpapi::DpapiStore;
-use nexo_protocol::{ConversationId, DeviceId};
-use nexo_store::EncryptedStore;
 
 fn home(handle: &str) -> PathBuf {
     let dir = std::env::temp_dir().join("nexo-peer").join(handle);
@@ -66,11 +64,9 @@ impl Peer {
         transport.set_access_token(&session.access_token);
         transport.set_refresh_token(&session.refresh_token);
 
-        let store = EncryptedStore::open(
-            &db,
-            &nexo_store::key::load_or_create(&keystore).unwrap().0,
-        )
-        .expect("open the peer's store");
+        let store =
+            EncryptedStore::open(&db, &nexo_store::key::load_or_create(&keystore).unwrap().0)
+                .expect("open the peer's store");
 
         let (secret, _public) = store.identity().unwrap().expect("an identity was stored");
         let identity = IdentityKeypair::from_secret_bytes(&secret).unwrap();
@@ -80,7 +76,13 @@ impl Peer {
         let provider = nexo_client::mls_state::load(&store).expect("load MLS state");
         signer.store(provider.storage()).expect("store the signer");
 
-        Self { transport, provider, store, signer, credential }
+        Self {
+            transport,
+            provider,
+            store,
+            signer,
+            credential,
+        }
     }
 
     fn ctx(&self) -> Context<'_, HttpTransport> {
@@ -102,7 +104,9 @@ fn main() {
     };
 
     let password = if command == "login" {
-        rest.first().cloned().unwrap_or_else(|| "a-development-password".into())
+        rest.first()
+            .cloned()
+            .unwrap_or_else(|| "a-development-password".into())
     } else {
         "a-development-password".into()
     };
@@ -123,16 +127,35 @@ fn main() {
         }
         "group" => {
             let members: Vec<&str> = rest.iter().map(String::as_str).collect();
-            let (title, handles) = members.split_first().expect("a title and at least one handle");
+            let (title, handles) = members
+                .split_first()
+                .expect("a title and at least one handle");
             let handles: Vec<String> = handles.iter().map(|h| (*h).to_string()).collect();
-            let id = conversations::start_group_with(&ctx, &handles, title)
-                .expect("start a group");
+            let id = conversations::start_group_with(&ctx, &handles, title).expect("start a group");
             println!("{id}");
         }
         "add" => {
             let id: ConversationId = rest[0].parse().expect("a conversation id");
             conversations::add_to(&ctx, id, &rest[1]).expect("add a member");
             println!("added {} to {id}", rest[1]);
+        }
+        "photo" => {
+            // A big, incompressible JPEG, so opening it on the other side is a
+            // download worth measuring rather than an instant one.
+            let id: ConversationId = rest[0].parse().expect("a conversation id");
+            let bytes: usize = rest
+                .get(1)
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(3_000_000);
+            let mut contents = vec![0xFF, 0xD8, 0xFF, 0xE0];
+            let mut seed: u32 = 0x9E37_79B9;
+            while contents.len() < bytes {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                contents.extend_from_slice(&seed.to_le_bytes());
+            }
+            conversations::send_attachment(&ctx, id, "big.jpg", "image/jpeg", &contents, None, None)
+                .expect("send an attachment");
+            println!("sent {} bytes", contents.len());
         }
         "send" => {
             let id: ConversationId = rest[0].parse().expect("a conversation id");
@@ -149,7 +172,10 @@ fn main() {
                 match conversations::sync(&ctx, id) {
                     Ok(o) => {
                         total += o.messages;
-                        println!("{id}: {} new, {} skipped, {} failed", o.messages, o.skipped, o.failed);
+                        println!(
+                            "{id}: {} new, {} skipped, {} failed",
+                            o.messages, o.skipped, o.failed
+                        );
                     }
                     Err(e) => println!("{id}: sync failed: {e}"),
                 }
@@ -158,7 +184,12 @@ fn main() {
         }
         "list" => {
             for c in peer.store.conversations().expect("conversations") {
-                println!("--- {} [{}] {:?}", c.id, c.kind.unwrap_or_default(), c.title);
+                println!(
+                    "--- {} [{}] {:?}",
+                    c.id,
+                    c.kind.unwrap_or_default(),
+                    c.title
+                );
                 for m in peer.store.messages(&c.id).expect("messages") {
                     let who = match &m.sender_device_id {
                         Some(d) => format!("them({d})"),

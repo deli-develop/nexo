@@ -246,6 +246,38 @@ function Encryption({
   onVerified: () => Promise<void>;
 }) {
   const groups = safetyNumber(conversation.safetyDigits);
+
+  // A group has no number to compare, and must not be offered one.
+  //
+  // A safety number is a fingerprint over *two* identity keys, so
+  // `safety_number` returns nothing for a conversation with more than two
+  // people in it. This panel used to render the compare-these-digits
+  // instruction anyway, above an empty box, with a live "Mark as verified"
+  // underneath -- and pressing it recorded a verification that had compared
+  // nothing and then said so: "You compared these digits with this group and
+  // they matched", beside a green shield. That is the overstatement rule 5
+  // exists to prevent, in the one place in the app where being wrong about
+  // what is proven matters most.
+  if (groups.length === 0) {
+    return (
+      <section className="space-y-3">
+        <SectionHead label="Encryption" onSeeAll={false} />
+        <p className="text-text-mid text-meta leading-relaxed">
+          <Icon
+            name="shield"
+            size={13}
+            className="text-text-lo mr-1.5 inline align-[-2px]"
+          />
+          Messages here are end-to-end encrypted, and only the people in this
+          conversation can read them. There is nothing to compare: safety
+          numbers are a fingerprint over two people&rsquo;s keys, so they exist
+          in a one-to-one conversation and not in a group. To verify somebody
+          here, open the conversation you have with them alone.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-3">
       <SectionHead label="Encryption" onSeeAll={false} />

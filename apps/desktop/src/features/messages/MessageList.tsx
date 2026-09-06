@@ -48,6 +48,7 @@ import type {
 } from "../../lib/types";
 import { Avatar } from "../../components/ui/Avatar";
 import { HandleAvatar } from "../../components/ui/HandleAvatar";
+import { peerHandle } from "./peer";
 import { IconButton } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { DeliveryTick } from "./ConversationList";
@@ -592,11 +593,20 @@ function Bubble({
       },
     ),
   );
+  // The peer's *handle*, which is not the conversation's title.
+  //
+  // This used to read `conversation.title`, and a title is a label: for a DM
+  // whose member list has not been filled in it is the literal string
+  // "Unnamed conversation", which `HandleAvatar` then looked up as an account.
+  // Every visit to Messages or Home sent `profile("unnamed conversation")` to
+  // the server and took a 404 for it. It is the same conflation the core's
+  // `list_conversations` already records fixing once for groups -- "looked up
+  // a group's title as if it were somebody's handle" -- which survived here
+  // for the untitled DM. `peerHandle` reads the member list, and answers
+  // `undefined` rather than guessing when there is nobody to name.
   const authorHandle = mine
     ? (account?.handle ?? "")
-    : conversation.kind === "dm"
-      ? conversation.title
-      : "";
+    : (peerHandle(conversation, account?.handle) ?? "");
   const showReceipts = useApp((s) => s.preferences.readReceipts);
 
   return (

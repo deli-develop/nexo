@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../app/store";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
-import { notify, openUrl, pickFile } from "../../lib/native";
+import { confirm, notify, openUrl, pickFile } from "../../lib/native";
 import { useFeed, type NewPostInput } from "../../app/useFeed";
 import { RemoteImage } from "../../components/ui/RemoteImage";
 import { Stories } from "./Stories";
@@ -255,7 +255,21 @@ export function HomePage({ now }: { now: Date }) {
                       post={post}
                       now={now}
                       index={index}
-                      onDelete={() => void live.remove(post.id)}
+                      onDelete={() =>
+                        void (async () => {
+                          // Asked, like every other destructive entry in the
+                          // app. Deleting a post used to happen on the first
+                          // click of a small icon sitting beside the vote
+                          // arrows, with no way back -- while taking back a
+                          // *message*, which reaches fewer people, has always
+                          // asked first.
+                          const ok = await confirm(
+                            "Delete this post?",
+                            "It goes from your profile and from everyone's feed, along with its comments and reactions. This cannot be undone.",
+                          );
+                          if (ok) await live.remove(post.id);
+                        })()
+                      }
                       onReact={(emoji) =>
                         void live.toggleReaction(post.id, emoji)
                       }

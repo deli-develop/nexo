@@ -85,6 +85,12 @@ impl From<SessionError> for AuthErrorView {
             SessionError::Transport(TransportError::Rejected(detail)) => {
                 ("rejected", detail.clone())
             }
+            SessionError::DifferentAccount(handle) => (
+                "different_account",
+                format!(
+                    "This device is still signed in as @{handle}. Sign in as @{handle} and                      sign out to clear its messages from this machine first — they are the                      only copy, and the server keeps none."
+                ),
+            ),
             SessionError::Store(nexo_store::StoreError::WrongKey { .. }) => (
                 "store_unreadable",
                 "This machine's local data can't be opened. Signing in again will start a \
@@ -581,6 +587,26 @@ pub async fn logout(
         .map(|s| s.refresh_token.clone())
         .unwrap_or_default();
 
+    // Everything in memory goes *before* the wipe, not after, and the order is
+    // the whole point on Windows.
+    //
+    // `LoggedIn` owns the `EncryptedStore`, which owns an open handle to
+    // `store.db`. Windows refuses to unlink a file that is still open, so
+    // deleting the store while this state was alive failed with `os error 32`
+    // -- and because the wipe is written as `delete(...)?`, that failure also
+    // skipped erasing the store key and the unlock PIN below it. Sign-out then
+    // reported success while the database, the DPAPI-wrapped key that opens it
+    // and the PIN were all still on disk: exactly the outcome the dialog
+    // promises does not happen.
+    //
+    // Dropping the client first closes the connection, so the unlink succeeds.
+    // Doing it before the server call as well costs nothing: the tokens are
+    // dead either way, and `session::logout` wipes whatever the server says.
+    *state.0.lock().expect("session lock") = None;
+    if let Ok(mut guard) = client_state.0.lock() {
+        *guard = None;
+    }
+
     let result = tauri::async_runtime::spawn_blocking(move || {
         let transport = HttpTransport::new();
         session::logout(&transport, &keystore, &path, &refresh_token)
@@ -593,13 +619,6 @@ pub async fn logout(
             message: "Something went wrong. Try again.".to_string(),
         }
     })?;
-
-    // Drop everything in memory whatever the server said. The tokens are
-    // useless now, and the store they refer to has just been deleted.
-    *state.0.lock().expect("session lock") = None;
-    if let Ok(mut guard) = client_state.0.lock() {
-        *guard = None;
-    }
 
     // And everything this app put *outside* its own window.
     //
@@ -636,9 +655,15 @@ pub async fn delete_account(
     let path = store_path()?;
     let keystore = keystore()?;
 
+    // Two halves, with the store closed in between, and the order is forced
+    // from both ends. The server has to answer first -- wiping locally and
+    // then being refused would leave an account that still exists and that
+    // nothing here can reach. But the database cannot be unlinked on Windows
+    // while `LoggedIn` still holds it open, so the handles have to go before
+    // the wipe. The only moment that satisfies both is between the two.
     tauri::async_runtime::spawn_blocking(move || {
         let transport = HttpTransport::new();
-        session::delete_account(&transport, &keystore, &path, &handle, &password)
+        session::delete_account_on_server(&transport, &handle, &password)
     })
     .await
     .map_err(|e| {
@@ -650,12 +675,24 @@ pub async fn delete_account(
     })?
     .map_err(AuthErrorView::from)?;
 
-    // Only after the core reported success. Everything below is cleanup of an
-    // account that no longer exists anywhere.
+    // The account is gone on the server. Close everything this process holds
+    // before asking the filesystem to remove it.
     *state.0.lock().expect("session lock") = None;
     if let Ok(mut guard) = client_state.0.lock() {
         *guard = None;
     }
+
+    tauri::async_runtime::spawn_blocking(move || session::wipe_local(&keystore, &path))
+        .await
+        .map_err(|e| {
+            tracing::error!(%e, "wipe task panicked");
+            AuthErrorView {
+                kind: "internal",
+                message: "Something went wrong. Try again.".to_string(),
+            }
+        })?
+        .map_err(AuthErrorView::from)?;
+
     crate::windows::forget_account(&app);
 
     tracing::info!("account deleted");

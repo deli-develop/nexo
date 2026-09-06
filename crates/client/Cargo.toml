@@ -38,3 +38,10 @@ thiserror.workspace = true
 # The HTTP transport. Off by default so the crate stays free of a network stack
 # for any shell that wants to bring its own (brief 12).
 http = ["dep:ureq", "dep:tungstenite"]
+
+# The headless peer, for driving the desktop app against a real second client.
+# It needs the transport, and `--all-targets` without the feature would
+# otherwise try to build an example whose whole body is behind a `cfg`.
+[[example]]
+name = "peer"
+required-features = ["http"]

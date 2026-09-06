@@ -1958,25 +1958,49 @@ pub async fn attachment_data_url(
     state: State<'_, ClientState>,
     envelope_id: i64,
 ) -> Result<String, ConversationErrorView> {
-    with_client(&state, move |client| {
-        let attachment = conversations::fetch_attachment_by_id(&client.context(), envelope_id)?;
+    // Read under the lock, download outside it.
+    //
+    // The client lock covers the store, the MLS provider and the transport
+    // together, and every command used to hold it for its whole duration. A
+    // photo is a download and a decryption -- measured at about a second and a
+    // half -- and while it ran, every other IPC call queued behind it: the
+    // draft save from the message being typed at the time took 1.2 seconds for
+    // no reason of its own. The store read is the only part that needs the
+    // lock, so it is the only part that keeps it.
+    let (transport, payload) = with_client(&state, move |client| {
+        let payload = conversations::attachment_payload(&client.store, envelope_id)?;
+        Ok((client.transport.clone(), payload))
+    })
+    .await?;
 
-        if attachment.contents.len() > crate::feed::MAX_INLINE_IMAGE_BYTES {
-            return Err(failure(
-                "too_large",
-                "That file is too large to open here. Save it instead.",
-            ));
-        }
-        let mime = crate::feed::sniff_mime(&attachment.contents);
-        if !crate::feed::is_playable(mime) {
-            return Err(failure(
-                "not_renderable",
-                "That attachment is not a picture, a video or a sound.",
-            ));
-        }
-        Ok(crate::feed::data_url(mime, &attachment.contents))
+    let contents = tauri::async_runtime::spawn_blocking(move || {
+        conversations::fetch_attachment_with(&*transport, &payload)
     })
     .await
+    .map_err(|e| {
+        tracing::error!(%e, "an attachment task panicked");
+        failure("internal", "Something went wrong. Try again.")
+    })?
+    .map_err(ConversationErrorView::from)?;
+
+    // Back under the lock, briefly: a rotated refresh token has to reach the
+    // store, and `with_client` is what drains it.
+    with_client(&state, |_| Ok(())).await?;
+
+    if contents.len() > crate::feed::MAX_INLINE_IMAGE_BYTES {
+        return Err(failure(
+            "too_large",
+            "That file is too large to open here. Save it instead.",
+        ));
+    }
+    let mime = crate::feed::sniff_mime(&contents);
+    if !crate::feed::is_playable(mime) {
+        return Err(failure(
+            "not_renderable",
+            "That attachment is not a picture, a video or a sound.",
+        ));
+    }
+    Ok(crate::feed::data_url(mime, &contents))
 }
 
 /// The largest file this app will send.

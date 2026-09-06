@@ -80,18 +80,53 @@ fn serve<R: tauri::Runtime>(
     };
 
     let state = app.state::<ClientState>();
-    let Ok(guard) = state.0.lock() else {
-        return refuse(500);
-    };
-    let Some(client) = guard.as_ref() else {
-        // Signed out, or locked. Not an error worth a body: the page is about
-        // to be told the same thing by every other call it makes.
-        return refuse(404);
-    };
-    let ctx = client.context();
 
-    let Ok(Some(info)) = conversations::stream_info(&ctx, envelope_id) else {
+    // Everything the lock is needed for, taken in one short pass.
+    //
+    // A range request is a download, and a playing video makes one every few
+    // seconds. Holding the client lock across them made the whole app stutter
+    // for as long as something was playing, because that lock is also the
+    // store's and the MLS provider's. The payload and a handle on the shared
+    // transport are all this needs; both are cheap to take and the rest of the
+    // work happens with the lock released.
+    let taken = {
+        let Ok(guard) = state.0.lock() else {
+            return refuse(500);
+        };
+        let Some(client) = guard.as_ref() else {
+            // Signed out, or locked. Not an error worth a body: the page is
+            // about to be told the same thing by every other call it makes.
+            return refuse(404);
+        };
+        let payload = conversations::attachment_payload(&client.store, envelope_id).ok();
+        let info = conversations::stream_info(&client.context(), envelope_id)
+            .ok()
+            .flatten();
+        (client.transport.clone(), payload, info)
+    };
+    let (transport, payload, info) = taken;
+    let Some(payload) = payload else {
         return refuse(404);
+    };
+
+    // Not every video is a stream, and the ones that are not still have to
+    // play.
+    //
+    // `stream_info` answers only for the segmented encoding. Everything sealed
+    // whole -- which is every attachment sent before `encrypt_segmented`
+    // existed, because `Payload::Attachment::segmented` defaults to false so
+    // older messages stay byte-identical -- came back `None` here and turned
+    // into a 404. Meanwhile `lib/media.ts` picks the player from the declared
+    // MIME alone, so a `video/*` attachment got a `<video>` pointed at this
+    // scheme whatever its encoding: the element asked, was refused, and drew a
+    // dead player at 0:00. Nothing in the page could see why.
+    //
+    // So fall back to the whole file. It is fetched and decrypted in one go --
+    // that is what sealing it whole means, and there is no way to open a range
+    // of it -- but the ranges a player asks for are still answered out of the
+    // buffer, so seeking works and the element behaves the same either way.
+    let Some(info) = info else {
+        return serve_whole(&state, &transport, &payload, range);
     };
 
     let segment_len = nexo_crypto::attachment::SEGMENT_LEN as u64;
@@ -107,7 +142,8 @@ fn serve<R: tauri::Runtime>(
     let last = to / segment_len;
     let mut body = Vec::with_capacity((to - from + 1) as usize);
     for index in first..=last {
-        let Ok(segment) = conversations::attachment_segment(&ctx, envelope_id, index) else {
+        let Ok(segment) = conversations::attachment_segment_with(&*transport, &payload, index)
+        else {
             // Authentication failed, or the fetch did. Either way the stream is
             // not trustworthy and nothing partial is served (rule 7).
             return refuse(404);
@@ -124,11 +160,7 @@ fn serve<R: tauri::Runtime>(
     // at the next launch is what the server reads as theft -- it revokes every
     // session for the account. A range request is an ordinary authenticated
     // call and is no exception.
-    if let Some(rotated) = client.transport.take_rotated_refresh_token()
-        && let Err(error) = client.store.set_refresh_token(&rotated)
-    {
-        tracing::error!(%error, "could not persist a refresh token rotated while streaming");
-    }
+    persist_rotated(&state, &transport);
 
     let partial = range.is_some();
     let mut response = http::Response::builder()
@@ -143,6 +175,75 @@ fn serve<R: tauri::Runtime>(
         response = response.header("Content-Range", format!("bytes {from}-{to}/{}", info.size));
     }
     response.body(body).unwrap_or_else(|_| refuse(500))
+}
+
+/// Serves an attachment that was sealed whole, answering ranges from memory.
+///
+/// The counterpart to the segmented path above, and the reason a video sent
+/// before segmented encoding existed still plays. The whole file is opened --
+/// a file sealed under one tag cannot be opened in parts, which is the point
+/// of the two encodings -- and the range the player asked for is cut out of
+/// the result.
+///
+/// The type is sniffed from the bytes rather than trusted from the sender, the
+/// same rule the rest of this process follows: what the page may be handed is
+/// decided here, not by a MIME string somebody else wrote.
+fn serve_whole(
+    state: &ClientState,
+    transport: &nexo_client::HttpTransport,
+    payload: &nexo_protocol::Payload,
+    range: Option<&str>,
+) -> http::Response<Vec<u8>> {
+    let Ok(contents) = conversations::fetch_attachment_with(transport, payload) else {
+        return refuse(404);
+    };
+
+    let mime = crate::feed::sniff_mime(&contents);
+    if !crate::feed::is_playable(mime) {
+        return refuse(404);
+    }
+
+    persist_rotated(state, transport);
+
+    let size = contents.len() as u64;
+    let (from, to) = match range.and_then(|r| parse_range(r, size)) {
+        Some(pair) => pair,
+        None => (0, size.saturating_sub(1)),
+    };
+    let body = contents
+        .get(from as usize..=(to as usize).min(contents.len().saturating_sub(1)))
+        .unwrap_or_default()
+        .to_vec();
+
+    let partial = range.is_some();
+    let mut response = http::Response::builder()
+        .status(if partial { 206 } else { 200 })
+        .header("Content-Type", playable_type(mime))
+        .header("Accept-Ranges", "bytes")
+        .header("Content-Length", body.len().to_string())
+        .header("Cache-Control", "no-store");
+    if partial {
+        response = response.header("Content-Range", format!("bytes {from}-{to}/{size}"));
+    }
+    response.body(body).unwrap_or_else(|_| refuse(500))
+}
+
+/// Writes down a refresh token the transport rotated mid-call.
+///
+/// The duty every authenticated call carries: a rotated token that never
+/// reaches the store means the next launch replays a spent one, which the
+/// server reads as theft and answers by revoking every session for the
+/// account. Takes the client lock for the length of one row write, which is
+/// why the download above does not hold it.
+fn persist_rotated(state: &ClientState, transport: &nexo_client::HttpTransport) {
+    let Some(rotated) = transport.take_rotated_refresh_token() else {
+        return;
+    };
+    let Ok(guard) = state.0.lock() else { return };
+    let Some(client) = guard.as_ref() else { return };
+    if let Err(error) = client.store.set_refresh_token(&rotated) {
+        tracing::error!(%error, "could not persist a refresh token rotated while streaming");
+    }
 }
 
 /// The envelope id out of `.../<id>`.

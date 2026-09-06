@@ -8,7 +8,7 @@ import {
   renameConversation,
   setConversationAvatar,
 } from "../../lib/conversations";
-import { useConversations } from "../../app/useConversations";
+import type { LiveConversations } from "../../app/useConversations";
 import { HandleAvatar } from "../../components/ui/HandleAvatar";
 import { ConversationAvatar } from "../../components/ui/ConversationAvatar";
 import { Button, IconButton } from "../../components/ui/Button";
@@ -24,19 +24,26 @@ import { Icon } from "../../components/ui/Icon";
  * wide as the conversation list, the actions cell exactly as wide as the
  * context panel.
  */
-export function MessagesHeader({ now }: { now: Date }) {
+export function MessagesHeader({
+  now,
+  live,
+}: {
+  now: Date;
+  /** Mounted once by the shell and shared with the page — see `AppShell`. */
+  live: LiveConversations;
+}) {
   const activeId = useApp((s) => s.activeConversationId);
   const go = useApp((s) => s.go);
   const showPresence = useApp((s) => s.preferences.presence);
   const contextOpen = useApp((s) => s.contextPanelOpen);
   const toggleContext = useApp((s) => s.toggleContextPanel);
   const setDrawer = useApp((s) => s.setListDrawer);
+  const requestMessageSearch = useApp((s) => s.requestMessageSearch);
   const mute = useApp((s) => s.muteConversation);
   const overrides = useApp((s) => s.conversationOverrides);
   const layout = useLayout();
 
   const account = useApp((s) => s.account);
-  const live = useConversations(activeId || undefined);
 
   const base = live.conversations.find((c) => c.id === activeId);
   const conversation = base ? { ...base, ...overrides[base.id] } : undefined;
@@ -137,11 +144,14 @@ export function MessagesHeader({ now }: { now: Date }) {
             <div className="no-drag flex items-center gap-0.5">
               <IconButton
                 name="search"
-                label="Search in conversation"
+                label="Search messages"
                 size={17}
-                onClick={() =>
-                  void notify("Search in conversation", "Full-text search inside a conversation arrives with the local encrypted store (M2).")
-                }
+                // Points at the search that exists rather than apologising for
+                // one that does. This used to open a notice promising full-text
+                // search "with the local encrypted store (M2)" -- long shipped,
+                // and the conversation list has been running it against the FTS
+                // index the whole time.
+                onClick={requestMessageSearch}
               />
               <IconButton
                 name="pencil"

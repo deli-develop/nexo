@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import type { InputHTMLAttributes, Ref, ReactNode, TextareaHTMLAttributes } from "react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
@@ -11,6 +11,14 @@ const control =
   "ease-[var(--ease-state)] hover:border-line-strong focus:border-accent/60";
 
 export interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
+  /**
+   * Handed to the `input` itself, so a caller can focus the box.
+   *
+   * Declared rather than inherited: React 19 passes `ref` to a function
+   * component as an ordinary prop, but `InputHTMLAttributes` does not carry
+   * it, so without this the spread below would drop it silently.
+   */
+  ref?: Ref<HTMLInputElement>;
   /** §7.1 component rules: the label sits above the input, never floating. */
   label: string;
   hint?: string;

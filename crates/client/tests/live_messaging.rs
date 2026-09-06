@@ -460,6 +460,47 @@ fn a_restarted_client_can_still_send() {
 /// property of the MLS ratchet. Carol joins after Alice and Bob have already
 /// talked, and the earlier ciphertext is simply not decryptable with the keys
 /// she is given.
+/// A group's name is content, so creating one has to *send* it.
+///
+/// The server holds no title. `rename` always carried the name as an encrypted
+/// `Payload::Rename`, but creation only wrote it into the creator's own store
+/// -- so the person who named the group was the only one who ever saw the
+/// name, and everybody else fell back to a list of handles.
+#[test]
+#[ignore = "needs a running nexo-server and Postgres"]
+fn a_group_reaches_its_members_under_the_name_it_was_given() {
+    let alice = Client::new("title-a");
+    let bob = Client::new("title-b");
+    let carol = Client::new("title-c");
+
+    conversations::publish_key_packages(&bob.ctx(), 2).unwrap();
+    conversations::publish_key_packages(&carol.ctx(), 2).unwrap();
+
+    let members = vec![bob.handle.clone(), carol.handle.clone()];
+    let conversation_id =
+        conversations::start_group_with(&alice.ctx(), &members, "Weekend plans").expect("group");
+
+    for member in [&bob, &carol] {
+        conversations::discover(&member.ctx()).expect("discover");
+        conversations::sync(&member.ctx(), conversation_id).expect("sync");
+
+        let stored = member
+            .store
+            .conversations()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.id == conversation_id.to_string())
+            .expect("the member should know the conversation");
+
+        assert_eq!(
+            stored.title.as_deref(),
+            Some("Weekend plans"),
+            "every member should see the name the group was created with, not a list of handles"
+        );
+    }
+    println!("ok: the group's name reached both members");
+}
+
 #[test]
 #[ignore = "needs a running nexo-server and Postgres"]
 fn a_member_added_later_cannot_read_earlier_messages() {
@@ -716,7 +757,9 @@ fn a_picture_a_gif_and_a_video_all_round_trip() {
     // Deliberately more than one segment, so the reassembly is exercised
     // rather than a single-segment special case that would pass either way.
     let mp4 = {
-        let mut v = vec![0, 0, 0, 0x18, b'f', b't', b'y', b'p', b'm', b'p', b'4', b'2'];
+        let mut v = vec![
+            0, 0, 0, 0x18, b'f', b't', b'y', b'p', b'm', b'p', b'4', b'2',
+        ];
         v.extend((0..700_000usize).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8));
         v
     };

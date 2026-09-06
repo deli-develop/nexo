@@ -519,6 +519,32 @@ pub fn start_group_with<T: Transport>(
         }
     }
 
+    // The name has to be *sent*, not just written down here.
+    //
+    // The server holds no title -- what a group is called is content, which is
+    // why `rename` carries it as an encrypted `Payload::Rename` that every
+    // member applies on sync. Creation used to skip that and only write the
+    // title locally, so the person who named the group was the only one who
+    // ever saw the name: everybody else fell back to `title_from`, and a group
+    // called "Weekend plans" read as "alice, carol" on their machines for ever,
+    // until somebody happened to rename it.
+    //
+    // Sent after the loop above, once every member has been added, because a
+    // member is admitted at an epoch and cannot read what was encrypted before
+    // it. The same reason `a_member_added_later_cannot_read_earlier_messages`
+    // is a test.
+    let payload = Payload::Rename {
+        title: title.to_string(),
+    };
+    let ciphertext = conversation.encrypt(ctx.provider, ctx.signer, &payload.encode())?;
+    ctx.transport.send(
+        &id,
+        &to_hex(&ciphertext),
+        conversation.epoch() as i64,
+        false,
+        &outbox::new_message_id(),
+    )?;
+
     ctx.store.set_conversation_title(&id, title)?;
     ctx.store.set_conversation_meta(&id, "group", handles)?;
     mls_state::save(ctx.provider, ctx.store)?;
@@ -2078,12 +2104,37 @@ pub fn attachment_segment<T: Transport>(
     envelope_id: i64,
     index: u64,
 ) -> Result<Vec<u8>, ConversationError> {
-    use nexo_crypto::attachment::{SEGMENT_CIPHERTEXT_LEN, segment_count};
+    let payload = attachment_payload(ctx.store, envelope_id)?;
+    attachment_segment_with(ctx.transport, &payload, index)
+}
 
-    let encoded = ctx
-        .store
+/// One message's payload, decoded.
+///
+/// The cheap half of the media reads: a row out of SQLCipher and a decode,
+/// with no network in it. Public so the shell can do this under its lock and
+/// then let go of it before the download.
+pub fn attachment_payload(
+    store: &EncryptedStore,
+    envelope_id: i64,
+) -> Result<Payload, ConversationError> {
+    let encoded = store
         .message_payload(envelope_id)?
         .ok_or(ConversationError::NotAnAttachment)?;
+    Ok(Payload::decode(encoded.as_bytes()))
+}
+
+/// The same segment fetch, given only a transport and an already-read payload.
+///
+/// See [`fetch_attachment_with`] for why the halves are separate: this one is
+/// a ranged download and a decryption, and holding the client lock across it
+/// makes every range request of a playing video block the rest of the app.
+pub fn attachment_segment_with<T: Transport>(
+    transport: &T,
+    payload: &Payload,
+    index: u64,
+) -> Result<Vec<u8>, ConversationError> {
+    use nexo_crypto::attachment::{SEGMENT_CIPHERTEXT_LEN, segment_count};
+
     let Payload::Attachment {
         s3_key,
         key,
@@ -2091,15 +2142,15 @@ pub fn attachment_segment<T: Transport>(
         size,
         segmented,
         ..
-    } = Payload::decode(encoded.as_bytes())
+    } = payload
     else {
         return Err(ConversationError::NotAnAttachment);
     };
-    if !segmented {
+    if !*segmented {
         return Err(ConversationError::NotAnAttachment);
     }
 
-    let total = segment_count(size);
+    let total = segment_count(*size);
     if index >= total {
         return Err(ConversationError::NotAnAttachment);
     }
@@ -2110,13 +2161,13 @@ pub fn attachment_segment<T: Transport>(
     // checked here -- the tag is what decides whether it was the right bytes.
     let to = from + SEGMENT_CIPHERTEXT_LEN as u64 - 1;
 
-    let url = ctx.transport.download_url(&s3_key)?;
-    let ciphertext = ctx.transport.get_object_range(&url, from, to)?;
+    let url = transport.download_url(s3_key)?;
+    let ciphertext = transport.get_object_range(&url, from, to)?;
 
     let plaintext = nexo_crypto::attachment::decrypt_segment(
         &ciphertext,
-        &from_hex(&key)?,
-        &from_hex(&nonce)?,
+        &from_hex(key)?,
+        &from_hex(nonce)?,
         index,
         total,
     )?;
@@ -2138,6 +2189,20 @@ pub fn attachment_segment<T: Transport>(
 /// saving a video, and opening one in the lightbox, both failed.
 pub fn fetch_attachment<T: Transport>(
     ctx: &Context<'_, T>,
+    payload: &Payload,
+) -> Result<Vec<u8>, ConversationError> {
+    fetch_attachment_with(ctx.transport, payload)
+}
+
+/// The same fetch, given only a transport.
+///
+/// Split out because this half touches neither the store nor the MLS provider
+/// — it is a download and a decryption — while the shell holds one lock over
+/// all three for the duration of a command. Opening a photo therefore stalled
+/// every other IPC call behind it, a draft save included. A caller that has
+/// already read the payload can hold this part outside the lock.
+pub fn fetch_attachment_with<T: Transport>(
+    transport: &T,
     payload: &Payload,
 ) -> Result<Vec<u8>, ConversationError> {
     // A group picture is encrypted the same way and read the same way; only
@@ -2163,8 +2228,8 @@ pub fn fetch_attachment<T: Transport>(
         _ => return Err(ConversationError::NotAnAttachment),
     };
 
-    let url = ctx.transport.download_url(s3_key)?;
-    let ciphertext = ctx.transport.get_object(&url)?;
+    let url = transport.download_url(s3_key)?;
+    let ciphertext = transport.get_object(&url)?;
     let key = from_hex(key)?;
     let nonce = from_hex(nonce)?;
     let sha256 = from_hex(sha256)?;

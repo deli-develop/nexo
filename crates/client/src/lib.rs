@@ -427,6 +427,84 @@ mod tests {
         assert_eq!(session.access_token, "access-1");
     }
 
+    /// A store belongs to one account, and a second one must not inherit it.
+    ///
+    /// Reachable without anybody doing anything strange: a retired refresh
+    /// token drops the app to the sign-in screen with the store still on disk,
+    /// and the handle typed there need not be the one it belongs to.
+    #[test]
+    fn a_second_account_cannot_open_the_first_ones_store() {
+        let dir = TempDir::new("two-accounts");
+        let keystore = FakeKeystore::default();
+        let transport = FakeTransport::new();
+
+        session::register(
+            &transport,
+            &keystore,
+            &dir.db(),
+            "alice",
+            "Alice",
+            "correct horse battery staple",
+        )
+        .unwrap();
+
+        for outcome in [
+            session::login(&transport, &keystore, &dir.db(), "bob", "hunter2 hunter2").err(),
+            session::register(
+                &transport,
+                &keystore,
+                &dir.db(),
+                "bob",
+                "Bob",
+                "hunter2 hunter2",
+            )
+            .err(),
+        ] {
+            match outcome {
+                Some(session::SessionError::DifferentAccount(handle)) => {
+                    assert_eq!(handle, "alice", "the refusal has to name the account");
+                }
+                other => panic!("a second account should be refused, got {other:?}"),
+            }
+        }
+
+        // And the first account is untouched: refusing is not a wipe.
+        let store = nexo_store::EncryptedStore::open(
+            dir.db(),
+            &nexo_store::key::load_or_create(&keystore).unwrap().0,
+        )
+        .unwrap();
+        assert_eq!(store.account().unwrap().unwrap().handle, "alice");
+    }
+
+    /// Signing the *same* account back in keeps its history and its identity.
+    #[test]
+    fn the_same_account_still_signs_in_over_its_own_store() {
+        let dir = TempDir::new("same-account");
+        let keystore = FakeKeystore::default();
+        let transport = FakeTransport::new();
+
+        session::register(
+            &transport,
+            &keystore,
+            &dir.db(),
+            "alice",
+            "Alice",
+            "correct horse battery staple",
+        )
+        .unwrap();
+
+        let again = session::login(
+            &transport,
+            &keystore,
+            &dir.db(),
+            "alice",
+            "correct horse battery staple",
+        )
+        .expect("the account that owns the store must still be able to sign in");
+        assert_eq!(again.account.handle, "alice");
+    }
+
     /// The property the three-step flow exists for.
     #[test]
     fn the_password_is_never_sent() {

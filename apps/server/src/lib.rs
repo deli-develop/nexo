@@ -20,6 +20,7 @@ use tower_http::trace::TraceLayer;
 
 pub mod auth;
 pub mod blocks;
+pub mod calls;
 pub mod db;
 pub mod delivery;
 pub mod follows;
@@ -52,6 +53,7 @@ pub fn router(state: AppState) -> Router {
             limits::limit_auth,
         )))
         .merge(blocks::router())
+        .merge(calls::router())
         .merge(delivery::router())
         .merge(media::router())
         .merge(meet::router())

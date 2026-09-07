@@ -111,6 +111,7 @@ pub fn run() {
             conversations::send_message,
             conversations::sync_conversation,
             conversations::sync_all,
+            conversations::call_ice_servers,
             conversations::call_offer,
             conversations::call_answer,
             conversations::call_hangup,

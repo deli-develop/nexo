@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { totalUnread, useApp } from "./app/store";
 import { startSyncAgent } from "./app/syncAgent";
 import { useAutoLock } from "./app/useAutoLock";
+import { CallLayer } from "./features/calls/CallLayer";
 import { useShortcuts } from "./app/useShortcuts";
 import { useLayout } from "./app/useLayout";
 import { useMaximized } from "./app/useWindow";
@@ -96,6 +97,9 @@ function AppShell({ account }: { account: Account }) {
 
   return (
     <div className="relative h-full overflow-hidden">
+      {/* Above everything and outside every route: a call outlives the screen
+          it was started from. */}
+      <CallLayer />
       <div className="app-field absolute inset-0 flex flex-col overflow-hidden">
         <TopBar maximized={maximized}>
           {route === "messages" ? <MessagesHeader now={now} live={live} /> : null}

@@ -36,6 +36,11 @@ rand.workspace = true
 jsonwebtoken.workspace = true
 ed25519-dalek.workspace = true
 sha2.workspace = true
+# The TURN REST credential: HMAC-SHA1 over an expiry, which is what coturn
+# verifies. See the note in the workspace manifest.
+hmac.workspace = true
+sha1.workspace = true
+base64.workspace = true
 tower-http.workspace = true
 serde.workspace = true
 serde_json.workspace = true

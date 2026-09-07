@@ -19,7 +19,16 @@ export interface TypingEvent {
   user_id: number;
 }
 
+/**
+ * Something arrived for a conversation. No content — an envelope is ciphertext
+ * until a sync decrypts it, so this says only "there is something to fetch".
+ */
+export interface EnvelopeEvent {
+  conversation_id: string;
+}
+
 const TYPING_EVENT = "nexo://typing";
+const ENVELOPE_EVENT = "nexo://envelope";
 
 /**
  * Moves whatever the socket has received into Tauri events.
@@ -42,4 +51,19 @@ export function onTyping(
   handler: (event: TypingEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<TypingEvent>(TYPING_EVENT, (event) => handler(event.payload));
+}
+
+/**
+ * Listens for anything arriving in a conversation.
+ *
+ * What makes a call ring promptly: signalling travels as an ordinary envelope,
+ * so without this the gap between pressing *call* and the other side ringing
+ * was however much of the four-second poll was left.
+ */
+export function onEnvelope(
+  handler: (event: EnvelopeEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<EnvelopeEvent>(ENVELOPE_EVENT, (event) =>
+    handler(event.payload),
+  );
 }

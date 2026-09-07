@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { IncomingCall } from "./calls";
+import type { CallRecord } from "./types";
 
 /**
  * Conversations, as the WebView sees them.
@@ -73,6 +74,14 @@ export interface Message {
    * whatever the bytes happen to look like.
    */
   unsupported: string | null;
+  /**
+   * Set when this message is the record a finished call left behind.
+   *
+   * A call stores exactly one row — the hangup — so this is what "Missed call"
+   * and the duration beside it are drawn from. `null` for every ordinary
+   * message, which is almost all of them.
+   */
+  call: CallRecord | null;
   /** Who a forwarded message says it came from. `null` when the forwarder
    *  could not name the author — `forwarded` still says it is one. */
   forwarded_from: string | null;

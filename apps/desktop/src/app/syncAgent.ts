@@ -5,7 +5,7 @@ import {
   syncAll,
   type SyncResult,
 } from "../lib/conversations";
-import { drainStream } from "../lib/stream";
+import { drainStream, onEnvelope } from "../lib/stream";
 import { setTrayUnread, toastMessage } from "../lib/native";
 import { totalUnread, useApp, isMuted } from "./store";
 
@@ -167,6 +167,16 @@ async function handleArrivals(result: SyncResult): Promise<void> {
  */
 const STREAM_DRAIN_MS = 500;
 
+/**
+ * How long an arrival waits for its neighbours before it triggers a sync.
+ *
+ * The socket announces one event per envelope, and a lively group produces
+ * them in bursts — a commit, three messages, a reaction. Syncing on each would
+ * mean four round trips where one would do. A quarter of a second is short
+ * enough to be invisible on a ringing call and long enough to collect a burst.
+ */
+const ARRIVAL_COALESCE_MS = 250;
+
 export function startSyncAgent(): () => void {
   const timer = window.setInterval(() => void syncNow(), SYNC_INTERVAL_MS);
 
@@ -185,6 +195,18 @@ export function startSyncAgent(): () => void {
   }, STREAM_DRAIN_MS);
   const onOnline = () => void syncNow();
   window.addEventListener("online", onOnline);
+
+  // An arrival means "there is something to fetch", so fetch it rather than
+  // waiting out the poll. Coalesced, because a burst of envelopes is one sync's
+  // worth of work and the socket reports each of them separately.
+  let arrivalTimer: number | undefined;
+  const stopEnvelopes = onEnvelope(() => {
+    if (arrivalTimer !== undefined) return;
+    arrivalTimer = window.setTimeout(() => {
+      arrivalTimer = undefined;
+      void syncNow();
+    }, ARRIVAL_COALESCE_MS);
+  });
 
   // Focus is when "unread" can become "read": returning to the window while a
   // conversation is open means its messages are now on a screen someone is
@@ -208,6 +230,8 @@ export function startSyncAgent(): () => void {
   return () => {
     window.clearInterval(timer);
     window.clearInterval(streamTimer);
+    if (arrivalTimer !== undefined) window.clearTimeout(arrivalTimer);
+    void stopEnvelopes.then((stop) => stop()).catch(() => {});
     window.removeEventListener("online", onOnline);
     window.removeEventListener("focus", onFocus);
     unsubscribe();

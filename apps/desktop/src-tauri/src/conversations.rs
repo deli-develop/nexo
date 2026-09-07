@@ -4,6 +4,7 @@
 //! identifiers. No ciphertext, no MLS state, no keys. The WebView never learns
 //! that MLS exists.
 
+use nexo_client::Transport;
 use nexo_client::conversations;
 use nexo_protocol::{CallSignal, ConversationId, HangupReason, Payload, VoiceMeta};
 use serde::Serialize;
@@ -82,6 +83,12 @@ pub struct MessageView {
     /// message sent before names existed and for one still in the outbox that
     /// somehow lost it -- the UI offers no action that needs a name on those.
     pub client_id: Option<String>,
+    /// Set when this message is the record of a call.
+    ///
+    /// A call leaves exactly one row behind — the hangup — and it is drawn as
+    /// a line rather than a bubble: nobody said anything, so there is nothing
+    /// to quote, react to or edit.
+    pub call: Option<CallRecordView>,
     /// The `kind` of a payload this build cannot read, when that is what
     /// arrived.
     ///
@@ -339,6 +346,49 @@ fn reply_target(payload: Option<&str>) -> Option<String> {
     match Payload::decode(payload?.as_bytes()) {
         Payload::Reply { target, .. } => Some(target.to_string()),
         _ => None,
+    }
+}
+
+/// How a call ended, as the bubble draws it.
+#[derive(Debug, Clone, Serialize)]
+pub struct CallRecordView {
+    /// `cancelled`, `declined`, `ended` or `failed`.
+    pub reason: String,
+    /// How long the two were connected. Zero for a call that never was.
+    pub seconds: u32,
+    /// Whether it was a video call. Audio-only today.
+    pub video: bool,
+}
+
+impl CallRecordView {
+    /// Reads a call record out of a stored payload, if that is what it is.
+    ///
+    /// Only a hangup is ever stored, so an offer or an answer reaching here
+    /// would mean the receive branch let one through — and `None` is the right
+    /// answer for that too: an unbroken UI beats a bubble full of SDP.
+    fn from_payload(encoded: Option<&str>) -> Option<Self> {
+        let Payload::Call { signal, .. } = Payload::decode(encoded?.as_bytes()) else {
+            return None;
+        };
+        let CallSignal::Hangup { reason, seconds } = signal else {
+            return None;
+        };
+        Some(CallRecordView {
+            // Spelled the way the wire spells it, so the page switches on the
+            // same word the protocol uses and neither side invents a synonym.
+            reason: match reason {
+                HangupReason::Cancelled => "cancelled",
+                HangupReason::Declined => "declined",
+                HangupReason::Ended => "ended",
+                HangupReason::Failed => "failed",
+                // `HangupReason` is non-exhaustive: a reason from a newer build
+                // is shown as a plain ended call rather than dropping the row.
+                _ => "ended",
+            }
+            .to_string(),
+            seconds,
+            video: false,
+        })
     }
 }
 
@@ -1078,6 +1128,7 @@ pub async fn send_message(
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
             // We wrote it, so this build understands it by construction.
+            call: None,
             unsupported: None,
             // Nothing is pinned, reacted to, edited or taken back the moment
             // it is sent.
@@ -1131,6 +1182,7 @@ pub async fn send_reply(
             pending: sent.envelope_id().is_none(),
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
+            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -1204,6 +1256,7 @@ pub async fn send_view_once(
             pending: false,
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
+            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -1323,6 +1376,7 @@ pub async fn send_sticker(
             pending: sent.envelope_id().is_none(),
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
+            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -1619,6 +1673,25 @@ fn parse_call_id(id: &str) -> Result<nexo_protocol::CallId, ConversationErrorVie
         .map_err(|_| failure("invalid_request", "That is not a call id."))
 }
 
+/// Where to send a call's media, and the credential that opens the relay.
+///
+/// Asked once per call, immediately before offering or answering. Not cached:
+/// the credential expires, and a stale one fails inside ICE where there is
+/// nothing useful to report. A server with no relay configured refuses this,
+/// which is how the page learns that calls are unavailable here.
+#[tauri::command]
+pub async fn call_ice_servers(
+    state: State<'_, ClientState>,
+) -> Result<nexo_protocol::IceServers, ConversationErrorView> {
+    with_client(&state, |client| {
+        client
+            .transport
+            .ice_servers()
+            .map_err(|e| ConversationErrorView::from(conversations::ConversationError::from(e)))
+    })
+    .await
+}
+
 /// Rings somebody: names a new call and sends the offer.
 ///
 /// The id is minted here rather than in the page because it is the one thing
@@ -1785,6 +1858,7 @@ pub async fn conversation_messages(
                 pending: true,
                 attachment: AttachmentView::from_payload(item.payload.as_deref()),
                 client_id: item.client_id.clone(),
+                call: None,
                 unsupported: None,
                 // A queued message has no envelope id yet, and that is what a
                 // pin is keyed by. Nothing to pin until the server has it.
@@ -1840,6 +1914,7 @@ pub async fn conversation_messages(
                     outgoing,
                     sender_device_id: m.sender_device_id,
                     attachment: AttachmentView::from_payload(m.payload.as_deref()),
+                    call: CallRecordView::from_payload(m.payload.as_deref()),
                     unsupported: unsupported_kind(m.payload.as_deref()),
                     pinned: m.pinned,
                     retracted_at_ms: m.retracted_at_ms,
@@ -2008,6 +2083,7 @@ pub async fn send_attachment(
             // and taken back without waiting for a reload.
             client_id: sent.client_id().map(str::to_string),
             // It parsed: this build wrote it.
+            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -2128,6 +2204,7 @@ pub async fn send_voice_message(
                 streamable: false,
             }),
             client_id: sent.client_id().map(str::to_string),
+            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -2308,6 +2385,7 @@ mod tests {
             pending: false,
             attachment: None,
             client_id: Some("11111111-1111-1111-1111-111111111111".into()),
+            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -2507,6 +2585,7 @@ mod tests {
             pending: false,
             attachment: None,
             client_id: None,
+            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,

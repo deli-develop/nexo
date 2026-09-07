@@ -40,6 +40,19 @@ pub struct TypingEvent {
 /// The Tauri event a typing notice arrives as.
 pub const TYPING_EVENT: &str = "nexo://typing";
 
+/// Something arrived for a conversation, as the page receives it.
+#[derive(Debug, Clone, Serialize)]
+pub struct EnvelopeEvent {
+    pub conversation_id: String,
+}
+
+/// The Tauri event an arrival arrives as.
+///
+/// It carries no content and cannot: an envelope is ciphertext until `sync`
+/// decrypts it, and this module has no client to decrypt it with. What it says
+/// is "there is something to fetch", and the page answers by syncing.
+pub const ENVELOPE_EVENT: &str = "nexo://envelope";
+
 /// Where the socket points, matching `HttpTransport::new`.
 ///
 /// Read the same way so a development build talking to a local server gets a
@@ -100,22 +113,47 @@ pub async fn drain_stream<R: tauri::Runtime>(
     };
 
     for event in events {
-        // Only typing is forwarded today. The others exist on the wire and are
-        // deliberately ignored rather than half-implemented: presence and
-        // receipts each need a UI decision that has not been made, and an event
-        // the page silently drops is better than a badge that means nothing.
-        if let ServerEvent::Typing {
-            conversation_id,
-            user_id,
-        } = event
-        {
-            let _ = app.emit(
-                TYPING_EVENT,
-                TypingEvent {
-                    conversation_id: conversation_id.to_string(),
-                    user_id,
-                },
-            );
+        // Presence and receipts are still deliberately ignored rather than
+        // half-implemented: each needs a UI decision that has not been made,
+        // and an event the page silently drops is better than a badge that
+        // means nothing.
+        match event {
+            ServerEvent::Typing {
+                conversation_id,
+                user_id,
+            } => {
+                let _ = app.emit(
+                    TYPING_EVENT,
+                    TypingEvent {
+                        conversation_id: conversation_id.to_string(),
+                        user_id,
+                    },
+                );
+            }
+            // Forwarded so the page can sync *now* rather than on its next
+            // four-second tick.
+            //
+            // This is what makes a call ring like a call. Signalling arrives as
+            // an ordinary envelope, so before this the gap between somebody
+            // pressing "call" and the other phone ringing was however much of
+            // the poll interval was left -- up to four seconds, on top of the
+            // round trip. Messages get the same promptness as a side effect,
+            // which they have always been entitled to.
+            //
+            // It stays an optimisation, exactly like the rest of this module:
+            // the poll underneath is what makes the app correct, and a socket
+            // that never connects leaves everything working as it did.
+            ServerEvent::Envelope {
+                conversation_id, ..
+            } => {
+                let _ = app.emit(
+                    ENVELOPE_EVENT,
+                    EnvelopeEvent {
+                        conversation_id: conversation_id.to_string(),
+                    },
+                );
+            }
+            _ => {}
         }
     }
     Ok(())

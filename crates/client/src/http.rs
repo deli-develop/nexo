@@ -821,6 +821,10 @@ impl Transport for HttpTransport {
         self.get_auth("/v1/stories")
     }
 
+    fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError> {
+        self.get_auth("/v1/calls/ice")
+    }
+
     fn search_users(&self, term: &str) -> Result<Vec<SearchResult>, TransportError> {
         self.get_auth(&format!("/v1/users?q={}", query_escape(term)))
     }

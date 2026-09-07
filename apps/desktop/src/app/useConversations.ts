@@ -112,6 +112,7 @@ function toMessage(wire: WireMessage, conversationId: string): Message {
     ...(wire.forwarded ? { forwarded: true } : {}),
     ...(wire.forwarded_from ? { forwardedFrom: wire.forwarded_from } : {}),
     ...(wire.unsupported ? { unsupported: wire.unsupported } : {}),
+    ...(wire.call ? { call: wire.call } : {}),
     ...(wire.pinned ? { pinned: true } : {}),
     ...(wire.reactions.length > 0 ? { reactions: wire.reactions } : {}),
     ...(wire.retracted_at_ms !== null ? { retracted: true } : {}),

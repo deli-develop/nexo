@@ -105,15 +105,15 @@ Line counts are source only — tests are counted with the crate they test, in t
 tables below.
 
 ```
-crates/protocol       2 017 ln   Wire types shared by client and server. No I/O, no crypto.
+crates/protocol       2 063 ln   Wire types shared by client and server. No I/O, no crypto.
 crates/crypto         1 863 ln   MLS, the identity keypair, safety numbers, attachment crypto.
 crates/platform         425 ln   The OS seam: SecureStore, and the Windows DPAPI backing.
 crates/store          4 220 ln   The client's SQLCipher database.
 crates/client         7 668 ln   Session logic, portable across Windows and Android.
 apps/server           8 619 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      7 296 ln   The Windows shell: 115 Tauri commands, windowing, IPC.
-apps/desktop/src     23 707 ln   React 19 client (TypeScript, Tailwind, Zustand).
+                      7 317 ln   The Windows shell: 116 Tauri commands, windowing, IPC.
+apps/desktop/src     24 752 ln   React 19 client (TypeScript, Tailwind, Zustand).
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
 ```
 
@@ -138,7 +138,7 @@ first**; the server and client follow it.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/lib.rs` | 1 892 | Every request and response body on the wire, `PROTOCOL_VERSION` (currently **3**), the envelope shape, the error codes. No plaintext message types — that is rule 4's enforcement point. |
+| `src/lib.rs` | 1 938 | Every request and response body on the wire, `PROTOCOL_VERSION` (currently **3**), the envelope shape, the error codes. No plaintext message types — that is rule 4's enforcement point. |
 | `src/window.rs` | 125 | How long a message may be taken back or edited. `features/messages/MessageList.tsx` mirrors this constant; the two must agree. |
 
 ---
@@ -260,6 +260,7 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `src/stories.rs` | 294 | 24-hour encrypted stories. Owns the three access conditions. |
 | `src/stories/expiry.rs` | 65 | Whether a story is still available. |
 | `src/blocks.rs` | 243 | Blocking, in both directions. |
+| `src/calls.rs` | 385 | The TURN relay's address and a short-lived credential for it. **The only thing calls need from the server** — signalling never comes here. |
 | `src/stream/mod.rs` | 220 | The WebSocket at `/v1/stream`. |
 | `src/stream/hub.rs` | 212 | Fan-out, from the socket that accepted an envelope to the ones that want it. |
 | `src/follows.rs` | 201 | The follow graph, and the feed that follows from it. |
@@ -270,7 +271,7 @@ module owns its own `router()`**, merged in `lib.rs`.
 
 #### Every route
 
-48 paths. Methods on one path share a line, as they do in the router.
+49 paths. Methods on one path share a line, as they do in the router.
 
 | Path | Methods | Module |
 |---|---|---|
@@ -321,6 +322,7 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `/v1/meet/invites` | GET, POST | `meet.rs` |
 | `/v1/meet/invites/{id}` | DELETE | `meet.rs` |
 | `/v1/reports` | POST | `reports.rs` |
+| `/v1/calls/ice` | GET | `calls.rs` |
 | `/v1/stream` | GET (upgrade) | `stream/mod.rs` |
 
 **Before adding a route, check whether it already exists.** `/v1/stream` sat
@@ -375,7 +377,7 @@ nothing else does: no tokens, no key material, no salt.
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
 | `src/client.rs` | 209 | — | `LoggedIn` (session, transport, MLS provider, store, signer, credential), `ClientState`, `build()`, `resume()`, `Resumed`. One mutex covers store + MLS + transport. |
 | `src/auth.rs` | 842 | 11 | Register, login, restore, change password, fingerprint, the PIN, sign-out, delete account. `SessionState` (tokens) lives here. |
-| `src/conversations.rs` | 2 547 | 45 | Messaging, replies, attachments, voice, view-once, reactions, pinning, local delete, edit, retract, folders, drafts, search, outbox, **call signalling**. Owns a `with_client` helper. |
+| `src/conversations.rs` | 2 567 | 46 | Messaging, replies, attachments, voice, view-once, reactions, pinning, local delete, edit, retract, folders, drafts, search, outbox, **call signalling**. Owns a `with_client` helper. |
 | `src/feed.rs` | 943 | 25 | Posts, comments, votes, reactions, follows, blocks, profiles, images. Owns its own `with_client`. |
 | `src/meet.rs` | 635 | 17 | Meet&Greet: map, own pin, intros, reporting, search, invitations, stories. Owns its own `with_client`. |
 | `src/commands.rs` | 330 | 15 | Version, notifications, tray count, **lock**, window backdrop, autostart, storage, cache, link preview, updater. |
@@ -396,7 +398,7 @@ without touching the network.
 
 #### Every IPC command
 
-**115 commands.** A command needs a `#[tauri::command]` attribute *and* an entry
+**116 commands.** A command needs a `#[tauri::command]` attribute *and* an entry
 in `generate_handler!` in `lib.rs`; missing the second is a runtime rejection,
 not a compile error.
 
@@ -411,7 +413,7 @@ not a compile error.
 `set_autostart` · `storage_info` · `clear_media_cache` · `preview_link` ·
 `check_update` · `install_update`
 
-**`conversations.rs` (45)**
+**`conversations.rs` (46)**
 `list_conversations` · `delete_conversation` · `start_conversation` ·
 `start_group` · `open_self_conversation` · `add_to_conversation` ·
 `rename_conversation` · `set_conversation_avatar` · `conversation_avatar` ·
@@ -424,7 +426,8 @@ not a compile error.
 `delete_message_for_me` · `draft` · `set_draft` · `conversations_with_drafts` ·
 `list_folders` · `create_folder` · `rename_folder` · `delete_folder` ·
 `set_folder_member` · `sync_conversation` · `sync_all` · `flush_outbox` ·
-`outbox_count` · `call_offer` · `call_answer` · `call_hangup`
+`outbox_count` · `call_ice_servers` · `call_offer` · `call_answer` ·
+`call_hangup`
 
 **`feed.rs` (25)**
 `feed` · `set_following` · `follow_state` · `posts_by` · `create_post` ·
@@ -599,7 +602,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
-| `calls.ts` | 106 | Call signalling, as the page sees it. Signalling only — the media stack is `RTCPeerConnection` in the WebView. |
+| `calls.ts` | 150 | Call signalling, as the page sees it. Signalling only — the media stack is `RTCPeerConnection` in the WebView. |
 | `blocks.ts` | 35 | Blocking. |
 | `cn.ts` | 5 | Class-name join. |
 
@@ -673,7 +676,8 @@ it is expensive.
 | **Stories** | `crates/client/src/stories.rs` → `apps/server/src/stories.rs` → `features/home/storyGroups.ts` (read it before changing grouping) → `features/home/Stories.tsx`, `features/profile/MyStories.tsx` | — |
 | **Attachments or media playback** | `crates/crypto/src/attachment.rs` (which encoding?) → `crates/client/src/conversations.rs::send_attachment` → `apps/desktop/src-tauri/src/media.rs` → `apps/desktop/src/lib/media.ts` | — |
 | The **live socket** | `apps/server/src/stream/` → `crates/client/src/stream.rs` → `apps/desktop/src-tauri/src/stream.rs` → `apps/desktop/src/lib/stream.ts` | — |
-| **Calls** (voice, video) | `crates/protocol/src/lib.rs` (`Payload::Call`, `CallSignal` — the type first) → `crates/client/src/conversations.rs` (`send_call_signal`, and the `Payload::Call` branch in `sync`) → `apps/desktop/src-tauri/src/conversations.rs` → `apps/desktop/src/lib/calls.ts` | `apps/server/` — signalling adds **no** route; it rides the conversation |
+| **Calls** (voice, video) | `apps/desktop/src/features/calls/useCall.ts` (the state machine and the `RTCPeerConnection`) → `features/calls/CallLayer.tsx` → `apps/desktop/src/lib/calls.ts` → `apps/desktop/src-tauri/src/conversations.rs` → `crates/client/src/conversations.rs` → `crates/protocol/src/lib.rs` (`Payload::Call`) | `apps/server/delivery/` — **signalling** adds no route; it rides the conversation |
+| The **call relay** (TURN, ICE) | `apps/server/src/calls.rs` → `crates/client/src/transport.rs` (then **all seven** implementors) → `apps/desktop/src/lib/calls.ts` → [`OPS.md`](OPS.md)'s coturn phase | The signalling path above — the two share nothing but the word "call" |
 | **Feed, posts, comments** | `apps/server/src/posts.rs` → `apps/desktop/src-tauri/src/feed.rs` → `app/useFeed.ts` → `features/home/` | — |
 | **Keyboard shortcuts** | `app/useShortcuts.ts` — all of them, in one listener | Anywhere else |
 | **Colours, spacing, motion** | `packages/design-tokens/tokens.css`, then regenerate the JSON | Never hardcode a value in a component |
@@ -950,6 +954,24 @@ failed silently.
   and storing none of it would lose the missed-call row. `live_messaging.rs`'s
   `a_call_rings_without_leaving_a_bubble_and_its_ending_leaves_one` is what
   keeps both halves honest.
+- **A server refusal must be JSON, or its message is thrown away.**
+  `HttpTransport`'s `refusal` parses the body as `{error, message}` and falls
+  back to `"the server returned {status}"` when it cannot. So a handler that
+  answers `(StatusCode::SERVICE_UNAVAILABLE, "some prose")` — which compiles,
+  reads fine, and looks right — turns a considered sentence into a generic
+  failure at the last moment. `calls.rs` shipped that way and it was found by
+  driving the app, not by review: "Calls are not available on this server."
+  arrived as "Something went wrong. Try again.", which is exactly the honesty
+  rule 5 asks for, lost in translation. Every module defines its own private
+  `ErrorBody` for this; a new one joins them.
+- **A `--release` build ignores `NEXO_API_BASE` and talks to production.**
+  `base_url()` in `stream.rs` and `HttpTransport::new` both read the override
+  only under `cfg!(debug_assertions)`, deliberately, so a shipped binary cannot
+  be pointed elsewhere by an environment variable. The consequence when
+  *testing*: a release build driven against a local server is not talking to it,
+  and a route that only exists locally comes back 404 — which maps to
+  `NotFound` and then to a generic error, so it looks like a bug in the feature
+  rather than a binary aimed at the wrong host.
 - **Two `cargo deny` passes, never one.** The Windows client and the Linux
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.

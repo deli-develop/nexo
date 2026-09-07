@@ -160,6 +160,14 @@ impl Transport for Listing {
     fn story_url(&self, _id: i64) -> Result<String, TransportError> {
         unimplemented!()
     }
+    fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError> {
+        Ok(nexo_protocol::IceServers {
+            servers: Vec::new(),
+            expires_at_ms: 0,
+            relay_only: true,
+        })
+    }
+
     fn search_users(
         &self,
         _term: &str,

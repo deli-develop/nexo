@@ -473,6 +473,138 @@ Base price includes 1 TB storage and 1 TB egress. Objects under 64 kB bill as
 
 ---
 
+## Phase 8b — coturn, the call relay (calls, not before)
+
+Calls need a TURN relay. Without one the server answers `/v1/calls/ice` with
+503 and the app says calls are unavailable — which is a working deployment, not
+a broken one. Skip this phase until you want calls.
+
+**Why a relay at all, when WebRTC can go peer to peer.** A direct connection
+puts each side's IP address in the ICE candidates the other side receives. "Who
+called you" plus "roughly where you live" is not a pair a messenger should hand
+over silently, so Nexo relays by default and the server says so per call
+(`relay_only`). It costs a hop through Falkenstein and it hides both ends from
+each other.
+
+### Install
+
+```sh
+sudo apt install -y coturn
+sudo sed -i 's/^#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/' /etc/default/coturn
+```
+
+`/etc/turnserver.conf` — the whole file, replacing what ships:
+
+```conf
+listening-port=3478
+tls-listening-port=5349
+
+# The public address. coturn hands this out in candidates, so it must be the
+# address clients can actually reach, not a private one.
+external-ip=YOUR.PUBLIC.IPV4
+
+realm=turn.dice.fit
+server-name=turn.dice.fit
+
+# The REST API: no per-user rows, no database. The API server mints a
+# username/password pair from this secret and coturn recomputes it. It must be
+# byte-identical to NEXO_TURN_SECRET below.
+use-auth-secret
+static-auth-secret=PASTE_A_LONG_RANDOM_SECRET
+
+# Caddy already holds a certificate for the domain; point coturn at the same
+# one so `turns:` works without a second ACME client.
+cert=/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.dice.fit/turn.dice.fit.crt
+pkey=/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.dice.fit/turn.dice.fit.key
+
+# A relay is an open pipe unless you close it. These four lines are what stop
+# it being used to reach your own private network, or anybody else's.
+no-multicast-peers
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
+# Bound so one account cannot take the box out on its own.
+user-quota=12
+total-quota=1200
+# Bits per second, per allocation. 1.5 Mbps is a 720p call with headroom.
+max-bps=1500000
+
+no-cli
+no-tlsv1
+no-tlsv1_1
+simple-log
+log-file=/var/log/turnserver.log
+```
+
+```sh
+sudo systemctl enable --now coturn
+sudo systemctl status coturn
+```
+
+### DNS and firewall
+
+A record `turn.dice.fit` → the same box. Then **add to the Hetzner firewall**,
+inbound:
+
+| Port | Source | Why |
+|---|---|---|
+| 3478 | anywhere, TCP **and** UDP | TURN and STUN |
+| 5349 | anywhere, TCP | TURN over TLS, for networks that only allow 443-like traffic |
+| 49152–65535 | anywhere, UDP | The relay range. coturn allocates one port per call from it |
+
+That last row is the one people forget, and the symptom is a call that
+negotiates and then carries no sound.
+
+### Tell the API server about it
+
+In `/etc/nexo/nexo.env`, then `systemctl restart nexo-server`:
+
+```sh
+NEXO_TURN_SECRET=the same secret as static-auth-secret
+NEXO_TURN_URLS=turn:turn.dice.fit:3478?transport=udp,turn:turn.dice.fit:3478?transport=tcp,turns:turn.dice.fit:5349?transport=tcp
+NEXO_STUN_URLS=stun:turn.dice.fit:3478
+# Optional. Defaults to 3600.
+NEXO_TURN_TTL_SECS=3600
+# Optional. Defaults to true, and turning it off hands each caller's IP
+# address to the other. Read the paragraph at the top of this phase first.
+NEXO_TURN_RELAY_ONLY=true
+```
+
+Set all of `NEXO_TURN_SECRET` and `NEXO_TURN_URLS` or neither: the server
+**refuses to boot** on a half-configured relay, deliberately, because the
+alternative is discovering it on the first call.
+
+### Check it
+
+```sh
+# Should answer, and name the realm.
+turnutils_stunclient turn.dice.fit
+# The API server's view. Needs a bearer token; 503 means it has no relay.
+curl -s -H "Authorization: Bearer $TOKEN" https://api.dice.fit/v1/calls/ice | jq
+```
+
+The browser-side check that actually proves it is Trickle ICE: paste the
+`urls`, `username` and `credential` from that JSON into
+<https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/> and
+look for a candidate of type **relay**. `srflx` alone means STUN works and TURN
+does not — almost always the 49152–65535 range still closed.
+
+### What it costs
+
+Relayed media is billed traffic, twice: in and out. A 720p call runs about
+1.5 Mbps each way, so ten minutes is roughly 225 MB relayed and ~450 MB
+counted. Hetzner includes 20 TB/month on this box, which is on the order of
+44 000 call-minutes — comfortable now, and the first thing to watch if calls
+get popular. `total-quota` and `max-bps` above are the ceiling that stops a
+surprise becoming an overage.
+
+---
+
 ## Phase 9 — Backups
 
 A Storage Box (from about €3.20/month for 1 TB) speaks SFTP, rsync and

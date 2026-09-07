@@ -401,6 +401,15 @@ pub trait Transport {
     /// nothing and leaks nothing.
     fn list_stories(&self) -> Result<Vec<StorySummary>, TransportError>;
 
+    /// Where to send a call's media, and the credential that opens the relay.
+    ///
+    /// Asked once per call rather than cached across them: the credential
+    /// expires, and a stale one fails at the relay where it is hardest to
+    /// diagnose. `TransportError::Rejected` here is the honest answer for a
+    /// server with no relay configured — calls are simply unavailable, which
+    /// the UI is expected to say rather than dress up as a failure.
+    fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError>;
+
     /// Find people by handle or display name. Public accounts only.
     fn search_users(&self, term: &str) -> Result<Vec<SearchResult>, TransportError>;
 

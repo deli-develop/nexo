@@ -49,6 +49,11 @@ async fn main() -> anyhow::Result<()> {
     // like a bug rather than a misconfiguration.
     let auth = Arc::new(auth::tokens::load_from_env()?);
 
+    // Absent is a decision, not a failure: a deployment with no relay simply
+    // has calls switched off, and `/v1/calls/ice` answers 503 so the app can
+    // say so. Partly configured is fatal, like storage above.
+    let turn = nexo_server::calls::TurnConfig::from_env()?.map(Arc::new);
+
     // One process, one hub. A second instance needs Redis behind the same
     // trait -- see stream::hub and PLAN.md G5.
     let fanout = Arc::new(LocalHub::new());
@@ -72,7 +77,12 @@ async fn main() -> anyhow::Result<()> {
         //
         // It is opt-in, it is loud, and it must never be set in production.
         limits: Arc::new(limits_from_env()),
+        turn,
     };
+    match &state.turn {
+        Some(_) => tracing::info!("TURN relay configured; calls are available"),
+        None => tracing::info!("no TURN relay configured; calls are unavailable"),
+    }
     match &state.storage {
         Some(storage) => tracing::info!(
             media = storage.media().name(),

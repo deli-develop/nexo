@@ -590,6 +590,61 @@ before it happens. Encrypted key backup behind a recovery code is a v0.2 answer.
   is better than sending a password and worse than a real PAKE (OPAQUE), and it
   is chosen for implementation simplicity in v0.1.
 
+## 5b. Calls, and the one invariant they bend
+
+Voice calls carry media with WebRTC inside the WebView. That is a deliberate
+exception to invariant 2 — *no key material in the WebView* — and it is written
+here rather than left to be discovered.
+
+**What is protected.** Media is DTLS-SRTP, negotiated end to end between the
+two devices. The relay forwards encrypted packets and cannot decrypt them. The
+signalling that sets a call up — the offer, the answer, the ICE candidates
+inside them — travels as an ordinary MLS payload in the conversation, so the
+server never reads an SDP. That last part is better than it needs to be: an
+SDP names codecs and network addresses, and on a plaintext signalling route the
+server would hold both.
+
+**The exception, stated plainly.** `RTCPeerConnection` generates the DTLS
+certificate and the SRTP session keys in the page. Rule 2 exists to keep the
+identity keypair, the MLS state and the store key out of a JavaScript context;
+those are unchanged and still never cross the IPC boundary. Call media keys are
+a different class: ephemeral, per call, and worth one call's audio if they
+leak — the same exposure as the decrypted message text the WebView already
+holds legitimately. What makes them trustworthy at all is that the DTLS
+fingerprint is authenticated by **travelling inside an MLS message**: the page
+never asserts an identity, Rust does. An attacker who can run code in the
+WebView can already read every message on screen, so this widens no door that
+was shut.
+
+The alternative — a media stack in Rust — was considered and rejected: it would
+mean writing or wrapping an echo canceller, a jitter buffer and an Opus
+pipeline, which is worse calls and, for the crypto, a larger violation of
+rule 1 than the one it avoids.
+
+**What the server and the relay learn.**
+
+- The server learns that an account asked for relay credentials, and therefore
+  that it is about to place *a* call. It does not learn who is being called:
+  that name is inside the ciphertext of the offer.
+- Both endpoints reach the relay, so the relay sees both IP addresses, the
+  timing, and the volume of encrypted media. Metadata, exactly as §2 says of
+  conversation metadata generally.
+- The conversation records that a call happened, how it ended and how long it
+  lasted, because the hangup is an ordinary encrypted message. The server
+  cannot read it.
+
+**Why calls relay by default.** A peer-to-peer connection puts each side's IP
+address into the candidates the other side receives. "Who called you" together
+with "roughly where you live" is not a pair to hand over silently, so the
+server sets `relay_only` and the client obeys it. Turning it off is a
+deliberate decision with this paragraph attached.
+
+**What is not protected.** A call ringing tells an observer of the network that
+two devices exchanged something at that moment; traffic analysis against a
+relay is out of scope for the same reason it is elsewhere in this document.
+Nothing here defends against malware on either machine, which §4 already
+excludes.
+
 ## 6. Object storage
 
 Two buckets, deliberately separated:

@@ -232,6 +232,29 @@ const glyphs = {
       <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5M8.5 21.5h7" />
     </>
   ),
+  /* The same microphone with a stroke through it. Drawn rather than reused
+     with a CSS rotation, because a muted control has to read as muted at 16px
+     and a rotated overlay does not survive that size. */
+  "mic-off": (
+    <>
+      <path d="M15 4.2A3 3 0 0 0 9 5.5v5.2M9 14v-1.4" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 10.2 5.3M18.5 11.5v-.6" />
+      <path d="M12 18v3.5M8.5 21.5h7" />
+      <path d="M3.5 3.5 20.5 20.5" />
+    </>
+  ),
+  phone: (
+    <path d="M7.2 3.5H4.6a1.6 1.6 0 0 0-1.6 1.7c.3 4 2 7.8 4.8 10.6s6.6 4.5 10.6 4.8a1.6 1.6 0 0 0 1.7-1.6v-2.6a1.6 1.6 0 0 0-1.4-1.6 10 10 0 0 1-2.2-.5 1.6 1.6 0 0 0-1.7.4L13.7 16a13 13 0 0 1-5.7-5.7l1.1-1.1a1.6 1.6 0 0 0 .4-1.7 10 10 0 0 1-.5-2.2 1.6 1.6 0 0 0-1.6-1.4z" />
+  ),
+  /* The handset turned down, which is what "hang up" has meant since before
+     anybody reading this used a telephone with a cradle. */
+  "phone-off": (
+    <>
+      <path d="M2.5 14.6c3-3 6.8-4.6 9.5-4.6s6.5 1.6 9.5 4.6" />
+      <path d="M8.4 12.2 6.6 9.9a1.4 1.4 0 0 0-2 -.2l-1.7 1.5a1.4 1.4 0 0 0-.1 2l1.4 1.5M15.6 12.2l1.8-2.3a1.4 1.4 0 0 1 2-.2l1.7 1.5a1.4 1.4 0 0 1 .1 2l-1.4 1.5" />
+      <path d="M3.5 20.5 20.5 3.5" />
+    </>
+  ),
   /* A stroked triangle rather than a filled one, so it sits in the same
      weight as everything else here. Marks a video where there is no room for
      a control -- a gallery tile's poster frame, not a player. */

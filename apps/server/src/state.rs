@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use axum::extract::FromRef;
 
 use crate::auth::TokenKeys;
+use crate::calls::TurnConfig;
 use crate::limits::Limits;
 use crate::storage::Storage;
 use crate::stream::hub::SharedFanout;
@@ -25,6 +26,9 @@ pub struct AppState {
     /// BRIEF 4.5's three limits. `Arc` because the counters are shared state,
     /// not per-request state -- a copy per handler would count nothing.
     pub limits: Arc<Limits>,
+    /// The TURN relay, when one is configured. `None` switches calls off, and
+    /// `/v1/calls/ice` says so plainly rather than failing obscurely.
+    pub turn: Option<Arc<TurnConfig>>,
 }
 
 #[cfg(test)]
@@ -41,6 +45,7 @@ pub(crate) fn test_state() -> AppState {
         storage: None,
         fanout: Arc::new(crate::stream::hub::LocalHub::new()),
         limits: Arc::new(Limits::default()),
+        turn: None,
     }
 }
 

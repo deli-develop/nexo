@@ -1186,3 +1186,112 @@ WebView2 over CDP:
 - **A 2 fps camera reading was a closed privacy shutter**, not a pipeline
   problem: mean brightness 0, and the same encoder path did ~30 fps from a
   synthetic source.
+
+### Calls, wave 2: the relay
+
+The one thing calls need from the server, and it is not signalling.
+
+- **`GET /v1/calls/ice`** hands back a relay address and a credential that
+  expires. `apps/server/src/calls.rs` mints it with coturn's REST scheme —
+  username is `<expiry>:<user id>`, password is HMAC-SHA1 of that under a shared
+  secret — so **the secret never leaves the server** and coturn verifies the
+  pair without a database between the two or any per-user state on the relay. A
+  static TURN password compiled into the client would be extractable from every
+  installation and good for ever; these die in an hour.
+
+- **Relayed by default, and not for bandwidth.** A peer-to-peer connection puts
+  each side's IP address into the candidates the other side receives. The server
+  sends `relay_only: true` and the page is obliged to set
+  `iceTransportPolicy: "relay"`. It is the server's decision rather than the
+  client's so the policy can change without a release — and the default is the
+  safe direction, because a default that leaks is the wrong way round.
+
+- **No relay configured is a working deployment**, not a broken one: the route
+  answers 503 and the app is expected to say calls are unavailable. A *partly*
+  configured one refuses to boot, the same rule `Storage::from_env` follows,
+  because the alternative is finding out on the first call.
+
+- **Ringing needed no new limit.** An invitation is an envelope, so `send`
+  already bounds it, and a blocked person cannot ring at all — the delivery
+  service refuses their envelope in a two-member conversation before any of
+  this is reached. The new `calls` limit covers only minting relay credentials,
+  where each grant is bandwidth somebody pays for.
+
+`hmac` and `sha1` join the server's direct dependencies, both pinned, both
+already in `Cargo.lock` as transitive dependencies — so the build gains
+nothing to compile and both `cargo deny` passes are unaffected. The `Transport`
+trait grew `ice_servers`, implemented in all seven places.
+[`OPS.md`](OPS.md) Phase 8b is the coturn runbook: config, the firewall rows
+(including the 49152–65535 relay range, the one people forget), the
+Trickle-ICE check that proves a **relay** candidate appears, and what relayed
+minutes cost.
+
+**Still missing after this wave:** everything the user can see. No ringing
+screen, no media, no permission handling — waves 3 and 4.
+
+### Calls, wave 3: audio, and something to press
+
+The first wave with a visible feature. A voice call can be placed from a DM,
+rung, answered, declined, muted and hung up, and it leaves a record.
+
+- **`features/calls/useCall.ts`** is the whole state machine — five phases, one
+  call at a time. A second incoming call while one is up is *declined* rather
+  than queued: a messenger that rings twice at once is worse than one that says
+  busy, and call waiting is a feature nobody has asked for.
+
+- **The media stack is the WebView's, and the keys are therefore in the page.**
+  That is the invariant-2 amendment, taken deliberately and written down in
+  `THREAT-MODEL.md` rather than slipped in: the keys are ephemeral and
+  per-call, losing them exposes one call's audio and no history, and the
+  identity that authenticates them never leaves Rust — a DTLS fingerprint is
+  trustworthy here only because it travelled inside an MLS message. In exchange
+  the app gets echo cancellation, noise suppression, gain control, Opus and a
+  jitter buffer that nothing in this repository would improve on.
+
+- **`relay_only` is obeyed, not merely read.** `iceTransportPolicy: "relay"`
+  when the server says so. Reading that flag and ignoring it would leak exactly
+  the IP address relaying exists to hide.
+
+- **Ringing is prompt now.** `drain_stream` forwards `ServerEvent::Envelope` as
+  a `nexo://envelope` event and the sync agent syncs on it, coalesced over
+  250 ms. Before this, signalling waited for the four-second poll — up to four
+  seconds between pressing *call* and the other side ringing. Ordinary messages
+  got the same promptness as a side effect, which they were always entitled to.
+
+- **Auto-lock is inhibited while on a call.** Idleness is measured from the
+  keyboard and the pointer, and somebody talking touches neither — so without
+  this the app locks mid-sentence, drops the store and the MLS provider under a
+  live call, and asks for a PIN over the top of it.
+
+- **The hangup is drawn as a line, not a bubble.** "Missed call" is the
+  receiver's word for what the caller's side calls "No answer" — the same
+  event, named from two sides, which is why the record carries a reason rather
+  than being inferred from who sent it.
+
+#### Two bugs found by driving the running app
+
+Neither failed a test, and neither was visible from outside.
+
+- **A refusal was plain text, so its message was thrown away.** `calls.rs`
+  answered `(503, "Calls are not available on this server.")`, and
+  `HttpTransport` parses refusals as `{error, message}` — so it fell back to
+  "the server returned 503" and the app said "Something went wrong. Try again."
+  The one refusal that is *not* a malfunction became a generic failure. Now
+  JSON, like every other module, with a test on the body shape.
+
+- **A `--release` build ignores `NEXO_API_BASE`.** Deliberate — a shipped
+  binary must not be redirectable by an environment variable — but it means a
+  release build driven against a local server is quietly talking to production,
+  and a locally-added route comes back 404. Worth knowing before concluding a
+  feature is broken. Both are now in `CONTEXT.md`'s conventions.
+
+**Verified in the running app:** all four call commands are registered and
+reach their handlers (`generate_handler!` omission is a runtime rejection, not
+a compile error — so this is checked, not assumed), and the CSP still reports
+**zero** violations with the call code loaded.
+
+**Deliberately not in this wave:** the WebView2 permission prompt is still
+WebView2's own. Handling it needs `with_webview` and the WebView2 FFI — the
+workspace's second `unsafe` block — and bundling that into the wave that also
+introduces the entire call UI is the mixing this repo's rules exist to prevent.
+It gets its own wave. Video is wave 4.

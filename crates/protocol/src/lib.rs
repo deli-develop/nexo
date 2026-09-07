@@ -600,6 +600,52 @@ pub enum HangupReason {
     Failed,
 }
 
+/// Where to reach the relay, and the short-lived credential that opens it.
+///
+/// Fetched per call rather than compiled into the client, for two reasons that
+/// both matter. The credential **expires**, so a copy that leaked from a device
+/// stops working on its own rather than handing somebody free bandwidth for
+/// ever. And the relay's address can move — a second host, a different port —
+/// without shipping a release to every installation.
+///
+/// The shape deliberately mirrors WebRTC's `RTCIceServer`, so the page hands
+/// this to `RTCPeerConnection` almost unchanged. Inventing a different shape
+/// here would buy a translation step and nothing else.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IceServers {
+    /// The servers to try, in order.
+    pub servers: Vec<IceServer>,
+    /// When the credential stops working, ms since the epoch.
+    ///
+    /// Carried so a client can tell "my credential expired mid-call" from "the
+    /// relay is down", which need different answers: the first is refetched,
+    /// the second is reported.
+    pub expires_at_ms: i64,
+    /// Whether every call must go through the relay rather than peer to peer.
+    ///
+    /// The server decides this, not the client, so the policy can change
+    /// without a release. It is `true` today and the reason is not bandwidth:
+    /// a direct connection hands the other side your home IP address in the
+    /// ICE candidates, and "who you called" plus "where you live" is not a
+    /// trade a messenger should make silently. Relaying costs a hop and hides
+    /// both ends from each other.
+    pub relay_only: bool,
+}
+
+/// One relay or STUN server, in WebRTC's own vocabulary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IceServer {
+    /// One server reachable several ways — UDP, TCP, TLS.
+    pub urls: Vec<String>,
+    /// Absent for a plain STUN server, which needs no credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// The credential that goes with `username`. Short-lived, and useless once
+    /// `expires_at_ms` has passed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
+}
+
 /// `serde` needs a function, not a literal, for a default of `true`.
 fn yes() -> bool {
     true

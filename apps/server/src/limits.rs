@@ -146,6 +146,15 @@ pub struct Limits {
     /// of strangers. Everything else on this list costs the person doing it
     /// nothing; an unsolicited message costs the person receiving it.
     pub meet_requests: RateLimit,
+    /// Asking the server where to send a call's media.
+    ///
+    /// Once per call in normal use, so this is loose enough never to be met by
+    /// somebody placing calls and tight enough that a script cannot mint relay
+    /// credentials in bulk -- every one of those is bandwidth somebody pays
+    /// for. Ringing itself is limited elsewhere: an invitation is an envelope,
+    /// so it is `send` that bounds it, and a blocked person cannot ring at all
+    /// because the delivery service already refuses their envelope.
+    pub calls: RateLimit,
 }
 
 impl Default for Limits {
@@ -162,6 +171,7 @@ impl Default for Limits {
             membership: RateLimit::new(30, Duration::from_secs(60)),
             meet: RateLimit::new(60, Duration::from_secs(60)),
             meet_requests: RateLimit::new(10, Duration::from_secs(3600)),
+            calls: RateLimit::new(30, Duration::from_secs(60)),
         }
     }
 }
@@ -187,6 +197,7 @@ impl Limits {
             membership: RateLimit::new(u32::MAX, forever),
             meet: RateLimit::new(u32::MAX, forever),
             meet_requests: RateLimit::new(u32::MAX, forever),
+            calls: RateLimit::new(u32::MAX, forever),
         }
     }
 }

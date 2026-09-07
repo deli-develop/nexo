@@ -56,6 +56,50 @@ export interface IncomingCall {
 }
 
 /**
+ * One relay or STUN server, in WebRTC's own vocabulary.
+ *
+ * Shaped to match `RTCIceServer`, so it goes into `new RTCPeerConnection({
+ * iceServers })` unchanged rather than through a translation nobody would
+ * remember to keep in step.
+ */
+export interface IceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+/** Where a call's media goes, and the credential that opens the relay. */
+export interface IceServers {
+  servers: IceServer[];
+  /** When the credential stops working, ms since the epoch. */
+  expires_at_ms: number;
+  /**
+   * Whether every call must go through the relay instead of peer to peer.
+   *
+   * The server decides, so the policy can change without a release. It is
+   * `true` today, and not for bandwidth: a direct connection puts your home IP
+   * address in the ICE candidates the other side receives. When this is set,
+   * the page must pass `iceTransportPolicy: "relay"` — reading it and ignoring
+   * it would leak exactly what it exists to prevent.
+   */
+  relay_only: boolean;
+}
+
+/**
+ * Asks where to send this call's media.
+ *
+ * Called once per call, right before offering or answering — never cached
+ * across calls, because the credential expires and a stale one fails deep
+ * inside ICE where there is nothing useful to show anybody.
+ *
+ * Rejects when the server has no relay configured, which is how the app learns
+ * that calls are unavailable rather than broken.
+ */
+export function callIceServers(): Promise<IceServers> {
+  return invoke<IceServers>("call_ice_servers");
+}
+
+/**
  * Rings somebody, and returns the id of the call that just started.
  *
  * The id is minted in Rust, not here — it is the one value both sides must

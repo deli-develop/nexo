@@ -102,6 +102,7 @@ impl Transport for Flaky {
         meet_decline(i64) -> ();
         report(&str, i64, &str, Option<&str>) -> ();
         search_users(&str) -> Vec<nexo_client::transport::SearchResult>;
+        ice_servers() -> nexo_protocol::IceServers;
         create_invite(Option<&str>, i64) -> nexo_client::transport::MintedInvite;
         list_invites() -> Vec<nexo_client::transport::InviteSummary>;
         revoke_invite(i64) -> ();
@@ -232,6 +233,7 @@ fn a_rejection_is_reported_rather_than_hidden_behind_the_cache() {
             meet_decline(i64) -> ();
         report(&str, i64, &str, Option<&str>) -> ();
         search_users(&str) -> Vec<nexo_client::transport::SearchResult>;
+        ice_servers() -> nexo_protocol::IceServers;
         create_invite(Option<&str>, i64) -> nexo_client::transport::MintedInvite;
         list_invites() -> Vec<nexo_client::transport::InviteSummary>;
         revoke_invite(i64) -> ();

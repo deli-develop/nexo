@@ -113,7 +113,7 @@ crates/client         7 668 ln   Session logic, portable across Windows and Andr
 apps/server           8 619 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
                       7 317 ln   The Windows shell: 116 Tauri commands, windowing, IPC.
-apps/desktop/src     24 752 ln   React 19 client (TypeScript, Tailwind, Zustand).
+apps/desktop/src     25 087 ln   React 19 client (TypeScript, Tailwind, Zustand).
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
 ```
 
@@ -972,6 +972,16 @@ failed silently.
   and a route that only exists locally comes back 404 — which maps to
   `NotFound` and then to a generic error, so it looks like a bug in the feature
   rather than a binary aimed at the wrong host.
+- **A video call's codec is chosen, not accepted.** Chromium's default order
+  negotiates VP8, and at the bitrate a call actually uses that costs
+  *resolution*: measured in this WebView from one canvas source at 1.5 Mbps and
+  30 fps, VP8 held 480x270 where H.264 held 960x540 — four times the pixels for
+  the same bytes. `useCall.ts` reorders the codec list before creating the
+  offer, which has to happen *before* `createOffer` and is a preference rather
+  than a requirement, so a peer without H.264 still negotiates. Anything that
+  rebuilds the connection has to keep doing it, and the number to re-measure is
+  `frameWidth` on the receiver's `inbound-rtp`, not the frame rate — the frame
+  rate looks fine either way, which is what makes this easy to miss.
 - **Two `cargo deny` passes, never one.** The Windows client and the Linux
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.

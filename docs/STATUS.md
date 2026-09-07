@@ -1295,3 +1295,43 @@ WebView2's own. Handling it needs `with_webview` and the WebView2 FFI — the
 workspace's second `unsafe` block — and bundling that into the wave that also
 introduces the entire call UI is the mixing this repo's rules exist to prevent.
 It gets its own wave. Video is wave 4.
+
+### Calls, wave 4: video
+
+The camera half, and one measurement that changed the design.
+
+- **A video call is a call that opened a camera.** The button sits beside the
+  voice one in a DM, `getUserMedia` asks for 720p30, and the answerer answers in
+  kind — a video call with the camera on, a voice call without one. Turning the
+  camera off mid-call toggles `enabled` on the track rather than stopping it:
+  stopping releases the device, and getting it back needs a renegotiation this
+  build does not do, since candidates are bundled once per call.
+
+- **H.264 is preferred, and the reason is resolution.** Chromium's default order
+  picks VP8. Measured in the app's own WebView from one canvas source, same
+  1.5 Mbps cap and same 30 fps: **VP8 held 480x270, H.264 held 960x540** — four
+  times the pixels for the same bytes. The frame rate is 30 either way, which is
+  exactly what makes this easy to miss. Hardware offload is the likely cause and
+  would save battery too, but `encoderImplementation` reports nothing in this
+  build, so that part is not claimed.
+
+- **The bitrate is capped on the sender, not just asked of the camera.** The two
+  are different promises: the camera decides what is captured, congestion
+  control decides what goes out, and on a fast link it will happily use several
+  megabits for a picture of a face — paid for twice, because every byte crosses
+  the relay. Verified at exactly 1 500 000 bps.
+
+- **Losing the camera does not lose the call.** An unplugged webcam, or one
+  another app grabs, ends the track; the call carries on as audio and says so.
+  A camera that is missing when the call *starts* is the same story — the call
+  becomes a voice call rather than failing.
+
+- **The self-view is mirrored**, because that is what a mirror does and every
+  other video app agrees. The remote `<video>` is muted on purpose: the sound
+  already comes out of an `<audio>` element the engine owns, and a second player
+  would double every voice.
+
+**Still deliberately missing:** group calls (mesh stops scaling almost
+immediately, and an SFU cannot read the media without breaking rule 4), screen
+sharing, and the WebView2 permission handler — the last still wants its own
+small wave, for the `unsafe` FFI it needs.

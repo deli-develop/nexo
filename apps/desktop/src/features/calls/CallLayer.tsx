@@ -1,10 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { onSync } from "../../app/syncAgent";
 import { Button, IconButton } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { Panel } from "../../components/ui/Surface";
-import { acceptCall, applySignal, hangUp, setMuted, useCall } from "./useCall";
+import {
+  acceptCall,
+  applySignal,
+  getLocalStream,
+  getRemoteStream,
+  hangUp,
+  setCameraEnabled,
+  setMuted,
+  useCall,
+} from "./useCall";
 
 /**
  * Everything a call puts on screen, and the one place signalling is applied.
@@ -71,10 +80,68 @@ function CallBar({
   );
 }
 
+/**
+ * The other side, drawn.
+ *
+ * The stream is fetched through `getRemoteStream()` rather than passed as a
+ * prop: it lives in a module variable so that arriving media does not re-render
+ * anything, and `mediaEpoch` is the number that says it changed. The element is
+ * **muted** on purpose — the sound is already coming out of an `<audio>` the
+ * engine owns, and a second player would double every voice.
+ */
+function RemoteVideo({ epoch }: { epoch: number }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = getRemoteStream();
+    void el.play().catch(() => {
+      // A refused play() must not take the call down. The audio is elsewhere.
+    });
+  }, [epoch]);
+  return (
+    <video
+      ref={ref}
+      autoPlay
+      playsInline
+      muted
+      className="h-full w-full bg-black object-cover"
+    />
+  );
+}
+
+/** Our own camera, small, and mirrored the way a mirror is. */
+function SelfVideo() {
+  const ref = useRef<HTMLVideoElement>(null);
+  const cameraOn = useCall((s) => s.cameraOn);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Read at mount rather than held: the local stream is the engine's, and a
+    // component that kept its own reference would keep it alive past teardown.
+    el.srcObject = getLocalStream();
+    void el.play().catch(() => {});
+  }, [cameraOn]);
+  if (!cameraOn) return null;
+  return (
+    <video
+      ref={ref}
+      autoPlay
+      playsInline
+      muted
+      className="border-line absolute right-2 bottom-2 h-[72px] w-[96px] rounded-md border bg-black object-cover [transform:scaleX(-1)]"
+    />
+  );
+}
+
 export function CallLayer() {
   const phase = useCall((s) => s.phase);
   const muted = useCall((s) => s.muted);
   const connectedAt = useCall((s) => s.connectedAt);
+  const video = useCall((s) => s.video);
+  const cameraOn = useCall((s) => s.cameraOn);
+  const remoteVideo = useCall((s) => s.remoteVideo);
+  const mediaEpoch = useCall((s) => s.mediaEpoch);
   const error = useCall((s) => s.error);
   const setState = useCall((s) => s.setState);
 
@@ -86,13 +153,15 @@ export function CallLayer() {
     return (
       <CallBar label="Incoming call">
         <span className="text-accent" aria-hidden>
-          <Icon name="phone" size={20} />
+          <Icon name={video ? "video" : "phone"} size={20} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-text-hi truncate text-[14px] font-medium">
             Incoming call
           </p>
-          <p className="text-text-lo truncate text-[12px]">Voice call</p>
+          <p className="text-text-lo truncate text-[12px]">
+            {video ? "Video call" : "Voice call"}
+          </p>
         </div>
         <Button variant="ghost" onClick={() => void hangUp()}>
           Decline
@@ -105,18 +174,15 @@ export function CallLayer() {
   }
 
   if (phase === "outgoing" || phase === "connecting" || phase === "connected") {
-    return (
-      <CallBar>
-        <span className="text-accent" aria-hidden>
-          <Icon name="phone" size={18} />
-        </span>
-        <p className="text-text-hi min-w-0 flex-1 truncate text-[13px]">
-          {phase === "outgoing"
-            ? "Calling…"
-            : phase === "connecting"
-              ? "Connecting…"
-              : "On a call"}
-        </p>
+    const status =
+      phase === "outgoing"
+        ? "Calling…"
+        : phase === "connecting"
+          ? "Connecting…"
+          : "On a call";
+
+    const controls = (
+      <>
         {phase === "connected" && connectedAt !== null ? (
           <CallTimer since={connectedAt} />
         ) : null}
@@ -126,11 +192,59 @@ export function CallLayer() {
           aria-pressed={muted}
           onClick={() => setMuted(!muted)}
         />
+        {/* Only on a call that opened a camera. A voice call never did, and a
+            button that would have to reopen the device mid-call needs a
+            renegotiation this build does not do. */}
+        {video ? (
+          <IconButton
+            name={cameraOn ? "video" : "video-off"}
+            label={cameraOn ? "Turn your camera off" : "Turn your camera on"}
+            aria-pressed={!cameraOn}
+            onClick={() => setCameraEnabled(!cameraOn)}
+          />
+        ) : null}
         <IconButton
           name="phone-off"
           label="Hang up"
           onClick={() => void hangUp()}
         />
+      </>
+    );
+
+    // Pictures get a surface; a voice call stays a strip. The panel appears
+    // only once something is actually arriving, so "Calling…" does not open a
+    // black rectangle at somebody.
+    if (video && remoteVideo) {
+      return (
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-3">
+          <Panel
+            tone="raised"
+            className="pointer-events-auto w-full max-w-md overflow-hidden rounded-xl"
+          >
+            <div className="relative aspect-video w-full">
+              <RemoteVideo epoch={mediaEpoch} />
+              <SelfVideo />
+            </div>
+            <div className="flex items-center gap-3 px-4 py-2.5">
+              <p className="text-text-hi min-w-0 flex-1 truncate text-[13px]">
+                {status}
+              </p>
+              {controls}
+            </div>
+          </Panel>
+        </div>
+      );
+    }
+
+    return (
+      <CallBar>
+        <span className="text-accent" aria-hidden>
+          <Icon name={video ? "video" : "phone"} size={18} />
+        </span>
+        <p className="text-text-hi min-w-0 flex-1 truncate text-[13px]">
+          {status}
+        </p>
+        {controls}
       </CallBar>
     );
   }

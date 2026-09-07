@@ -61,6 +61,28 @@ const RING_TIMEOUT_MS = 45_000;
  */
 const GATHER_TIMEOUT_MS = 3_000;
 
+/**
+ * What a video call asks the camera for, and what it agrees to send.
+ *
+ * 720p30 at 1.5 Mbps is the shape of a call that looks right on a laptop
+ * without being the largest thing on the network. `ideal` rather than `exact`
+ * throughout: a camera that cannot do this should give its best, not refuse —
+ * `getUserMedia` treats an unmeetable `exact` as a failure, and a call that
+ * does not happen is worse than one at 480p.
+ *
+ * The cap is applied to the sender as well as asked of the camera, because the
+ * two are different promises: the camera decides what is captured, the encoder
+ * decides what goes out, and congestion control will happily use more than you
+ * expected on a fast network.
+ */
+const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
+  frameRate: { ideal: 30 },
+};
+const VIDEO_MAX_BITRATE = 1_500_000;
+const VIDEO_MAX_FRAMERATE = 30;
+
 export type CallPhase =
   | "idle"
   /** We are ringing them. */
@@ -82,6 +104,26 @@ export interface CallState {
   /** Our own microphone, as the person set it. */
   muted: boolean;
   /**
+   * Whether our camera is on.
+   *
+   * Separate from `video`: `video` is what the call is *for*, this is what we
+   * are currently sending. Answering a video call with the camera off is an
+   * ordinary thing to do, and joining a voice call is not a reason to hide the
+   * camera button.
+   */
+  cameraOn: boolean;
+  /** Whether the other side is sending pictures right now. */
+  remoteVideo: boolean;
+  /**
+   * Bumped whenever the remote stream is replaced.
+   *
+   * The stream itself is a module variable — see the note at the top about
+   * keeping media out of React state — so this is what tells a component that
+   * `getRemoteStream()` will now answer differently. A number, because that is
+   * the smallest thing that can change.
+   */
+  mediaEpoch: number;
+  /**
    * What went wrong, for the one line the UI shows.
    *
    * Set rather than thrown: a call that fails is an ordinary outcome, and the
@@ -102,6 +144,9 @@ const initial: CallState = {
   video: false,
   connectedAt: null,
   muted: false,
+  cameraOn: false,
+  remoteVideo: false,
+  mediaEpoch: 0,
   error: null,
 };
 
@@ -116,6 +161,15 @@ export const useCall = create<CallState & CallActions>()((set) => ({
 let pc: RTCPeerConnection | null = null;
 let localStream: MediaStream | null = null;
 let remoteAudio: HTMLAudioElement | null = null;
+/**
+ * What the other side is sending, video included.
+ *
+ * A module variable rather than store state: a `MediaStream` is a mutable
+ * handle whose identity almost never changes, so putting it in a store would
+ * re-render every subscriber for an object that did not meaningfully change.
+ * `mediaEpoch` is what says "ask again".
+ */
+let remoteStream: MediaStream | null = null;
 let ringTimer: number | undefined;
 /**
  * The offer we are ringing about, kept until it is accepted or refused.
@@ -124,6 +178,22 @@ let ringTimer: number | undefined;
  * a long SDP string that nothing renders.
  */
 let pendingOffer: { sdp: string } | null = null;
+
+/** The other side's stream, for whatever needs to draw it. */
+export function getRemoteStream(): MediaStream | null {
+  return remoteStream;
+}
+
+/**
+ * Our own stream, for the self-view.
+ *
+ * Handed out rather than held by the component, so teardown stays the engine's
+ * job: a component that kept its own reference would keep the camera open past
+ * the end of the call.
+ */
+export function getLocalStream(): MediaStream | null {
+  return localStream;
+}
 
 /** Everything this module allocated, put back. */
 function teardown(): void {
@@ -144,6 +214,7 @@ function teardown(): void {
     remoteAudio.remove();
     remoteAudio = null;
   }
+  remoteStream = null;
 
   pc?.close();
   pc = null;
@@ -191,13 +262,24 @@ function gatheredSdp(connection: RTCPeerConnection): Promise<string> {
  * side receives — which is the whole thing relaying exists to prevent. Reading
  * the flag and ignoring it would be worse than never asking.
  */
-async function buildConnection(): Promise<RTCPeerConnection> {
+async function buildConnection(video: boolean): Promise<RTCPeerConnection> {
   const ice = await callIceServers();
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: true,
-    video: false,
-  });
+  // A camera that is missing or refused must not take the call down with it:
+  // a video call that ends up audio-only is a working call, and the person can
+  // be told about the camera afterwards. A *microphone* that fails is fatal,
+  // which is why only the video half is caught.
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      ...(video ? { video: VIDEO_CONSTRAINTS } : {}),
+    });
+  } catch (error) {
+    if (!video) throw error;
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    useCall.setState({ error: "Your camera is unavailable, so this is a voice call." });
+  }
   localStream = stream;
 
   const connection = new RTCPeerConnection({
@@ -213,21 +295,77 @@ async function buildConnection(): Promise<RTCPeerConnection> {
     iceTransportPolicy: ice.relay_only ? "relay" : "all",
   });
 
-  stream.getTracks().forEach((track) => connection.addTrack(track, stream));
+  stream.getTracks().forEach((track) => {
+    connection.addTrack(track, stream);
+    // A webcam being unplugged, or grabbed by another app, ends the track.
+    // Losing the picture is survivable; losing the call over it is not.
+    track.addEventListener("ended", () => {
+      if (track.kind !== "video") return;
+      useCall.setState({
+        cameraOn: false,
+        error: "Your camera stopped working. The call is still going.",
+      });
+    });
+  });
+  useCall.setState({ cameraOn: stream.getVideoTracks().length > 0 });
+
+  // Prefer H.264, and the reason is resolution rather than anything abstract.
+  //
+  // Measured in this WebView, same canvas source, same 1.5 Mbps cap, same
+  // 30 fps: Chromium's default order negotiates VP8 and holds **480x270**;
+  // asking for H.264 first holds **960x540**. Four times the pixels for the
+  // same bytes, which on a video call is the difference between a face and a
+  // suggestion of one. (Hardware offload is the likely cause and would also
+  // save battery, but `encoderImplementation` reports nothing here, so that
+  // part is not claimed.)
+  //
+  // A preference, not a requirement: `setCodecPreferences` reorders the list,
+  // so a peer without H.264 still negotiates something both support. Guarded
+  // because it has to run before the offer is created and is not implemented
+  // everywhere.
+  if (video) {
+    const capabilities = RTCRtpSender.getCapabilities("video");
+    const transceiver = connection
+      .getTransceivers()
+      .find((t) => t.sender.track?.kind === "video");
+    if (capabilities && transceiver?.setCodecPreferences) {
+      const h264 = capabilities.codecs.filter((c) => /h264/i.test(c.mimeType));
+      const rest = capabilities.codecs.filter((c) => !/h264/i.test(c.mimeType));
+      if (h264.length > 0) {
+        try {
+          transceiver.setCodecPreferences([...h264, ...rest]);
+        } catch {
+          // An unsupported ordering is not worth failing a call over.
+        }
+      }
+    }
+  }
 
   // The remote audio needs an element to come out of. It is never added to the
   // React tree: it renders nothing, and an element React owns would be torn
   // down and rebuilt on renders that have nothing to do with the call.
   connection.addEventListener("track", (event) => {
+    const incoming = event.streams[0] ?? null;
+    remoteStream = incoming;
+
+    // Sound comes out of an element that is never in the React tree: it renders
+    // nothing, and one React owned would be torn down and rebuilt by renders
+    // that have nothing to do with the call. The video element in `CallLayer`
+    // is muted for exactly this reason -- one stream, one thing playing it.
     if (!remoteAudio) {
       remoteAudio = document.createElement("audio");
       remoteAudio.autoplay = true;
       document.body.appendChild(remoteAudio);
     }
-    remoteAudio.srcObject = event.streams[0] ?? null;
+    remoteAudio.srcObject = incoming;
     void remoteAudio.play().catch(() => {
       // Autoplay policy does not apply to a call the person just answered, but
       // a rejected play() must not take the call down with it.
+    });
+
+    useCall.setState({
+      remoteVideo: (incoming?.getVideoTracks().length ?? 0) > 0,
+      mediaEpoch: useCall.getState().mediaEpoch + 1,
     });
   });
 
@@ -254,6 +392,33 @@ async function buildConnection(): Promise<RTCPeerConnection> {
   return connection;
 }
 
+/**
+ * Holds the outgoing video to something a call should use.
+ *
+ * Applied after the local description, because that is when the sender has
+ * encodings to configure. Without it, congestion control aims at whatever the
+ * link will bear — which on a fast connection is several megabits for a picture
+ * of somebody's face, paid for twice because every byte crosses the relay.
+ */
+async function capVideoBitrate(connection: RTCPeerConnection): Promise<void> {
+  const sender = connection.getSenders().find((s) => s.track?.kind === "video");
+  if (!sender) return;
+  const params = sender.getParameters();
+  // `encodings` can be absent until the description is set; a bare object is
+  // the documented way to create the one encoding a simple call has.
+  if (!params.encodings || params.encodings.length === 0) {
+    params.encodings = [{}];
+  }
+  params.encodings[0]!.maxBitrate = VIDEO_MAX_BITRATE;
+  params.encodings[0]!.maxFramerate = VIDEO_MAX_FRAMERATE;
+  try {
+    await sender.setParameters(params);
+  } catch {
+    // Not worth failing a call over: the cap is a courtesy to the network, and
+    // a browser that refuses these parameters still makes the call.
+  }
+}
+
 /** Turns a failure into the one sentence the UI shows. */
 function reasonFor(error: unknown): string {
   const name = (error as { name?: string } | null)?.name;
@@ -278,23 +443,27 @@ function reasonFor(error: unknown): string {
 // --- What the UI calls ------------------------------------------------------
 
 /** Rings somebody. */
-export async function startCall(conversationId: string): Promise<void> {
+export async function startCall(
+  conversationId: string,
+  video = false,
+): Promise<void> {
   if (useCall.getState().phase !== "idle") return;
 
   useCall.setState({
     ...initial,
     phase: "outgoing",
     conversationId,
-    video: false,
+    video,
   });
 
   try {
-    pc = await buildConnection();
+    pc = await buildConnection(video);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    await capVideoBitrate(pc);
     const sdp = await gatheredSdp(pc);
 
-    const callId = await callOffer(conversationId, false, sdp);
+    const callId = await callOffer(conversationId, video, sdp);
     useCall.setState({ callId });
 
     // Nobody picked up. Cancelling rather than going quiet is what leaves the
@@ -310,20 +479,29 @@ export async function startCall(conversationId: string): Promise<void> {
 
 /** Accepts the call that is ringing. */
 export async function acceptCall(): Promise<void> {
-  const { phase, conversationId, callId } = useCall.getState();
+  const { phase, conversationId, callId, video } = useCall.getState();
   if (phase !== "incoming" || !conversationId || !callId || !pendingOffer) return;
 
   const offer = pendingOffer;
   useCall.setState({ phase: "connecting" });
 
   try {
-    pc = await buildConnection();
+    // Answer in kind: a video call is answered with the camera on, a voice
+    // call without one. What the answerer does after that is their business --
+    // `setCameraEnabled` is one press away either direction.
+    pc = await buildConnection(video);
     await pc.setRemoteDescription({ type: "offer", sdp: offer.sdp });
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+    await capVideoBitrate(pc);
     const sdp = await gatheredSdp(pc);
 
-    await callAnswer(conversationId, callId, false, sdp);
+    await callAnswer(
+      conversationId,
+      callId,
+      useCall.getState().cameraOn,
+      sdp,
+    );
     pendingOffer = null;
   } catch (error) {
     const message = reasonFor(error);
@@ -374,6 +552,28 @@ export function setMuted(muted: boolean): void {
     track.enabled = !muted;
   });
   useCall.setState({ muted });
+}
+
+/**
+ * Turns the camera on or off mid-call.
+ *
+ * Toggles `enabled` on the track rather than stopping it. Stopping would
+ * release the device — the camera light goes out, which is the honest thing —
+ * but getting it back means a new track, a new transceiver and a renegotiation,
+ * and there is no renegotiation path here: an offer is a whole new signalling
+ * exchange, and this build sends candidates bundled once per call.
+ *
+ * So the camera stays open and stops sending. The light staying on while
+ * "camera off" is showing would be a lie, which is why turning it off is only
+ * offered on a call that already had a camera: a voice call never opens one.
+ */
+export function setCameraEnabled(on: boolean): void {
+  const tracks = localStream?.getVideoTracks() ?? [];
+  if (tracks.length === 0) return;
+  tracks.forEach((track) => {
+    track.enabled = on;
+  });
+  useCall.setState({ cameraOn: on });
 }
 
 /**

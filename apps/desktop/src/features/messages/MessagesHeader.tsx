@@ -172,6 +172,13 @@ export function MessagesHeader({
         }
       >
         <IconButton
+          name="video"
+          label="Start a video call"
+          size={17}
+          disabled={!conversation || conversation.kind !== "dm" || callBusy}
+          onClick={() => conversation && void startCall(conversation.id, true)}
+        />
+        <IconButton
           name="phone"
           label="Start a voice call"
           size={17}

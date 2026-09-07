@@ -15,7 +15,7 @@ version = "0.1.23"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
-repository = "https://github.com/YungDice/nexo"
+repository = "https://github.com/deli-develop/nexo"
 
 # Rule 8: every direct dependency is pinned to an exact version.
 # Cargo.lock is committed, so transitive dependencies are pinned too.

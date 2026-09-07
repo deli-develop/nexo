@@ -116,7 +116,7 @@ selbst kein Rechtsträger. Was daraus folgt — wer unterschreiben kann, was
 schriftlich festgehalten gehört, und warum eine Umbenennung der Zeile keine
 Lizenzänderung ist — steht in [`docs/LICENSING.md`](docs/LICENSING.md) §1.
 
-Upstream ist <https://github.com/YungDice/nexo>.
+Upstream ist <https://github.com/deli-develop/nexo>.
 
 ## Sparsam arbeiten
 

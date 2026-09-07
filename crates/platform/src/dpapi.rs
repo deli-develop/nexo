@@ -7,8 +7,10 @@
 //!
 //! # Why this module contains `unsafe`
 //!
-//! Every other crate in this repo is `#![forbid(unsafe_code)]`, and this one is
-//! `#![deny(unsafe_code)]` with exactly one `#[allow]`, here. DPAPI is a C API;
+//! This crate is `#![deny(unsafe_code)]` with exactly one `#[allow]`, here.
+//! `apps/desktop/src-tauri` is the only other crate that is not `forbid`, for
+//! the same reason and in the same shape -- WebView2 decides camera and
+//! microphone access through a COM callback, and that is FFI too. DPAPI is a C API;
 //! reaching it needs FFI, and FFI needs `unsafe`. The alternatives were worse:
 //! a third-party DPAPI wrapper would contain the same `unsafe` somewhere we do
 //! not read, and the maintained ones are thin enough that we would be

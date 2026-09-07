@@ -29,8 +29,15 @@ const rows: { data: string; protection: string; e2ee: boolean }[] = [
     e2ee: false,
   },
   {
-    data: "Conversation metadata — who you talk to, when, and how large the messages are",
-    protection: "Encrypted in transit and at rest. Visible to the server. This is the honest limit of the design.",
+    data: "Call audio and video",
+    protection:
+      "End-to-end encrypted with DTLS-SRTP, arranged inside an MLS message. The relay forwards packets it cannot read.",
+    e2ee: true,
+  },
+  {
+    data: "Conversation and call metadata — who you talk to and call, when, and how long",
+    protection:
+      "Encrypted in transit and at rest. Visible to the server. Calls are relayed so the other person never learns your IP address; the relay sees both. This is the honest limit of the design.",
     e2ee: false,
   },
 ];

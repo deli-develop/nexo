@@ -1683,13 +1683,22 @@ fn parse_call_id(id: &str) -> Result<nexo_protocol::CallId, ConversationErrorVie
 pub async fn call_ice_servers(
     state: State<'_, ClientState>,
 ) -> Result<nexo_protocol::IceServers, ConversationErrorView> {
-    with_client(&state, |client| {
+    let servers = with_client(&state, |client| {
         client
             .transport
             .ice_servers()
             .map_err(|e| ConversationErrorView::from(conversations::ConversationError::from(e)))
     })
-    .await
+    .await?;
+
+    // The gate for the microphone and the camera opens here and nowhere else.
+    //
+    // This is the first thing either side of a call does -- the caller before
+    // it offers, the callee before it answers -- so it is the earliest honest
+    // moment to say "a call is starting". Opened only after the server agreed
+    // to relay it: a deployment with no relay never gets as far as a device.
+    crate::permissions::allow_call_media(true);
+    Ok(servers)
 }
 
 /// Rings somebody: names a new call and sends the offer.
@@ -1759,7 +1768,7 @@ pub async fn call_hangup(
     reason: HangupReason,
     seconds: u32,
 ) -> Result<(), ConversationErrorView> {
-    with_client(&state, move |client| {
+    let result = with_client(&state, move |client| {
         let id = parse_id(&conversation_id)?;
         let call_id = parse_call_id(&call_id)?;
         conversations::send_call_signal(
@@ -1770,7 +1779,13 @@ pub async fn call_hangup(
         )
         .map_err(ConversationErrorView::from)
     })
-    .await
+    .await;
+
+    // Shut whatever happened above. A hangup that failed to send is still the
+    // end of the call locally, and leaving the gate open because the network
+    // was down would be the wrong way for this to fail.
+    crate::permissions::allow_call_media(false);
+    result
 }
 
 /// The decrypted history of one conversation, oldest first.

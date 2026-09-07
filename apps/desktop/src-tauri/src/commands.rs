@@ -78,7 +78,10 @@ pub fn set_unread(app: AppHandle, unread: usize) -> Result<(), String> {
 /// the UI treated that as "stay unlocked", the failure mode would be an app
 /// that looks locked and is not.
 #[tauri::command]
-pub fn lock(client_state: tauri::State<'_, ClientState>) {
+pub fn lock(
+    client_state: tauri::State<'_, ClientState>,
+    stream_state: tauri::State<'_, crate::stream::StreamState>,
+) {
     match client_state.0.lock() {
         Ok(mut guard) => {
             // Dropping `LoggedIn` closes the SQLCipher connection and releases
@@ -92,6 +95,32 @@ pub fn lock(client_state: tauri::State<'_, ClientState>) {
             *poisoned.into_inner() = None;
         }
     }
+
+    // And the socket, explicitly.
+    //
+    // `stream.rs` has always said that locking closes it — "a socket still
+    // delivering into a locked app is a session that did not really end" — but
+    // the mechanism it relied on does not fire here. `follow_session` closes
+    // the socket when there is no *session*, and locking deliberately keeps
+    // `SessionState`: the tokens are what let `unlock_with_pin` rebuild
+    // everything from disk with no server round trip. So the session outlives
+    // the lock, `follow_session` sees it and holds the connection open, and
+    // nothing was ever going to call it anyway — `drain_stream` is driven by
+    // the sync agent, which unmounts with the app shell.
+    //
+    // The result was an authenticated WebSocket left open by a locked app,
+    // quietly accumulating events nobody could decrypt. Closed here instead,
+    // where the intent lives.
+    match stream_state.0.lock() {
+        // Dropping the `Stream` asks its thread to stop.
+        Ok(mut guard) => *guard = None,
+        Err(poisoned) => *poisoned.into_inner() = None,
+    }
+
+    // And the camera and microphone gate. A locked app must not be able to
+    // open a device, and the flag would otherwise outlive the lock exactly as
+    // the socket used to.
+    crate::permissions::allow_call_media(false);
 }
 
 /// Whether the app is currently unlocked.

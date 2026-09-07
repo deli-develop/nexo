@@ -1335,3 +1335,89 @@ The camera half, and one measurement that changed the design.
 immediately, and an SFU cannot read the media without breaking rule 4), screen
 sharing, and the WebView2 permission handler — the last still wants its own
 small wave, for the `unsafe` FFI it needs.
+
+### Calls, wave 5: saying so, and one thing that was not true
+
+The honesty pass. No new feature; two corrections and a test.
+
+- **The privacy table names calls.** `PrivacyTable.tsx` renders in Settings and
+  again on the profile's Security tab — one component, so the wording cannot
+  drift — and it now carries two more rows: call audio and video are end-to-end
+  encrypted with DTLS-SRTP arranged inside an MLS message, and call metadata
+  (who, when, how long) is visible to the server exactly as conversation
+  metadata is. It also says the thing that is easy to leave out: calls are
+  relayed so the other person never learns your IP address, and the relay sees
+  both. Rule 5 means saying the second part as plainly as the first.
+
+- **A locked app was holding an authenticated socket open.** `stream.rs` has
+  said since the socket was written that locking closes it — "a socket still
+  delivering into a locked app is a session that did not really end". It did
+  not. `follow_session` closes the socket when there is no *session*, and
+  locking deliberately keeps `SessionState`, because those tokens are what let
+  `unlock_with_pin` rebuild the client from disk without touching the network.
+  So the session outlived the lock, `follow_session` would have held the
+  connection open, and nothing was calling it anyway: `drain_stream` rides the
+  sync agent, which unmounts with the shell. The result was a live
+  authenticated WebSocket behind the lock screen, accumulating events nobody
+  could decrypt. `commands.rs::lock` now drops `StreamState` explicitly, and
+  the comment says what actually happens.
+
+  Found while checking a sentence before writing it into the UI, which is the
+  only reason it was found at all.
+
+- **"A blocked person cannot ring" now has a test.** It was true, and it rested
+  on one line in `delivery/mod.rs` that nothing exercised.
+  `a_conversation_cannot_be_opened_across_a_block` covers *opening* one — but a
+  block usually arrives after two people have been talking, so the conversation
+  already exists and the question is whether it still carries anything.
+  `a_block_stops_an_envelope_in_a_conversation_that_already_existed` sends
+  before the block and after it. Since a call invitation is an ordinary
+  envelope, that check is the only thing between a blocked account and a phone
+  that rings.
+
+- **The lock setting says what locking costs.** A locked app cannot ring — the
+  keys that would read the invitation are gone until it is unlocked, so the
+  call lands as a missed call. A call already in progress holds auto-lock off
+  until it ends. Both are now in the Settings text rather than left to be
+  discovered.
+
+### Calls, wave 6: answering the permission prompt ourselves
+
+The loose end from the plan. Every first call used to raise WebView2's own
+dialog — *"http://tauri.localhost wants to · Use your cameras"* — because wry
+registers a `PermissionRequested` handler only for clipboard reads and leaves
+every other kind at the default. A browser bubble quoting an origin nobody has
+heard of, in a native messenger, after the person already pressed *call*.
+
+`apps/desktop/src-tauri/src/permissions.rs` answers it instead. The gate is the
+call: `allow_call_media(true)` is set when a call fetches its relay — the first
+thing either side does — and cleared on hangup and by the lock screen. Open, the
+microphone and camera are granted with no prompt; shut, they are **refused**, so
+the page cannot open a device outside a call and `getUserMedia` fails with
+`NotAllowedError`, which the call code already reports properly.
+
+Nothing here grants more than Windows does. The OS keeps its own per-app camera
+and microphone privacy settings and they still apply.
+
+- **This is the workspace's second `unsafe`,** and it is why
+  `apps/desktop/src-tauri` is now `deny(unsafe_code)` rather than `forbid` —
+  `forbid` cannot be relaxed for one module, which is the point of it. The shape
+  is the one `crates/platform` already uses for DPAPI: crate-level `deny`, one
+  narrow `#[allow]`, a `SAFETY` note. `webview2-com` and `windows` are pinned to
+  the exact versions `tauri` already resolves to, because the COM types have to
+  be literally the same types; neither adds anything to the build.
+
+- **The bug the first version had, found by running it.** A handler that
+  consults application state is useless if it is not called, and WebView2 saves
+  a permission decision into the profile and then answers from the profile —
+  the event stops firing. Measured: on this machine the camera was correctly
+  refused while the microphone, granted long ago, walked straight past the gate.
+  Fixed with `SetSavesInProfile(false)` (on the *third* revision of the args
+  interface, not the second), so nothing is remembered and every request is
+  judged again.
+
+**Verified in a real run, on a clean WebView2 profile:** outside a call both the
+microphone and the camera are refused in well under a second with
+`NotAllowedError` — where wave 0 measured the same calls *hanging for eight
+seconds* on a prompt nobody could answer. The allow branch is the sibling `if`
+and is exercised by the first real call; it is not separately measured here.

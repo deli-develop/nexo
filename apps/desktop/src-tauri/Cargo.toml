@@ -58,6 +58,15 @@ tauri-plugin-updater = "=2.10.1"
 # Pinned exactly, like everything else (rule 8).
 [target.'cfg(windows)'.dependencies]
 window-vibrancy = "=0.6.0"
+
+# Answering WebView2's `PermissionRequested` ourselves, so a call does not open
+# a browser-chrome dialog quoting `tauri.localhost`. See src/permissions.rs.
+#
+# Both versions are the ones `tauri` already resolves to -- the COM types have
+# to be literally the same types, so these are pinned to match rather than to
+# the newest release, and neither adds anything to the build.
+webview2-com = "=0.38.2"
+windows = { version = "=0.61.3", features = ["Win32_Foundation"] }
 # One DWORD: whether the person has Windows' own "Transparency effects" switch
 # on. DWM accepts the acrylic request either way and then declines to blur, so
 # without reading this the app would put a half-see-through window over a

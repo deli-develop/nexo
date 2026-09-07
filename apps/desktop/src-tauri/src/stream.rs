@@ -70,10 +70,15 @@ fn base_url() -> String {
 ///
 /// Driven from `drain_stream` rather than from login, so nothing in `auth.rs`
 /// has to learn about sockets and there is no state to keep in step: the
-/// session either exists or it does not, and this follows it. Signing out and
-/// locking both clear the session, so both close the socket — which they must,
-/// since a socket still delivering into a locked app is a session that did not
-/// really end.
+/// session either exists or it does not, and this follows it.
+///
+/// **Signing out closes the socket here; locking does not, and cannot.**
+/// Locking deliberately keeps `SessionState` — the tokens are what let
+/// `unlock_with_pin` rebuild the client from disk with no server round trip —
+/// so a locked app still has a session and this function would hold the
+/// connection open. It is `commands.rs::lock` that closes it, explicitly, and
+/// close it must: a socket still delivering into a locked app is a session
+/// that did not really end.
 fn follow_session(session: &Mutex<Option<nexo_client::Session>>, slot: &mut Option<Stream>) {
     let token = match session.lock() {
         Ok(guard) => guard.as_ref().map(|s| s.access_token.clone()),

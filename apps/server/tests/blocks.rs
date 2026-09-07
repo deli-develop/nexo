@@ -229,6 +229,80 @@ async fn a_conversation_cannot_be_opened_across_a_block() {
 }
 
 #[tokio::test]
+async fn a_block_stops_an_envelope_in_a_conversation_that_already_existed() {
+    // The other half of the rule above, and the one that guards ringing.
+    //
+    // Opening a conversation across a block is refused, but a block usually
+    // arrives *after* two people have been talking — so the conversation is
+    // already there and the question is whether it still carries anything. It
+    // must not, and this matters more since calls: an invitation is an ordinary
+    // envelope, so this check is the only thing standing between somebody who
+    // has been blocked and a phone that rings.
+    let app = app_or_skip!();
+    let alice = register(&app).await;
+    let mal = register(&app).await;
+
+    let id = Uuid::new_v4().to_string();
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/conversations",
+        Some(&mal.token),
+        Some(json!({ "conversation_id": id, "members": [alice.handle] })),
+    )
+    .await;
+    assert!(status.is_success(), "the conversation predates the block");
+
+    // Sending works while they are merely strangers.
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/conversations/{id}/send"),
+        Some(&mal.token),
+        Some(json!({
+            "ciphertext": "00ff",
+            "epoch": 0,
+            "is_commit": false,
+            "message_id": Uuid::new_v4().to_string(),
+        })),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "sending before the block returned {status}"
+    );
+
+    call(
+        &app,
+        "POST",
+        &format!("/v1/blocks/{}", mal.handle),
+        Some(&alice.token),
+        None,
+    )
+    .await;
+
+    // And stops the moment Alice blocks. A call invitation is this request.
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/conversations/{id}/send"),
+        Some(&mal.token),
+        Some(json!({
+            "ciphertext": "00ff",
+            "epoch": 0,
+            "is_commit": false,
+            "message_id": Uuid::new_v4().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a blocked account must not be able to send -- or to ring"
+    );
+}
+
+#[tokio::test]
 async fn unblocking_puts_everything_back() {
     let app = app_or_skip!();
     let alice = register(&app).await;

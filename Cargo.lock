@@ -4004,7 +4004,9 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ureq",
+ "webview2-com",
  "window-vibrancy",
+ "windows",
  "winreg 0.55.0",
 ]
 

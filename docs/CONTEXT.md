@@ -165,7 +165,7 @@ up. Do not touch OpenMLS internals.
 | File | Ln | Owns |
 |---|---|---|
 | `src/lib.rs` | 54 | The `SecureStore` trait and `STORE_KEY_NAME`. **The whole seam.** Adding an OS capability means adding a trait method here and implementing it per platform. |
-| `src/dpapi.rs` | 371 | Windows DPAPI. **The only `unsafe` in the workspace**, confined to `dpapi::ffi`. One file per secret under `%APPDATA%\Nexo`, with name-bound extra entropy so one blob cannot be unwrapped as another. |
+| `src/dpapi.rs` | 371 | Windows DPAPI. **One of the two `unsafe` blocks in the workspace** (the other is `src-tauri/src/permissions.rs`), confined to `dpapi::ffi`. One file per secret under `%APPDATA%\Nexo`, with name-bound extra entropy so one blob cannot be unwrapped as another. |
 
 Read `dpapi.rs`'s module header before touching it. The named secrets in use are
 `store-db-key`, `nexo-unlock-pin` and `nexo-unlock-pin-attempts`; each becomes
@@ -383,6 +383,7 @@ nothing else does: no tokens, no key material, no salt.
 | `src/commands.rs` | 330 | 15 | Version, notifications, tray count, **lock**, window backdrop, autostart, storage, cache, link preview, updater. |
 | `src/stream.rs` | 142 | 2 | The live socket: opens it with the session, forwards typing to the page. |
 | `src/media.rs` | 394 | — | The `nexo-media` custom scheme (served as `http://nexo-media.localhost/<envelope id>` on Windows): decrypted video, one byte range at a time, **without holding the client lock across the download**. |
+| `src/permissions.rs` | 181 | — | WebView2's camera and microphone gate, open only during a call. **The workspace's second `unsafe`** — COM is FFI — and the reason this crate is `deny(unsafe_code)` rather than `forbid`. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
 | `src/windows.rs` | 502 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
 
@@ -982,6 +983,28 @@ failed silently.
   rebuilds the connection has to keep doing it, and the number to re-measure is
   `frameWidth` on the receiver's `inbound-rtp`, not the frame rate — the frame
   rate looks fine either way, which is what makes this easy to miss.
+- **Locking clears the client and the socket, and it has to do the second one
+  by hand.** `commands.rs::lock` drops `ClientState` *and* `StreamState`. The
+  second is not redundant: `follow_session` closes the socket when there is no
+  **session**, and locking deliberately keeps `SessionState` so
+  `unlock_with_pin` can rebuild from disk with no server round trip. So a locked
+  app still has a session, `follow_session` would hold the connection open, and
+  nothing calls it anyway — `drain_stream` is driven by the sync agent, which
+  unmounts with the app shell. `stream.rs` claimed for months that locking
+  closed the socket; it did not, and an authenticated WebSocket stayed open
+  behind the lock screen collecting events nobody could decrypt. Anything that
+  adds a long-lived connection joins that line in `lock`.
+- **WebView2 remembers a permission answer, which silently disables the
+  handler that gave it.** A decision saved into the profile is served from the
+  profile, and `PermissionRequested` simply stops firing — so a gate that
+  consults application state is consulted exactly once and then bypassed for
+  ever. It is not theoretical: a microphone granted long ago walked straight
+  past `permissions.rs` while the camera, which had no saved answer, was
+  correctly refused. Every handler here calls `SetSavesInProfile(false)` on the
+  args first (it lives on `ICoreWebView2PermissionRequestedEventArgs3`), so
+  nothing is remembered and every request is judged again. A stale grant made
+  by an older build survives in `%LOCALAPPDATA%\fit.dice.nexo\EBWebView` until
+  that profile is cleared.
 - **Two `cargo deny` passes, never one.** The Windows client and the Linux
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.

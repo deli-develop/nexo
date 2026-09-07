@@ -566,7 +566,7 @@ function Security() {
 
       <Group
         title="Lock"
-        description="After this much idleness the encrypted store is closed and the keys are dropped. Reopening it needs your password — unlocking is a full sign-in, not a curtain."
+        description="After this much idleness the encrypted store is closed and the keys are dropped. Reopening it needs your password — unlocking is a full sign-in, not a curtain. A locked app cannot ring: the keys that would read an incoming call are gone until you unlock, so it arrives as a missed call. A call already in progress keeps the app awake until it ends."
       >
         <div className="flex items-center justify-between gap-6 py-3">
           <span className="text-text-hi text-body">Lock after</span>

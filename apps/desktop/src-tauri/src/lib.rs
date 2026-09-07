@@ -4,7 +4,17 @@
 //! state, the identity keypair, the SQLCipher key, and every message plaintext.
 //! The WebView receives already-decrypted strings and nothing else (rule 2).
 
-#![forbid(unsafe_code)]
+// `deny`, not `forbid`, and the difference is one file.
+//
+// This crate holds the MLS state, the identity keypair, the SQLCipher key and
+// every message plaintext, so it carried `forbid(unsafe_code)` for as long as
+// it had no reason not to. `permissions.rs` is that reason: WebView2 decides
+// camera and microphone access through a COM callback, and COM is FFI. `forbid`
+// cannot be relaxed for a single module -- that is the whole point of it -- so
+// the crate is `deny` with exactly one `#[allow]`, the same shape
+// `crates/platform` uses for DPAPI. Anything else that reaches for `unsafe`
+// still fails to compile.
+#![deny(unsafe_code)]
 
 mod auth;
 mod client;
@@ -13,6 +23,7 @@ mod conversations;
 mod feed;
 mod media;
 mod meet;
+mod permissions;
 mod preview;
 mod stream;
 mod windows;
@@ -55,6 +66,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             windows::install_tray(app.handle())?;
+            // Answer WebView2's permission requests ourselves, so pressing
+            // `call` is the consent rather than a dialog naming an origin.
+            // Not fatal if it fails: WebView2 falls back to its own prompt.
+            if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
+                permissions::install(&window);
+            }
             // Close-to-tray defaults off (see `WindowPrefs`). Someone who
             // closes a window and finds the app still running has been
             // surprised by their own computer; they can turn it on in

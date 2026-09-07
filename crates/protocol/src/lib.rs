@@ -17,6 +17,12 @@ pub mod window;
 // dependency on `uuid`. The type is already this crate's vocabulary: every id
 // on the wire is one.
 pub use uuid::Uuid as MessageId;
+/// The same type under the name the call code means by it.
+///
+/// An alias, not a new type: it buys documentation rather than safety, which is
+/// the same trade [`MessageId`] already makes. What it prevents is a signature
+/// reading `MessageId` for something that names a call and not a message.
+pub use uuid::Uuid as CallId;
 
 /// Wire protocol version. Bump on any breaking change to the types below.
 ///
@@ -470,6 +476,37 @@ pub enum Payload {
         /// to go, and only the reader can remove that.
         expires_at_ms: i64,
     },
+    /// One step of setting up, accepting or ending a call.
+    ///
+    /// Signalling rides the conversation rather than a route of its own, and
+    /// that is what makes it end-to-end encrypted without any new machinery:
+    /// an offer's SDP names codecs and, once gathering has finished, the
+    /// network candidates that reach this device. On a plaintext route the
+    /// server would read both. Here it moves the same opaque envelope it
+    /// already moves — rule 4, at no cost.
+    ///
+    /// **Candidates are bundled into the offer and the answer, never
+    /// trickled.** Trickle ICE sends a message per candidate, and a build that
+    /// predates this variant draws every one of them as an `Unsupported`
+    /// bubble — one call would fill an older installation's conversation with
+    /// punctuation. Waiting for gathering to finish costs a fraction of a
+    /// second against a relay and holds the whole exchange to two messages, so
+    /// what an old client sees is at most an offer and a hangup.
+    ///
+    /// Only [`CallSignal::Hangup`] leaves a bubble behind. An offer and an
+    /// answer are machinery: they end the receive branch with `continue`, the
+    /// way [`Payload::Rename`] does.
+    Call {
+        /// Which call this is about.
+        ///
+        /// Minted by the caller and echoed by every later signal. Without it a
+        /// hangup that crosses a second invitation on the wire would end the
+        /// wrong call — two people ringing each other at once is the ordinary
+        /// way that happens, not a rare one.
+        call_id: CallId,
+        /// What this message does.
+        signal: CallSignal,
+    },
     /// A payload this build cannot read.
     ///
     /// Produced only by [`Payload::decode`] and never sent — it is what a
@@ -488,6 +525,79 @@ pub enum Payload {
         /// The `kind` the sender used.
         kind: String,
     },
+}
+
+/// A step in one call's life, inside [`Payload::Call`].
+///
+/// Tagged like [`Payload`] itself and for the same reason: a build that meets a
+/// signal it does not know must be able to say so rather than guess. An
+/// unreadable signal fails the call closed (rule 7) — it never falls back to
+/// "probably an answer".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "signal", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CallSignal {
+    /// Somebody is calling. Ring.
+    Offer {
+        /// Whether the caller is offering video as well as sound.
+        ///
+        /// The SDP says this too, but only to something that parses SDP. The
+        /// callee has to draw a ringing screen — "video call from …" — before
+        /// anything has parsed anything, so the answer is carried plainly.
+        video: bool,
+        /// The offer, with ICE candidates already gathered into it.
+        sdp: String,
+    },
+    /// Accepted, with the other half of the negotiation.
+    Answer {
+        /// Whether the answerer is sending video back. A video call answered
+        /// with the camera off is an ordinary thing to do, and it is not the
+        /// caller's decision.
+        video: bool,
+        /// The answer, candidates included.
+        sdp: String,
+    },
+    /// The call is over — before it started, or after.
+    ///
+    /// The only signal that leaves a message behind, because it is the only one
+    /// a person would ever want to look back at. It is written by whichever
+    /// side ends the call, and both sides store the record from it, so a
+    /// conversation reads the same on both machines.
+    Hangup {
+        /// Why it ended. The receiving UI says "Missed call" or "Declined"
+        /// from this rather than inferring it from who sent what.
+        reason: HangupReason,
+        /// How long the two were connected, in whole seconds.
+        ///
+        /// Zero for a call that never connected, which is not the same
+        /// statement as `reason` makes: a call can be `Ended` after two seconds
+        /// or after an hour, and the record shows the difference.
+        ///
+        /// Defaulted so a signal written before this field existed still reads.
+        #[serde(default)]
+        seconds: u32,
+    },
+}
+
+/// Why a call ended, for the record it leaves in the conversation.
+///
+/// Separate from "who sent the hangup", because the two do not line up: a
+/// caller who gives up sends `Cancelled` and the callee shows a *missed* call,
+/// while a callee who refuses sends `Declined` and the caller shows exactly
+/// that. Deriving either from the sender would get one of them wrong.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum HangupReason {
+    /// The caller gave up before it was answered. The callee missed it.
+    Cancelled,
+    /// The callee refused it.
+    Declined,
+    /// It connected, and then somebody hung up. The ordinary ending.
+    Ended,
+    /// The media path never came up. Not anybody's decision — a failure, and
+    /// the UI is allowed to say so rather than pretending somebody hung up.
+    Failed,
 }
 
 /// `serde` needs a function, not a literal, for a default of `true`.
@@ -583,7 +693,13 @@ impl Payload {
             | Payload::Reaction { .. }
             | Payload::Retract { .. }
             | Payload::Edit { .. }
-            | Payload::Story { .. } => "",
+            | Payload::Story { .. }
+            // A call has no words. The record a finished call leaves is drawn
+            // from its `reason` and `seconds` by the bubble, the way a sticker
+            // is drawn from the payload -- putting "Missed call" here would
+            // bake English into a crate that has none, and the wrong English
+            // for anybody not reading it.
+            | Payload::Call { .. } => "",
             // Nor is this. Whatever it says, this build cannot read it, and
             // guessing at a preview would be the same mistake in a smaller
             // place.
@@ -1276,6 +1392,126 @@ mod tests {
                 forwarded_from: None,
                 forwarded: false,
             }
+        );
+    }
+
+    #[test]
+    fn a_call_signal_round_trips() {
+        let call_id = Uuid::new_v4();
+        for signal in [
+            CallSignal::Offer {
+                video: true,
+                sdp: "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n".into(),
+            },
+            CallSignal::Answer {
+                video: false,
+                sdp: "v=0\r\na=recvonly\r\n".into(),
+            },
+            CallSignal::Hangup {
+                reason: HangupReason::Declined,
+                seconds: 0,
+            },
+            CallSignal::Hangup {
+                reason: HangupReason::Ended,
+                seconds: 272,
+            },
+        ] {
+            let payload = Payload::Call {
+                call_id,
+                signal: signal.clone(),
+            };
+            assert_eq!(Payload::decode(&payload.encode()), payload);
+        }
+    }
+
+    #[test]
+    fn a_call_is_tagged_so_an_older_build_names_it_instead_of_reading_it() {
+        // An installation that predates calls must land in `Unsupported`
+        // rather than render the SDP as though somebody had typed it (rule 7).
+        // That hinges on one thing only: the encoding carries a `kind` that
+        // `tagged_kind` can pull out without understanding it. This build knows
+        // `call`, so it cannot demonstrate the fallback by decoding -- what it
+        // can check is the property the fallback depends on.
+        let encoded = Payload::Call {
+            call_id: Uuid::new_v4(),
+            signal: CallSignal::Offer {
+                video: false,
+                sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n".into(),
+            },
+        }
+        .encode();
+
+        assert_eq!(tagged_kind(&encoded).as_deref(), Some("call"));
+        assert_eq!(
+            Payload::Unsupported {
+                kind: "call".into()
+            }
+            .preview(),
+            ""
+        );
+    }
+
+    #[test]
+    fn a_call_signals_shape_on_the_wire() {
+        // Pinned because both ends and every future build depend on it, and
+        // because the signal enum is tagged *inside* the payload rather than
+        // flattened into it -- a difference that is invisible until something
+        // hand-writes this JSON and finds it does not parse.
+        let json = serde_json::to_value(Payload::Call {
+            call_id: "00000000-0000-0000-0000-000000000001"
+                .parse()
+                .expect("a literal uuid"),
+            signal: CallSignal::Hangup {
+                reason: HangupReason::Ended,
+                seconds: 272,
+            },
+        })
+        .expect("a payload serialises");
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "kind": "call",
+                "call_id": "00000000-0000-0000-0000-000000000001",
+                "signal": { "signal": "hangup", "reason": "ended", "seconds": 272 },
+            })
+        );
+    }
+
+    #[test]
+    fn a_hangup_from_before_the_duration_existed_still_reads() {
+        // Same rule as every other defaulted field: a signal written by an
+        // earlier build must not become unreadable, and zero is the honest
+        // answer for a call whose length nobody recorded.
+        let before = br#"{"kind":"call","call_id":"00000000-0000-0000-0000-000000000001","signal":{"signal":"hangup","reason":"cancelled"}}"#;
+        assert_eq!(
+            Payload::decode(before),
+            Payload::Call {
+                call_id: "00000000-0000-0000-0000-000000000001"
+                    .parse()
+                    .expect("a literal uuid"),
+                signal: CallSignal::Hangup {
+                    reason: HangupReason::Cancelled,
+                    seconds: 0,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn a_call_is_not_a_preview() {
+        // Like a sticker and a reaction: it has no words, and the conversation
+        // list must not invent any.
+        assert_eq!(
+            Payload::Call {
+                call_id: Uuid::new_v4(),
+                signal: CallSignal::Hangup {
+                    reason: HangupReason::Ended,
+                    seconds: 61,
+                },
+            }
+            .preview(),
+            ""
         );
     }
 

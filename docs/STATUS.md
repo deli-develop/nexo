@@ -1115,3 +1115,74 @@ Smaller, in the same round: a successful sign-in put the sign-in form back on
 screen for as long as `pin_status` took to answer, because the gate below it
 required a non-`null` answer and the fall-through rendered `AuthPage`. It now
 renders the window frame and nothing in it.
+
+---
+
+### Calls, wave 1: the wire and nothing above it
+
+Signalling only. Nothing rings yet and no sound moves — what exists is the path
+an offer, an answer and a hangup travel, end to end, with a test on both sides
+of it.
+
+- **Signalling rides the conversation, not a route of its own.**
+  `Payload::Call { call_id, signal }` is an ordinary encrypted payload, so the
+  server moves it exactly as it moves a message: opaque, unread, rule 4 with no
+  new work. The route table did not grow, `PROTOCOL_VERSION` did not move, and
+  the fan-out that rings somebody is the per-conversation one that already
+  existed. An SDP names codecs, ICE candidates and a DTLS fingerprint; on a
+  plaintext signalling route the server would read all three.
+
+- **An offer leaves no bubble. The hangup is the record.** The `Payload::Call`
+  branch in `sync` hands every signal back through `SyncOutcome::calls` and
+  `continue`s — except the hangup, which falls through to the ordinary insert
+  and becomes the "Missed call" row. Storing all of it would put two blocks of
+  SDP in a conversation each time somebody called; storing none of it would lose
+  the only part anybody would look back at.
+
+- **Candidates are bundled, never trickled** — and this one is about other
+  people's installations. A build that predates this variant reads an unknown
+  `kind` as `Unsupported`, which draws a bubble. Trickle ICE sends one envelope
+  per candidate, so a single call would fill an older client's conversation with
+  unreadable rows. Waiting for gathering to finish costs a fraction of a second
+  against a relay and holds a whole call to two messages, so the worst an old
+  build sees is an offer and a hangup.
+
+- **Nothing is queued.** `send_call_signal` sends directly, like `rename` and
+  `react`, and never through the outbox. An offer delivered ten minutes late
+  would ring somebody about a call that ended before they sat down.
+
+Three commands — `call_offer`, `call_answer`, `call_hangup` — bringing the IPC
+surface to 115. `apps/desktop/src/lib/calls.ts` is the page's half; signals
+arrive on `SyncResult.calls` and reach anything subscribed through the
+`onSync` listener the sync agent already exported, so no dead scaffolding was
+added for a UI that does not exist yet.
+
+**What is deliberately still missing**, so nothing here reads as more than it
+is: no ringing screen, no media, no TURN relay, and no permission handling. Also
+worth knowing before the next wave — an incoming signal waits for the 4-second
+sync poll, because `drain_stream` forwards typing and drops `ServerEvent::
+Envelope`. Ringing needs that closed, and it is a wave-3 item rather than a
+wave-1 one.
+
+#### Checked in a real build before any of it was designed
+
+The premise was measured rather than assumed, by attaching to a release build's
+WebView2 over CDP:
+
+- **The WebRTC stack is there and it works.** A loopback carried real media —
+  Opus, and VP8/VP9/H.264/AV1 available. Microphone capture reports
+  `echoCancellation`, `noiseSuppression` and `autoGainControl` all true at
+  48 kHz, which is the entire argument for using the WebView's media stack
+  instead of building one in Rust.
+- **Calls need no CSP change.** Zero `securitypolicyviolation` events across ICE
+  negotiation and a real `<video srcObject>`. Worth writing down given the CSP
+  has failed silently three times before.
+- **WebView2 shows its own permission prompt** — *"http://tauri.localhost wants
+  to · Use your cameras"* — because wry registers a `PermissionRequested`
+  handler only for clipboard-read and leaves every other kind at the default.
+  A browser bubble naming an origin nobody recognises, inside a native
+  messenger. Handling it properly needs `with_webview` and the WebView2 FFI,
+  which would be the **second `unsafe` in the workspace**. Wave 3 decides.
+- **A 2 fps camera reading was a closed privacy shutter**, not a pipeline
+  problem: mean brightness 0, and the same encoder path did ~30 fps from a
+  synthetic source.

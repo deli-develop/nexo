@@ -5,7 +5,7 @@
 //! that MLS exists.
 
 use nexo_client::conversations;
-use nexo_protocol::{ConversationId, Payload, VoiceMeta};
+use nexo_protocol::{CallSignal, ConversationId, HangupReason, Payload, VoiceMeta};
 use serde::Serialize;
 use tauri::State;
 
@@ -402,6 +402,44 @@ pub struct SyncView {
     /// UI raises a banner on these; the totals above decide nothing here.
     #[serde(default)]
     pub key_changed: Vec<String>,
+    /// Call signalling that arrived during this sync, oldest first.
+    ///
+    /// Rides the sync result rather than a push, because sync is what decrypts
+    /// an envelope and there is nowhere earlier the signal exists in the clear.
+    /// The page acts on these immediately or not at all — see
+    /// `nexo_client::conversations::SyncOutcome::calls`.
+    #[serde(default)]
+    pub calls: Vec<CallSignalView>,
+}
+
+/// One piece of call signalling, on its way to the page.
+///
+/// The signal itself is handed over as the protocol defines it, tag and all,
+/// rather than flattened into a bag of optional fields: the page has to switch
+/// on which signal this is anyway, and a shape that mirrors the wire is one
+/// fewer translation to get wrong.
+///
+/// Rule 2 holds here. An SDP carries codec lists, ICE candidates and a DTLS
+/// *fingerprint* — a hash of a certificate, not a key — and the page is where
+/// it was generated in the first place.
+#[derive(Debug, Clone, Serialize)]
+pub struct CallSignalView {
+    pub conversation_id: String,
+    /// The device that sent it, when MLS could name one.
+    pub sender_device_id: Option<String>,
+    pub call_id: String,
+    pub signal: CallSignal,
+}
+
+impl From<conversations::IncomingCall> for CallSignalView {
+    fn from(call: conversations::IncomingCall) -> Self {
+        Self {
+            conversation_id: call.conversation_id.to_string(),
+            sender_device_id: call.sender_device_id,
+            call_id: call.call_id.to_string(),
+            signal: call.signal,
+        }
+    }
 }
 
 /// New messages in one conversation, from one sync pass.
@@ -1485,6 +1523,11 @@ pub async fn sync_conversation(
         } else {
             Vec::new()
         };
+        let calls = outcome
+            .calls
+            .into_iter()
+            .map(CallSignalView::from)
+            .collect::<Vec<_>>();
         Ok(SyncView {
             messages: outcome.messages,
             commits: outcome.commits,
@@ -1495,6 +1538,7 @@ pub async fn sync_conversation(
             } else {
                 vec![id.to_string()]
             },
+            calls,
         })
     })
     .await
@@ -1530,6 +1574,7 @@ pub async fn sync_all(state: State<'_, ClientState>) -> Result<SyncView, Convers
             failed: 0,
             arrivals: Vec::new(),
             key_changed: Vec::new(),
+            calls: Vec::new(),
         };
         for id in ids {
             let Ok(parsed) = id.parse::<ConversationId>() else {
@@ -1542,6 +1587,9 @@ pub async fn sync_all(state: State<'_, ClientState>) -> Result<SyncView, Convers
                     total.messages += outcome.messages;
                     total.commits += outcome.commits;
                     total.failed += outcome.failed;
+                    total
+                        .calls
+                        .extend(outcome.calls.into_iter().map(CallSignalView::from));
                     if !outcome.key_changes.is_empty() {
                         // Named, not counted. The UI raises a banner on the
                         // conversation, and a total would say nothing about
@@ -1561,6 +1609,93 @@ pub async fn sync_all(state: State<'_, ClientState>) -> Result<SyncView, Convers
             }
         }
         Ok(total)
+    })
+    .await
+}
+
+/// Parses a call id the page handed back.
+fn parse_call_id(id: &str) -> Result<nexo_protocol::CallId, ConversationErrorView> {
+    id.parse()
+        .map_err(|_| failure("invalid_request", "That is not a call id."))
+}
+
+/// Rings somebody: names a new call and sends the offer.
+///
+/// The id is minted here rather than in the page because it is the one thing
+/// about a call that both sides must agree on, and a value invented in the
+/// WebView would be a value Rust could only take somebody's word for. Handing
+/// it back afterwards is what lets the page address the call it just started.
+///
+/// The SDP arrives already gathered — see [`nexo_protocol::Payload::Call`] for
+/// why candidates are bundled rather than trickled.
+#[tauri::command]
+pub async fn call_offer(
+    state: State<'_, ClientState>,
+    conversation_id: String,
+    video: bool,
+    sdp: String,
+) -> Result<String, ConversationErrorView> {
+    with_client(&state, move |client| {
+        let id = parse_id(&conversation_id)?;
+        let call_id = nexo_protocol::CallId::new_v4();
+        conversations::send_call_signal(
+            &client.context(),
+            id,
+            call_id,
+            CallSignal::Offer { video, sdp },
+        )?;
+        Ok(call_id.to_string())
+    })
+    .await
+}
+
+/// Accepts a call that is ringing.
+#[tauri::command]
+pub async fn call_answer(
+    state: State<'_, ClientState>,
+    conversation_id: String,
+    call_id: String,
+    video: bool,
+    sdp: String,
+) -> Result<(), ConversationErrorView> {
+    with_client(&state, move |client| {
+        let id = parse_id(&conversation_id)?;
+        let call_id = parse_call_id(&call_id)?;
+        conversations::send_call_signal(
+            &client.context(),
+            id,
+            call_id,
+            CallSignal::Answer { video, sdp },
+        )
+        .map_err(ConversationErrorView::from)
+    })
+    .await
+}
+
+/// Ends a call — declined, cancelled, or finished.
+///
+/// One command for all three because they are one thing on the wire, and the
+/// difference between them is the `reason` the record keeps. `seconds` is zero
+/// for a call that never connected; the reason says which kind of nothing that
+/// was.
+#[tauri::command]
+pub async fn call_hangup(
+    state: State<'_, ClientState>,
+    conversation_id: String,
+    call_id: String,
+    reason: HangupReason,
+    seconds: u32,
+) -> Result<(), ConversationErrorView> {
+    with_client(&state, move |client| {
+        let id = parse_id(&conversation_id)?;
+        let call_id = parse_call_id(&call_id)?;
+        conversations::send_call_signal(
+            &client.context(),
+            id,
+            call_id,
+            CallSignal::Hangup { reason, seconds },
+        )
+        .map_err(ConversationErrorView::from)
     })
     .await
 }

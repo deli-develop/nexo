@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import type { IncomingCall } from "./calls";
+
 /**
  * Conversations, as the WebView sees them.
  *
@@ -194,6 +196,15 @@ export interface SyncResult {
    * sends are written locally at send time and are never an arrival.
    */
   arrivals: { conversation_id: string; messages: number }[];
+  /**
+   * Call signalling decrypted during this sync, oldest first.
+   *
+   * It rides the sync result because sync is what decrypts an envelope — there
+   * is no earlier point at which the signal exists in the clear. Acted on
+   * immediately or not at all: none of it is replayed, and a signal that
+   * arrived while the app was shut is a call that was missed.
+   */
+  calls: IncomingCall[];
 }
 
 /** What a flush of the offline queue did (M8). */

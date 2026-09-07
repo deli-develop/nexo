@@ -105,14 +105,14 @@ Line counts are source only — tests are counted with the crate they test, in t
 tables below.
 
 ```
-crates/protocol       1 781 ln   Wire types shared by client and server. No I/O, no crypto.
+crates/protocol       2 017 ln   Wire types shared by client and server. No I/O, no crypto.
 crates/crypto         1 863 ln   MLS, the identity keypair, safety numbers, attachment crypto.
 crates/platform         425 ln   The OS seam: SecureStore, and the Windows DPAPI backing.
 crates/store          4 220 ln   The client's SQLCipher database.
-crates/client         7 563 ln   Session logic, portable across Windows and Android.
+crates/client         7 668 ln   Session logic, portable across Windows and Android.
 apps/server           8 619 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      7 158 ln   The Windows shell: 112 Tauri commands, windowing, IPC.
+                      7 296 ln   The Windows shell: 115 Tauri commands, windowing, IPC.
 apps/desktop/src     23 707 ln   React 19 client (TypeScript, Tailwind, Zustand).
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
 ```
@@ -138,7 +138,7 @@ first**; the server and client follow it.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/lib.rs` | 1 656 | Every request and response body on the wire, `PROTOCOL_VERSION` (currently **3**), the envelope shape, the error codes. No plaintext message types — that is rule 4's enforcement point. |
+| `src/lib.rs` | 1 892 | Every request and response body on the wire, `PROTOCOL_VERSION` (currently **3**), the envelope shape, the error codes. No plaintext message types — that is rule 4's enforcement point. |
 | `src/window.rs` | 125 | How long a message may be taken back or edited. `features/messages/MessageList.tsx` mirrors this constant; the two must agree. |
 
 ---
@@ -208,7 +208,7 @@ the crate that has to survive the Android port.
 | File | Ln | Owns | Open it when |
 |---|---|---|---|
 | `src/lib.rs` | 813 | The crate doc, the re-exports, and the in-crate `FakeTransport` its own tests use. | Getting oriented; finding what is public. |
-| `src/conversations.rs` | 2 517 | Conversation lifecycle: create, join, send, sync, attachments, reactions, edits, retractions, key packages. `Context<'a, T>` is the borrow bundle every call takes. | Most messaging behaviour. |
+| `src/conversations.rs` | 2 622 | Conversation lifecycle: create, join, send, sync, attachments, reactions, edits, retractions, key packages, call signalling. `Context<'a, T>` is the borrow bundle every call takes. | Most messaging behaviour. |
 | `src/session.rs` | 582 | `register`, `login`, `restore`, `resume`, `change_password`, `logout`, `delete_account_on_server`, `wipe_local`. The session state machine. | Auth on the client. |
 | `src/http.rs` | 1 262 | `HttpTransport` over `ureq`: retries, error mapping, and the access-token refresh with its **rotated-token hand-off**. Behind `http`. | Wire-level client behaviour. |
 | `src/transport.rs` | 492 | The `Transport` trait — the network seam. | Adding a call. Then implement it in **all seven** places (see Conventions). |
@@ -225,7 +225,7 @@ Tests (`crates/client/tests/`), each building its own fake transport:
 
 | Test | Ln | Proves |
 |---|---|---|
-| `live_messaging.rs` | 883 | Two clients exchange messages against a real local server. |
+| `live_messaging.rs` | 960 | Two clients exchange messages — and call signalling — against a real local server. |
 | `offline_queue.rs` | 588 | A cut network queues and later flushes, in order, without duplicates. |
 | `leftover_conversations.rs` | 366 | A conversation the server lists but this device cannot open is not shown as broken. |
 | `stories.rs` | 348 | Story creation, listing and expiry. |
@@ -375,7 +375,7 @@ nothing else does: no tokens, no key material, no salt.
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
 | `src/client.rs` | 209 | — | `LoggedIn` (session, transport, MLS provider, store, signer, credential), `ClientState`, `build()`, `resume()`, `Resumed`. One mutex covers store + MLS + transport. |
 | `src/auth.rs` | 842 | 11 | Register, login, restore, change password, fingerprint, the PIN, sign-out, delete account. `SessionState` (tokens) lives here. |
-| `src/conversations.rs` | 2 412 | 42 | Messaging, replies, attachments, voice, view-once, reactions, pinning, local delete, edit, retract, folders, drafts, search, outbox. Owns a `with_client` helper. |
+| `src/conversations.rs` | 2 547 | 45 | Messaging, replies, attachments, voice, view-once, reactions, pinning, local delete, edit, retract, folders, drafts, search, outbox, **call signalling**. Owns a `with_client` helper. |
 | `src/feed.rs` | 943 | 25 | Posts, comments, votes, reactions, follows, blocks, profiles, images. Owns its own `with_client`. |
 | `src/meet.rs` | 635 | 17 | Meet&Greet: map, own pin, intros, reporting, search, invitations, stories. Owns its own `with_client`. |
 | `src/commands.rs` | 330 | 15 | Version, notifications, tray count, **lock**, window backdrop, autostart, storage, cache, link preview, updater. |
@@ -396,7 +396,7 @@ without touching the network.
 
 #### Every IPC command
 
-**112 commands.** A command needs a `#[tauri::command]` attribute *and* an entry
+**115 commands.** A command needs a `#[tauri::command]` attribute *and* an entry
 in `generate_handler!` in `lib.rs`; missing the second is a runtime rejection,
 not a compile error.
 
@@ -411,7 +411,7 @@ not a compile error.
 `set_autostart` · `storage_info` · `clear_media_cache` · `preview_link` ·
 `check_update` · `install_update`
 
-**`conversations.rs` (42)**
+**`conversations.rs` (45)**
 `list_conversations` · `delete_conversation` · `start_conversation` ·
 `start_group` · `open_self_conversation` · `add_to_conversation` ·
 `rename_conversation` · `set_conversation_avatar` · `conversation_avatar` ·
@@ -424,7 +424,7 @@ not a compile error.
 `delete_message_for_me` · `draft` · `set_draft` · `conversations_with_drafts` ·
 `list_folders` · `create_folder` · `rename_folder` · `delete_folder` ·
 `set_folder_member` · `sync_conversation` · `sync_all` · `flush_outbox` ·
-`outbox_count`
+`outbox_count` · `call_offer` · `call_answer` · `call_hangup`
 
 **`feed.rs` (25)**
 `feed` · `set_following` · `follow_state` · `posts_by` · `create_post` ·
@@ -587,7 +587,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 
 | File | Ln | Wraps |
 |---|---|---|
-| `conversations.ts` | 769 | The 42 conversation commands. |
+| `conversations.ts` | 780 | The 45 conversation commands. |
 | `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
 | `feed.ts` | 338 | Feed, posts, comments, profiles, images. |
 | `meet.ts` | 315 | Meet&Greet and stories. |
@@ -599,6 +599,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
+| `calls.ts` | 106 | Call signalling, as the page sees it. Signalling only — the media stack is `RTCPeerConnection` in the WebView. |
 | `blocks.ts` | 35 | Blocking. |
 | `cn.ts` | 5 | Class-name join. |
 
@@ -672,6 +673,7 @@ it is expensive.
 | **Stories** | `crates/client/src/stories.rs` → `apps/server/src/stories.rs` → `features/home/storyGroups.ts` (read it before changing grouping) → `features/home/Stories.tsx`, `features/profile/MyStories.tsx` | — |
 | **Attachments or media playback** | `crates/crypto/src/attachment.rs` (which encoding?) → `crates/client/src/conversations.rs::send_attachment` → `apps/desktop/src-tauri/src/media.rs` → `apps/desktop/src/lib/media.ts` | — |
 | The **live socket** | `apps/server/src/stream/` → `crates/client/src/stream.rs` → `apps/desktop/src-tauri/src/stream.rs` → `apps/desktop/src/lib/stream.ts` | — |
+| **Calls** (voice, video) | `crates/protocol/src/lib.rs` (`Payload::Call`, `CallSignal` — the type first) → `crates/client/src/conversations.rs` (`send_call_signal`, and the `Payload::Call` branch in `sync`) → `apps/desktop/src-tauri/src/conversations.rs` → `apps/desktop/src/lib/calls.ts` | `apps/server/` — signalling adds **no** route; it rides the conversation |
 | **Feed, posts, comments** | `apps/server/src/posts.rs` → `apps/desktop/src-tauri/src/feed.rs` → `app/useFeed.ts` → `features/home/` | — |
 | **Keyboard shortcuts** | `app/useShortcuts.ts` — all of them, in one listener | Anywhere else |
 | **Colours, spacing, motion** | `packages/design-tokens/tokens.css`, then regenerate the JSON | Never hardcode a value in a component |
@@ -928,6 +930,26 @@ failed silently.
   a second `confirm` while one is open goes *behind* it, and each has to be
   answered. That is why `useSignOut` puts its busy flag around the question and
   not only around the answer.
+- **Call signalling is not queued, and its candidates are not trickled.** Both
+  are deliberate and both look like omissions. `send_call_signal` sends
+  directly, the way `rename` and `react` do, and never through the outbox: an
+  offer that left a queue ten minutes late would ring somebody about a call that
+  ended before they sat down, so a signal that cannot be sent *now* is an error
+  to show rather than work to retry. And the SDP is sent only once ICE gathering
+  has finished, which costs a fraction of a second and holds a call to two
+  messages — trickle ICE would send one envelope per candidate, and an
+  installation that predates `Payload::Call` draws every one of them as an
+  `Unsupported` bubble it cannot read. One call would fill an older client's
+  conversation with punctuation. Anything later that adds an ICE restart has to
+  answer the same question before it sends.
+- **An offer and an answer leave no bubble; the hangup is the record.** The
+  `Payload::Call` branch in `sync` hands every signal to the caller through
+  `SyncOutcome::calls` and then `continue`s — except the hangup, which falls
+  through to the ordinary insert. That asymmetry is the feature: storing all of
+  it would put two blocks of SDP in the conversation each time somebody called,
+  and storing none of it would lose the missed-call row. `live_messaging.rs`'s
+  `a_call_rings_without_leaving_a_bubble_and_its_ending_leaves_one` is what
+  keeps both halves honest.
 - **Two `cargo deny` passes, never one.** The Windows client and the Linux
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.

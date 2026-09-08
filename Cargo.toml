@@ -37,7 +37,10 @@ base64 = "=0.22.1"
 # --- async / server ---
 tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
 axum = { version = "=0.8.9", features = ["ws"] }
-tower-http = { version = "=0.7.0", features = ["trace"] }
+# "cors" is here for the web client (github.com/deli-develop/nexo-web) and for
+# nothing else. The desktop app makes its calls from a Rust process, which
+# sends no Origin header, so this layer is invisible to it.
+tower-http = { version = "=0.7.0", features = ["trace", "cors"] }
 
 # --- database ---
 # 0.8.x, not the newer 0.9.0: this is the settled line, and rule 8 values

@@ -49,9 +49,16 @@ a day). Start those early; the rest is an afternoon each.
 | 7 | Hetzner Object Storage, 2 buckets + 2 credential pairs | from ~€5/month | M6 |
 | 8 | Hetzner Storage Box (backups) | from ~€3.20/month | M4, in practice |
 | 9 | Authenticode code-signing certificate, ideally **EV** | €200–600/year, days-to-weeks lead | M9 |
+| 10 | Control of `delidev.net`, and the ability to add a CNAME for `nexo` | domain price | the web client |
+| 11 | A Netlify account with this repository connected | free tier is enough to start | the web client |
 
 Nothing here is a third-party API key: no SMS provider, no push service, no
-analytics, no CDN, no mail provider. That is deliberate — see
+analytics, no mail provider. **One qualification since the web client exists:**
+`nexo-web` is served by Netlify's CDN, because a website has no other shape.
+That is a hosting account, not an API key, and no credential for it is ever
+compiled into a client — but it does mean the web client's users trust that
+CDN on every page load, which its own `docs/WEB-THREAT-MODEL.md` §3 states
+plainly. The desktop app remains free of any CDN. That is deliberate — see
 [`docs/PLAN.md`](PLAN.md) ("no phone, no SMS") and the README's Security
 section. If a guide anywhere tells you to paste an API key into this project, it
 is not describing Nexo.
@@ -145,7 +152,7 @@ The value you enter:
 
 | Variable | Status | Example |
 |---|---|---|
-| `DATABASE_URL` | ✅ | `postgres://nexo:nexo_dev@localhost:5433/nexo` |
+| `DATABASE_URL` | ✅ | `postgres://nexo:nexo_dev@127.0.0.1:5433/nexo` — **127.0.0.1, not `localhost`**; see `docker-compose.yml` |
 
 A throwaway password is fine here and only here. This one never leaves your
 machine, and it is not the one you put on the server.

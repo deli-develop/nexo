@@ -472,19 +472,29 @@ forge them without a private identity key.
 `nexo-media`, and all metadata in §2.2. Cannot read message bodies or
 attachments, and cannot derive the group secrets to try.
 
-**Anyone who can send the server requests.** **Open — no rate limiting exists.**
-`apps/server/src/lib.rs` composes the router with a trace layer and nothing
-else, so none of BRIEF §4.5's three limits is in force. Two consequences worth
-naming rather than leaving implied:
+**Anyone who can send the server requests.** **Bounded.**
+`apps/server/src/limits.rs` enforces a fixed-window limit on every mutating
+route, and the two cases that motivated it are both covered:
 
-- `/v1/auth/login` runs Argon2id at 19 MiB per attempt on the server. Unlimited,
-  it is both a password-guessing oracle and a memory-exhaustion lever against a
-  single small machine. `/v1/auth/salt` is unauthenticated by construction.
-- `/v1/keypackages/{handle}` **consumes** a KeyPackage per call. A loop can
-  exhaust an account's supply, after which nobody can start a conversation with
-  that person — a denial of service the victim is never shown an error for.
+- `/v1/auth/login` runs Argon2id at 19 MiB per attempt on the server, which
+  makes it simultaneously a password-guessing oracle and a memory-exhaustion
+  lever. Limited to 10/min per client address — per address rather than per
+  account because `/v1/auth/salt` is unauthenticated by construction, so there
+  is no account to key on for the whole router.
+- `/v1/keypackages/{handle}` **consumes** a KeyPackage per call, so a loop
+  could exhaust an account's supply and quietly prevent anyone starting a
+  conversation with that person. Limited to 60/min per account.
 
-Tracked as B2 in `docs/RESEARCH-COMPARISON.md`.
+Two limits of the mechanism, stated rather than left to be discovered:
+
+- A fixed window permits up to `2 * max` across a window boundary. Accepted
+  deliberately — these limits exist to stop sustained abuse, and doubling the
+  burst for one instant does not change what any of them protect.
+- `NEXO_RATE_LIMITS=off` disables them for the integration suite. It announces
+  itself loudly at startup, and a production process started with it set is
+  the unlimited case above.
+
+Was B2 in `docs/RESEARCH-COMPARISON.md`; see `docs/STATUS.md` for what shipped.
 
 **Someone holding the disk from a decommissioned server.** **Open — no disk
 encryption is configured, and the decision is deliberately deferred**

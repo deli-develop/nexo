@@ -129,6 +129,33 @@ protocol  ←  server                    (the server shares only the wire types)
 Nothing below `client` knows about Tauri. Nothing in `src` (React) knows about
 Rust except through `invoke()` in `lib/*.ts`.
 
+### A consumer outside this repository
+
+`nexo-web` — <https://github.com/deli-develop/nexo-web> — is the web client,
+deployed to `nexo.delidev.net` on Netlify. It is a **separate repository**, not
+a package here, and it is the reason three things in this one look the way they
+do:
+
+- **`apps/server` has a CORS layer.** `NEXO_CORS_ORIGINS` names the browser
+  origins allowed to call the API, and unset means no layer at all. The desktop
+  app sends no `Origin` header, so this is invisible to it. Never `*` —
+  `parse_origins` refuses one at startup.
+- **`packages/design-tokens` has a second consumer**, which holds a *copy*
+  pinned to a commit here rather than importing the package. Generated values
+  only; the exception does not extend to anything with logic in it.
+- **`crates/protocol` and `crates/crypto` have a WASM target.** They compile
+  for `wasm32-unknown-unknown` (with `uuid`, `getrandom` and `openmls` on their
+  `js` features) and are published as an artifact `nexo-web` pins by version.
+  `crates/client` does **not** compile for WASM and is not expected to:
+  `crates/store` is SQLCipher over vendored OpenSSL, which is C and has no
+  business in a browser. That is why `nexo-web` re-implements session logic in
+  TypeScript instead of reusing `crates/client`, and why its crypto still comes
+  from here rather than being hand-translated.
+
+Its own map is `docs/CONTEXT.md` in that repository, and its threat model is
+`docs/WEB-THREAT-MODEL.md` there — the web build does not inherit invariants 2,
+3 and 6 unchanged, and that file is where the differences are written down.
+
 ---
 
 ### `crates/protocol` — the wire
@@ -804,6 +831,20 @@ failed silently.
   ended with "no image fetch" — so a feature that wants remote pictures (GIF
   search is the standing example) is a threat-model decision before it is a
   frontend one. Stickers are drawn in the repo for exactly this reason.
+- **CORS is off unless `NEXO_CORS_ORIGINS` names an origin, and `*` is refused
+  at startup.** The desktop app makes its HTTP calls from a Rust process, which
+  sends no `Origin` header, so the API had no CORS layer at all until the web
+  client (`nexo-web`) existed. `parse_origins` in `apps/server/src/lib.rs`
+  panics on a wildcard, on anything that is not `https://` (loopback excepted),
+  and on an origin carrying a path or trailing slash — the last because an
+  `Origin` header is scheme, host and port, so a value with more in it never
+  matches and surfaces as a confusing CORS error rather than a configuration
+  one. `allow_credentials` is deliberately never set: auth is a `Bearer`
+  header, so no browser client needs an ambient cookie, and not sending that
+  header keeps cross-site request forgery off the table rather than mitigated.
+  A Netlify deploy-preview URL is **not** in the list on purpose — previews
+  reaching production data is one pull request away from anyone who can open
+  one.
 - **The CSP is the whole policy, it fails silently, and it has been wrong three
   times.** `tauri.conf.json` holds all of it: Tauri appends script and style
   hashes and touches nothing else, so an absent or mistyped directive falls back

@@ -79,8 +79,16 @@ async fn main() -> anyhow::Result<()> {
         limits: Arc::new(limits_from_env()),
         turn,
     };
+    // Says only what it knows. This process reads two environment variables; it
+    // never contacts the relay, so it cannot tell a working one from a hostname
+    // that resolves to a closed port. The first wording here claimed "calls are
+    // available" and was believed -- the relay was unreachable at the time, and
+    // the log was the reason nobody looked. Reachability is checked from
+    // outside, with a STUN request; see OPS.md Phase 8b step 6.
     match &state.turn {
-        Some(_) => tracing::info!("TURN relay configured; calls are available"),
+        Some(_) => tracing::info!(
+            "TURN relay configured (not contacted from here -- verify with a STUN request)"
+        ),
         None => tracing::info!("no TURN relay configured; calls are unavailable"),
     }
     match &state.storage {

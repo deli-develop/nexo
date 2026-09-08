@@ -1085,6 +1085,7 @@ Read cost matters. Sizes are approximate and current.
 | [`BRIEF.md`](BRIEF.md) | 26 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 29 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |
 | [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 37 KB | Why each technology decision beat its alternative. Background, not instruction. |
+| [`CALLS-HANDOVER.md`](CALLS-HANDOVER.md) | 7 KB | **Temporary.** What is left to finish on calls, and the five silent traps in the TLS-relay deployment. Delete when its list is empty. |
 
 Also under `docs/`: `design/` (two reference images) and `superpowers/plans/`
 (two dated planning documents — historical, not current instruction).

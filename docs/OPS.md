@@ -428,11 +428,49 @@ sudo useradd --system --no-create-home --shell /usr/sbin/nologin nexo
 sudo systemctl daemon-reload
 sudo systemctl enable --now nexo-server
 curl -s https://api.dice.fit/v1/health
-# {"status":"ok","protocol_version":1}
+# {"status":"ok","protocol_version":3}
 ```
 
 Logs: `journalctl -u nexo-server -f`. Nothing above `debug` may contain user
 content, and `debug` is compiled out of release builds.
+
+### When `api.dice.fit` answers 502
+
+A 502 with `server: Caddy` in the headers is Caddy saying it reached nothing on
+`127.0.0.1:8080`. It is never the database and never the client: `/v1/health`
+touches no database and is unauthenticated, so if the process were up in any
+form at all it would answer 200. Read it as *the unit is not running*, and note
+that the whole app goes with it — sign-in, feed, messages, media.
+
+```bash
+sudo systemctl status nexo-server          # active, or failed, or restart-looping
+sudo journalctl -u nexo-server -n 60 --no-pager
+```
+
+The log line at the top of the last start says why. Nearly every case is
+configuration read at startup, because this service is built to refuse a
+half-finished deployment rather than boot into one:
+
+| What the log says | What happened |
+|---|---|
+| `NEXO_JWT_PRIVATE_KEY_PEM is not set; refusing to start` | The key path is missing from `/etc/nexo/nexo.env`, or `ProtectHome=yes` puts the file out of reach |
+| `the TURN relay is partly configured` | One of `NEXO_TURN_SECRET` / `NEXO_TURN_URLS` was edited without the other. Both or neither |
+| `object storage is N/8 configured` | The same rule for the S3 block |
+| a panic naming `NEXO_CORS_ORIGINS` | A wildcard, a non-`https://` origin, or a value with a path or trailing slash |
+| a database connection error | Postgres is down, or the password in `DATABASE_URL` no longer matches the role |
+
+`Restart=on-failure` with `RestartSec=5` means a bad environment file is not a
+single crash but a loop, and the 502 stays until the file is right:
+
+```bash
+sudo -e /etc/nexo/nexo.env
+sudo systemctl restart nexo-server
+curl -fsS https://api.dice.fit/v1/health && echo   # 200 before walking away
+```
+
+If the unit *is* active and the 502 persists, then it is the other half: check
+`NEXO_BIND` is `127.0.0.1:8080`, that something is listening there
+(`sudo ss -ltnp | grep 8080`), and only then `sudo systemctl status caddy`.
 
 ---
 

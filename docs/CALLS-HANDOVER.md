@@ -27,19 +27,10 @@ in `CONTEXT.md`'s *Conventions*. Do not re-derive them.
 
 ## Uncommitted right now
 
-`apps/server/src/main.rs` — one log line. It used to say *"TURN relay
-configured; calls are available"*, which was believed and was wrong: the server
-reads two environment variables and never contacts the relay, so it cannot tell
-a working one from a hostname pointing at a closed port. The relay was
-unreachable for hours and that log line is why nobody looked.
-
-```
-fix: the startup log no longer claims the relay works
-
-nexo-server reads two environment variables and never contacts the
-relay, so it cannot know whether calls are actually available. It now
-says only what it checked, and points at the STUN check in OPS.md.
-```
+Nothing. The startup log line that used to claim *"TURN relay configured; calls
+are available"* — believed, and wrong, because the server reads two environment
+variables and never contacts the relay — went in with `c7e0884`. It now says
+only what it checked.
 
 ---
 
@@ -80,23 +71,30 @@ None is guessable, and only the first is in `OPS.md` today:
 
 ## What is left, in order
 
-### 1. Commit the log fix
-
-Above. One file, gate already green.
-
-### 2. Confirm the client is told to use TLS first
+### 1. Confirm the client is told to use TLS first
 
 `/etc/nexo/nexo.env` must have `turns:` **before** `turn:`, so ICE tries the
-path that works before the one the ISP drops:
+path that works before the one the ISP drops. All three lines belong there
+together — `NEXO_TURN_SECRET` included, even when only the URLs are being
+edited:
 
 ```sh
+NEXO_TURN_SECRET=the secret from /etc/turnserver.conf, byte-identical
 NEXO_TURN_URLS=turns:turn.dice.fit:443?transport=tcp,turn:turn.dice.fit:3478?transport=udp
 NEXO_STUN_URLS=stun:turn.dice.fit:3478
 ```
 
-`sudo systemctl restart nexo-server` after. This was not verified as live.
+`NEXO_TURN_SECRET` and `NEXO_TURN_URLS` are all-or-nothing: with one of the two
+set, `TurnConfig::from_env` bails and **the service does not start at all** —
+not "calls are off", but every route gone and Caddy answering 502. That is
+deliberate (`apps/server/src/calls.rs`), and it is worth knowing before editing
+this file with the API live.
 
-### 3. Place a real call, end to end
+`sudo systemctl restart nexo-server` after, then `curl -fsS
+https://api.dice.fit/v1/health` before walking away. This was not verified as
+live.
+
+### 2. Place a real call, end to end
 
 **Nothing above proves a call works.** What is proven is that signalling
 travels, that the relay answers STUN over TLS, and that the media pipeline
@@ -106,7 +104,7 @@ directions. Until that is done, calls are unverified.
 Both ends need a build that knows `Payload::Call` — an older one draws the
 offer as an unreadable bubble instead of ringing.
 
-### 4. Rotate the TURN shared secret
+### 3. Rotate the TURN shared secret
 
 The current value was pasted into a chat transcript on 2026-09-08. It only
 authorises relay use — bandwidth, not messages — but it should not stand.
@@ -119,14 +117,14 @@ Into **both** `static-auth-secret` (`/etc/turnserver.conf`) and
 `NEXO_TURN_SECRET` (`/etc/nexo/nexo.env`), byte-identical, then restart coturn
 and nexo-server.
 
-### 5. Write `OPS.md` Pass 3 — TURN over TLS on 443
+### 4. Write `OPS.md` Pass 3 — TURN over TLS on 443
 
 The five traps above, as a runbook section: floating IP and netplan, the Caddy
 `bind`, certbot's `--http-01-address`, the certbot renewal hook, and the
 systemd capability override. Phase 8b currently stops at plain TURN and Pass 2
 assumes Caddy keeps the certificate — which is no longer how this is deployed.
 
-### 6. Write the missing "getting the code onto the server" section
+### 5. Write the missing "getting the code onto the server" section
 
 `OPS.md` documents the Hetzner SSH key in Phase 1 and then never says how the
 source reaches the box. `deploy-server.sh` says *"run from a clone"* and there

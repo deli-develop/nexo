@@ -25,7 +25,7 @@ for you. They list every file in the repository with one line about what it
 owns, so finding the right one costs a scan rather than a `grep` over the whole
 tree.
 
-`docs/` holds ~380 KB of prose, and this file is ~60 KB of it. The rule it
+`docs/` holds ~430 KB of prose, and this file is ~70 KB of it. The rule it
 teaches applies to itself: scan the one section you need, skip the rest.
 
 ## How to keep it
@@ -737,6 +737,8 @@ it is expensive.
 | The session ends by itself | A rotated refresh token that never reached the store. See the drain rule in [Conventions](#conventions-that-will-trip-you-up) |
 | The app stutters while a video plays | Something is holding the client lock across the network. See the lock rule in [Conventions](#conventions-that-will-trip-you-up) |
 | A server test passes locally and fails for somebody else | It asserted on a global listing in a shared database, or `.sqlx/` was not regenerated |
+| Nothing in the app works at all — sign-in, feed, messages | Ask `api.dice.fit` itself: `curl -i https://api.dice.fit/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.dice.fit` answers 502* |
+| `nexo-server` restart-loops after an edit to `/etc/nexo/nexo.env` | It refuses a half-finished deployment by design: the TURN pair, the S3 block and `NEXO_CORS_ORIGINS` are each all-or-nothing and checked at startup. `journalctl -u nexo-server -n 60` names the one that failed |
 | The UI looks stale after a `cargo build --release` | `pnpm build` was not run first; the binary embeds `apps/desktop/dist` |
 
 ---
@@ -1068,30 +1070,30 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 60 KB | This file. Where things are, and what not to break. |
-| [`STATUS.md`](STATUS.md) | 65 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
-| [`COMPONENTS.md`](COMPONENTS.md) | 8 KB | The UI component reference. |
-| [`RELEASING.md`](RELEASING.md) | 9 KB | Tag, build, sign, publish, updater manifest. |
-| [`PIN-ROTATION.md`](PIN-ROTATION.md) | 2 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `crates/client/src/pin.rs` and `THREAT-MODEL.md` §3. |
-| [`SIGNAL-ANALYSIS.md`](SIGNAL-ANALYSIS.md) | 9 KB | Why MLS and not the Signal protocol. |
-| [`TELEGRAM-FEATURES.md`](TELEGRAM-FEATURES.md) | 12 KB | Which Telegram features fit this app, which cannot, and why. Read before proposing one. |
+| [`CONTEXT.md`](CONTEXT.md) | 70 KB | This file. Where things are, and what not to break. |
+| [`STATUS.md`](STATUS.md) | 83 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
+| [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
+| [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
+| [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `crates/client/src/pin.rs` and `THREAT-MODEL.md` §3. |
+| [`SIGNAL-ANALYSIS.md`](SIGNAL-ANALYSIS.md) | 10 KB | Why MLS and not the Signal protocol. |
+| [`TELEGRAM-FEATURES.md`](TELEGRAM-FEATURES.md) | 13 KB | Which Telegram features fit this app, which cannot, and why. Read before proposing one. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
-| [`DEVELOPMENT.md`](DEVELOPMENT.md) | 7 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
-| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 33 KB | Adversaries in and out of scope; what is deliberately not protected. |
-| [`TUTORIAL.md`](TUTORIAL.md) | 17 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
-| [`OPS.md`](OPS.md) | 21 KB | The Hetzner runbook. Deploy, TLS, backups, incidents. |
-| [`PLAN.md`](PLAN.md) | 22 KB | Milestones M0–M9 and the open risks. |
-| [`BRIEF.md`](BRIEF.md) | 26 KB | The original specification. The source of the §-numbers other docs cite. |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | 8 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
+| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 37 KB | Adversaries in and out of scope; what is deliberately not protected. |
+| [`TUTORIAL.md`](TUTORIAL.md) | 18 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
+| [`OPS.md`](OPS.md) | 31 KB | The Hetzner runbook. Deploy, TLS, backups, incidents. |
+| [`PLAN.md`](PLAN.md) | 23 KB | Milestones M0–M9 and the open risks. |
+| [`BRIEF.md`](BRIEF.md) | 27 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 29 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |
-| [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 37 KB | Why each technology decision beat its alternative. Background, not instruction. |
+| [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 38 KB | Why each technology decision beat its alternative. Background, not instruction. |
 | [`CALLS-HANDOVER.md`](CALLS-HANDOVER.md) | 7 KB | **Temporary.** What is left to finish on calls, and the five silent traps in the TLS-relay deployment. Delete when its list is empty. |
 
 Also under `docs/`: `design/` (two reference images) and `superpowers/plans/`
 (two dated planning documents — historical, not current instruction).
 
 **The two big ones are reference, not reading.** `BRIEF.md` and
-`RESEARCH-COMPARISON.md` are together 63 KB. When another document cites
+`RESEARCH-COMPARISON.md` are together 65 KB. When another document cites
 "brief §4.3", open that section — `grep -n "^### 4.3" docs/BRIEF.md` gives the
 line, then read the range. Reading either end to end is almost never the right
 move.

@@ -20,7 +20,7 @@ Dokumente durchgesehen — in dieser Reihenfolge, und ohne Abkürzung:
 Erst danach wird Code gelesen. Wer mit einem `grep` über den ganzen Baum
 beginnt, hat Schritt 2 übersprungen und zahlt es doppelt.
 
-`docs/` umfasst gut 235 KB Prosa. Alles davon zu lesen, um einen Handler zu
+`docs/` umfasst gut 430 KB Prosa. Alles davon zu lesen, um einen Handler zu
 ändern, ist der andere teure Fehler — den verhindert dieselbe Karte.
 
 ## Grosse Aufgaben: erst der Plan, dann Wellen
@@ -130,7 +130,7 @@ halten — ausführlicher in [`docs/CONTEXT.md`](docs/CONTEXT.md#working-economi
 2. **Nach dem Symbol greppen, dann den Bereich lesen** — `sed -n '400,460p'`.
    Ganze Dateien nur, wenn sich ihre Struktur ändert.
 3. **`BRIEF.md` und `RESEARCH-COMPARISON.md` sind Nachschlagewerke**, zusammen
-   67 KB. Wird "brief §4.3" zitiert: `grep -n "^### 4.3" docs/BRIEF.md`, dann
+   65 KB. Wird "brief §4.3" zitiert: `grep -n "^### 4.3" docs/BRIEF.md`, dann
    den Abschnitt lesen. Nie am Stück.
 4. **Modul-Header sind verlässlich.** Jedes `lib.rs` beginnt mit einem
    Doc-Kommentar, der sagt, was die Crate darf und was nicht. Vierzehn Zeilen

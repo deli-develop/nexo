@@ -15,6 +15,7 @@ apps/desktop        Tauri 2 + React 19 client (Windows)
 apps/server         axum API and MLS Delivery Service (Linux, aarch64)
 crates/protocol     Wire types shared by both. No I/O, no crypto.
 crates/crypto       MLS, the identity keypair, and safety numbers.
+crates/crypto-wasm  The same, through wasm-bindgen, for a browser engine.
 crates/platform     The OS seam: SecureStore, and the Windows DPAPI backing.
 crates/store        The client's SQLCipher database.
 crates/client       Session logic. No platform calls, no HTTP client.
@@ -31,7 +32,7 @@ Inside the client:
 src/components/ui       Buttons, avatars, panes, controls, the icon set
 src/components/chrome   Titlebar and the icon rail
 src/features/{home,messages,profile,settings}
-src/mock                The data every surface reads until the network exists
+src/mock                Historical. The M1 fixtures; nothing outside it imports it.
 ```
 
 Colour, type, radius, motion and the glass utilities are not in the client at
@@ -67,11 +68,15 @@ Windows 10 1809+ or Windows 11, on x86_64.
 | WebView2 Runtime | Evergreen | Already present on Windows 11 and on updated Windows 10. The installer ships a bootstrapper for machines that lack it. |
 | [Strawberry Perl](https://strawberryperl.com/) | any | **Not needed yet.** Required from M2 onward, when SQLCipher starts building a vendored OpenSSL. `winget install StrawberryPerl.StrawberryPerl` |
 | CMake | any | Needed by `aws-lc-sys`, which the AWS S3 SDK builds for its TLS. Strawberry Perl ships one, so installing that usually covers it. On the aarch64 server: `apt install cmake`. |
+| `wasm-bindgen-cli` | **exactly** 0.2.127 | Only for `pnpm test:wasm`. `cargo install wasm-bindgen-cli --version 0.2.127 --locked`. The version must equal the `wasm-bindgen` crate in `crates/crypto-wasm/Cargo.toml`; the build script refuses to run when they disagree, because a mismatch produces a module that loads and then fails on the first call. |
+
+The `wasm32-unknown-unknown` target is listed in `rust-toolchain.toml`, so
+rustup installs it with the toolchain and no `rustup target add` is needed.
 
 ### 2. Install
 
 ```powershell
-git clone https://github.com/YungDice/nexo.git
+git clone https://github.com/deli-develop/nexo.git
 cd nexo
 pnpm install
 ```

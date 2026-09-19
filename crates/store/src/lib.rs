@@ -35,7 +35,7 @@ pub type StoredIdentity = (Zeroizing<Vec<u8>>, Vec<u8>);
 /// The schema version this build writes and expects.
 ///
 /// One constant, so a migration and the test that checks it cannot disagree.
-pub const SCHEMA_VERSION: i64 = 19;
+pub const SCHEMA_VERSION: i64 = 20;
 
 /// The file name the store always uses, under the app data directory.
 pub const STORE_FILE_NAME: &str = "store.db";
@@ -441,6 +441,8 @@ impl EncryptedStore {
 
         if version < 10 {
             // The Meet&Greet map, cached so the tab opens on something.
+            // Dropped again at step 20, when the map was removed; this rung is
+            // left standing because a database created before it walked here.
             //
             // The pin list is not a feed and must never become one: it is
             // fetched when the tab is opened and when somebody pulls, never on
@@ -764,6 +766,24 @@ impl EncryptedStore {
                      updated_at_ms   INTEGER NOT NULL
                  );
                  PRAGMA user_version = 19;
+                 COMMIT;",
+            )?;
+        }
+
+        if version < 20 {
+            // Meet&Greet is gone, and with it the cached map.
+            //
+            // Step 10 is left as it was: a database created before this one
+            // walked through it, and rewriting a rung nobody can un-climb is
+            // how a ladder stops being walkable from every version. This drops
+            // what that step created instead.
+            //
+            // Nothing is lost that mattered. The table was a cache of public
+            // pins, disposable by design -- its own header said so.
+            self.connection.execute_batch(
+                "BEGIN;
+                 DROP TABLE IF EXISTS meet_pins;
+                 PRAGMA user_version = 20;
                  COMMIT;",
             )?;
         }
@@ -1972,65 +1992,6 @@ impl EncryptedStore {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// Replace the cached map with what the server just returned.
-    ///
-    /// Wholesale, in one transaction: a pin that has gone is gone, and a
-    /// half-written map is never visible to a reader. The list is small enough
-    /// that reconciling row by row would be more code for no gain.
-    pub fn cache_meet_pins(&self, pins: &[MeetPin], fetched_at_ms: i64) -> Result<(), StoreError> {
-        let transaction = self.connection.unchecked_transaction()?;
-        transaction.execute("DELETE FROM meet_pins", [])?;
-        {
-            let mut statement = transaction.prepare(
-                "INSERT INTO meet_pins
-                     (handle, display_name, lat, lon, headline, char_config,
-                      updated_at_ms, fetched_at_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            )?;
-            for pin in pins {
-                statement.execute(rusqlite::params![
-                    pin.handle,
-                    pin.display_name,
-                    pin.lat,
-                    pin.lon,
-                    pin.headline,
-                    pin.char_config,
-                    pin.updated_at_ms,
-                    fetched_at_ms,
-                ])?;
-            }
-        }
-        transaction.commit()?;
-        Ok(())
-    }
-
-    /// The map as this device last saw it. Empty before the first fetch.
-    pub fn cached_meet_pins(&self) -> Result<Vec<MeetPin>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT handle, display_name, lat, lon, headline, char_config,
-                    updated_at_ms, fetched_at_ms
-             FROM meet_pins
-             ORDER BY handle",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok(MeetPin {
-                handle: row.get(0)?,
-                display_name: row.get(1)?,
-                lat: row.get(2)?,
-                lon: row.get(3)?,
-                headline: row.get(4)?,
-                char_config: row.get(5)?,
-                updated_at_ms: row.get(6)?,
-                fetched_at_ms: row.get(7)?,
-            })
-        })?;
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(row?);
-        }
-        Ok(out)
-    }
-
     /// Every peer this device has seen in a conversation.
     pub fn peers(&self, conversation_id: &str) -> Result<Vec<StoredPeer>, StoreError> {
         let mut statement = self.connection.prepare(
@@ -2287,32 +2248,6 @@ pub struct StoredReaction {
     pub count: i64,
     /// Whether this account is one of them.
     pub mine: bool,
-}
-
-/// One pin on the Meet&Greet map, as this device last fetched it.
-///
-/// A cached copy of what the server returned, kept only so the tab opens on a
-/// map rather than on nothing. `char_config` is the JSON exactly as it
-/// arrived — this crate does not read it, and the renderer is the only thing
-/// that does.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MeetPin {
-    /// Who this is.
-    pub handle: String,
-    /// What to call them.
-    pub display_name: String,
-    /// Where the server says they are. Already coarsened when it was stored.
-    pub lat: f64,
-    /// The other half of the pin.
-    pub lon: f64,
-    /// Their one line, if they wrote one.
-    pub headline: Option<String>,
-    /// The NexoChar config, as JSON text.
-    pub char_config: String,
-    /// When they last moved the pin.
-    pub updated_at_ms: i64,
-    /// When this device last fetched the map, so a reader can tell how old it is.
-    pub fetched_at_ms: i64,
 }
 
 /// One peer in a conversation, as this device last saw them.
@@ -2949,56 +2884,14 @@ mod tests {
             .unwrap();
     }
 
-    fn a_pin(handle: &str) -> MeetPin {
-        MeetPin {
-            handle: handle.into(),
-            display_name: handle.to_uppercase(),
-            lat: 47.1,
-            lon: 8.2,
-            headline: Some("here for the mountains".into()),
-            char_config: r#"{"topVariant":"hoodie"}"#.into(),
-            updated_at_ms: 1_760_000_000_000,
-            fetched_at_ms: 0,
-        }
-    }
-
+    /// A database from an old rung climbs the whole ladder.
+    ///
+    /// v9 is far enough back to cross the step that added a message's own name
+    /// and the step that dropped the map cache, which is the pair most likely
+    /// to be got wrong: one adds a column, the other drops a table.
     #[test]
-    fn the_cached_map_round_trips() {
-        let dir = TempDir::new("meet-cache");
-        let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
-        assert!(store.cached_meet_pins().unwrap().is_empty());
-
-        store
-            .cache_meet_pins(&[a_pin("dice"), a_pin("bananaaboy")], 42)
-            .unwrap();
-
-        let back = store.cached_meet_pins().unwrap();
-        assert_eq!(back.len(), 2);
-        assert_eq!(back[0].handle, "bananaaboy", "ordered by handle");
-        assert_eq!(back[1].char_config, r#"{"topVariant":"hoodie"}"#);
-        assert!(back.iter().all(|p| p.fetched_at_ms == 42));
-    }
-
-    /// A pin that has gone must not linger. The cache is the whole map, not a
-    /// pile of every pin ever seen.
-    #[test]
-    fn caching_the_map_again_replaces_it_rather_than_adding_to_it() {
-        let dir = TempDir::new("meet-replace");
-        let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
-        store
-            .cache_meet_pins(&[a_pin("dice"), a_pin("gone")], 1)
-            .unwrap();
-        store.cache_meet_pins(&[a_pin("dice")], 2).unwrap();
-
-        let back = store.cached_meet_pins().unwrap();
-        assert_eq!(back.len(), 1);
-        assert_eq!(back[0].handle, "dice");
-    }
-
-    /// Upgrading an existing store must not lose it or fail to gain the table.
-    #[test]
-    fn a_store_from_before_the_map_gains_the_cache() {
-        let dir = TempDir::new("meet-upgrade");
+    fn a_store_from_an_older_version_migrates_all_the_way_up() {
+        let dir = TempDir::new("ladder");
         {
             let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
             store
@@ -3006,8 +2899,7 @@ mod tests {
                 // v11's columns go too: a rollback test restores the shape
                 // of the version it claims to be, not just the number.
                 .execute_batch(
-                    "DROP TABLE meet_pins;
-                     DROP INDEX messages_client_id_idx;
+                    "DROP INDEX messages_client_id_idx;
                      ALTER TABLE messages DROP COLUMN client_id;
                      ALTER TABLE outbox   DROP COLUMN client_id;
                      PRAGMA user_version = 9;",
@@ -3016,7 +2908,8 @@ mod tests {
         }
         let store = EncryptedStore::open(dir.db(), &a_key(1)).unwrap();
         assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-        assert!(store.cached_meet_pins().unwrap().is_empty());
+        // The message name the ladder was supposed to add along the way.
+        store.insert_message(1, "c1", None, "hello", 1).unwrap();
     }
 
     /// Pinning is local, and the flag has to survive the join in `messages`.

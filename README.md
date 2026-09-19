@@ -34,15 +34,11 @@ sides. Search runs across your whole history and never leaves your machine.
 visit, and stories that disappear after 24 hours. These are visible to other
 signed-in people — and the app says so where you write them, not in a footnote.
 
-**Meet&Greet.** A world map where you may place one pin, roughly where you are,
-wearing a character you built. Nexo never reads your device location: the pin is
-something you type, and it is deliberately coarsened before it is stored, so the
-map shows a neighbourhood rather than an address.
-
-**Control over who reaches you.** An account can be private — absent from search
-and reachable only through an invitation you issue, with requests you answer.
-Blocking works in both directions and takes the pins and stories with it.
-Reporting exists.
+**Control over who reaches you.** An account can be private — absent from
+search, and reachable only by somebody you already share a conversation with or
+who holds an invitation you issued. Both halves are enforced on the server, so
+neither is a promise the app merely makes. Blocking works in both directions and
+takes the stories with it. Reporting exists.
 
 **A lock that actually locks.** Leave the app idle and the session ends, not just
 the view. A short PIN gets you back in, tied to your Windows sign-in, with the

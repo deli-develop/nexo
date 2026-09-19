@@ -4,17 +4,16 @@
 //! state, the identity keypair, the SQLCipher key, and every message plaintext.
 //! The WebView receives already-decrypted strings and nothing else (rule 2).
 
-// `deny`, not `forbid`, and the difference is one file.
+// `forbid`, not `deny`, and it is worth saying why it is back.
 //
 // This crate holds the MLS state, the identity keypair, the SQLCipher key and
-// every message plaintext, so it carried `forbid(unsafe_code)` for as long as
-// it had no reason not to. `permissions.rs` is that reason: WebView2 decides
-// camera and microphone access through a COM callback, and COM is FFI. `forbid`
-// cannot be relaxed for a single module -- that is the whole point of it -- so
-// the crate is `deny` with exactly one `#[allow]`, the same shape
-// `crates/platform` uses for DPAPI. Anything else that reaches for `unsafe`
-// still fails to compile.
-#![deny(unsafe_code)]
+// every message plaintext. It carried `forbid(unsafe_code)` until calls needed
+// `permissions.rs` -- WebView2 decides camera and microphone access through a
+// COM callback, and COM is FFI -- and `forbid` cannot be relaxed for a single
+// module, which is the whole point of it. Calls are gone, that module with
+// them, and the stronger word fits again. `crates/platform` is now the only
+// place in the workspace that reaches for `unsafe`, for DPAPI.
+#![forbid(unsafe_code)]
 
 mod auth;
 mod client;
@@ -22,9 +21,9 @@ mod commands;
 mod conversations;
 mod feed;
 mod media;
-mod meet;
-mod permissions;
+mod people;
 mod preview;
+mod stories;
 mod stream;
 mod windows;
 
@@ -66,12 +65,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             windows::install_tray(app.handle())?;
-            // Answer WebView2's permission requests ourselves, so pressing
-            // `call` is the consent rather than a dialog naming an origin.
-            // Not fatal if it fails: WebView2 falls back to its own prompt.
-            if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
-                permissions::install(&window);
-            }
             // Close-to-tray defaults off (see `WindowPrefs`). Someone who
             // closes a window and finds the app still running has been
             // surprised by their own computer; they can turn it on in
@@ -128,10 +121,6 @@ pub fn run() {
             conversations::send_message,
             conversations::sync_conversation,
             conversations::sync_all,
-            conversations::call_ice_servers,
-            conversations::call_offer,
-            conversations::call_answer,
-            conversations::call_hangup,
             conversations::conversation_messages,
             conversations::send_attachment,
             conversations::send_voice_message,
@@ -158,23 +147,14 @@ pub fn run() {
             conversations::revise_message,
             conversations::set_message_pinned,
             conversations::delete_message_for_me,
-            meet::meet_pins,
-            meet::meet_me,
-            meet::meet_set_me,
-            meet::meet_leave,
-            meet::meet_consent,
-            meet::meet_requests,
-            meet::meet_send_request,
-            meet::meet_accept_request,
-            meet::meet_decline_request,
-            meet::meet_report,
-            meet::meet_search,
-            meet::meet_create_invite,
-            meet::meet_invites,
-            meet::meet_revoke_invite,
-            meet::story_post,
-            meet::story_list,
-            meet::story_open,
+            people::search_users,
+            people::report,
+            people::create_invite,
+            people::invites,
+            people::revoke_invite,
+            stories::story_post,
+            stories::story_list,
+            stories::story_open,
             feed::feed,
             feed::posts_by,
             feed::set_following,

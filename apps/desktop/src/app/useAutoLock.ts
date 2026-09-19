@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 
-import { useCall } from "../features/calls/useCall";
 import { lockCore } from "../lib/native";
 import { useApp } from "./store";
 
@@ -32,18 +31,10 @@ export function useAutoLock(): void {
   const timeout = useApp((s) => s.preferences.lockTimeout);
   const signedIn = useApp((s) => s.account !== null);
   const locked = useApp((s) => s.locked);
-  // Being on a call is being present, and the timer must not disagree.
-  //
-  // Idleness is measured from the keyboard and the pointer, and somebody
-  // talking touches neither -- so without this the app locks mid-sentence,
-  // drops the store and the MLS provider under a live call, and asks for a PIN
-  // over the top of it. Held rather than merely bumped: a call is a continuous
-  // state, not a stream of activity events.
-  const onCall = useCall((s) => s.phase !== "idle");
 
   useEffect(() => {
     const limit = TIMEOUT_MS[timeout];
-    if (!signedIn || locked || onCall || limit == null) return;
+    if (!signedIn || locked || limit == null) return;
 
     let lastActivity = Date.now();
     const bump = () => {
@@ -68,5 +59,5 @@ export function useAutoLock(): void {
       window.clearInterval(timer);
       for (const name of events) window.removeEventListener(name, bump);
     };
-  }, [timeout, signedIn, locked, onCall]);
+  }, [timeout, signedIn, locked]);
 }

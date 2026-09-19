@@ -752,7 +752,7 @@ function About() {
             here. The full list of dependencies and their licences ships with the app.
           </p>
           <div className="mt-3">
-            <Button icon="external" onClick={() => void openUrl("https://github.com/YungDice/nexo/blob/main/LICENSE")}>
+            <Button icon="external" onClick={() => void openUrl("https://github.com/deli-develop/nexo/blob/main/LICENSE")}>
               Open licences
             </Button>
           </div>

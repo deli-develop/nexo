@@ -38,6 +38,42 @@ jobs:
           path: apps/desktop/dist
           retention-days: 7
 
+  crypto-wasm:
+    name: Crypto (wasm32, in a browser engine)
+    # Linux: this job builds no Windows or Tauri anything, and the wasm target
+    # is the same artifact whoever builds it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.1"
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The CLI version must equal the `wasm-bindgen` crate version pinned in
+      # crates/crypto-wasm/Cargo.toml. A mismatch produces a module that loads
+      # and then fails on the first call, so the build script checks it too.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.127
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.20.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Builds the wasm and runs the MLS conversation against it. This is the
+      # job that would go red if OpenMLS ever stopped compiling for wasm32 --
+      # which the whole client plan depends on. See docs/REWORK.md wave 3.
+      - run: pnpm test:wasm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexo-crypto-wasm
+          path: packages/crypto-wasm/pkg
+          retention-days: 7
+
   client:
     name: Client (Windows x86_64)
     runs-on: windows-latest

@@ -160,52 +160,10 @@ impl Transport for Listing {
     fn story_url(&self, _id: i64) -> Result<String, TransportError> {
         unimplemented!()
     }
-    fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError> {
-        Ok(nexo_protocol::IceServers {
-            servers: Vec::new(),
-            expires_at_ms: 0,
-            relay_only: true,
-        })
-    }
-
     fn search_users(
         &self,
         _term: &str,
     ) -> Result<Vec<nexo_client::transport::SearchResult>, TransportError> {
-        unimplemented!()
-    }
-    fn meet_me(&self) -> Result<Option<nexo_protocol::MeetProfile>, TransportError> {
-        unimplemented!()
-    }
-    fn meet_set_me(&self, _: &nexo_protocol::MeetProfileUpdate) -> Result<(), TransportError> {
-        unimplemented!()
-    }
-    fn meet_leave(&self) -> Result<(), TransportError> {
-        unimplemented!()
-    }
-    fn meet_consent(&self, _: i32) -> Result<(), TransportError> {
-        unimplemented!()
-    }
-    fn meet_pins(
-        &self,
-        _: Option<&str>,
-    ) -> Result<Vec<nexo_protocol::MeetProfile>, TransportError> {
-        unimplemented!()
-    }
-    fn meet_requests(&self) -> Result<Vec<nexo_protocol::MeetRequest>, TransportError> {
-        unimplemented!()
-    }
-    fn meet_open_request(
-        &self,
-        _: &str,
-        _: &str,
-    ) -> Result<nexo_protocol::MeetRequest, TransportError> {
-        unimplemented!()
-    }
-    fn meet_accept(&self, _: i64) -> Result<(), TransportError> {
-        unimplemented!()
-    }
-    fn meet_decline(&self, _: i64) -> Result<(), TransportError> {
         unimplemented!()
     }
     fn report(&self, _: &str, _: i64, _: &str, _: Option<&str>) -> Result<(), TransportError> {

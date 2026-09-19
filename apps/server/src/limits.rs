@@ -138,23 +138,8 @@ pub struct Limits {
     pub profile: RateLimit,
     /// Adding or removing conversation members.
     pub membership: RateLimit,
-    /// Reading the map and moving one's own pin.
-    pub meet: RateLimit,
-    /// Opening an intro.
-    ///
-    /// The tightest limit here, and the only thing standing in front of a map
-    /// of strangers. Everything else on this list costs the person doing it
-    /// nothing; an unsolicited message costs the person receiving it.
-    pub meet_requests: RateLimit,
-    /// Asking the server where to send a call's media.
-    ///
-    /// Once per call in normal use, so this is loose enough never to be met by
-    /// somebody placing calls and tight enough that a script cannot mint relay
-    /// credentials in bulk -- every one of those is bandwidth somebody pays
-    /// for. Ringing itself is limited elsewhere: an invitation is an envelope,
-    /// so it is `send` that bounds it, and a blocked person cannot ring at all
-    /// because the delivery service already refuses their envelope.
-    pub calls: RateLimit,
+    /// Minting, listing and revoking invitations.
+    pub invites: RateLimit,
 }
 
 impl Default for Limits {
@@ -169,9 +154,7 @@ impl Default for Limits {
             reactions: RateLimit::new(120, Duration::from_secs(60)),
             profile: RateLimit::new(30, Duration::from_secs(60)),
             membership: RateLimit::new(30, Duration::from_secs(60)),
-            meet: RateLimit::new(60, Duration::from_secs(60)),
-            meet_requests: RateLimit::new(10, Duration::from_secs(3600)),
-            calls: RateLimit::new(30, Duration::from_secs(60)),
+            invites: RateLimit::new(60, Duration::from_secs(60)),
         }
     }
 }
@@ -195,9 +178,7 @@ impl Limits {
             reactions: RateLimit::new(u32::MAX, forever),
             profile: RateLimit::new(u32::MAX, forever),
             membership: RateLimit::new(u32::MAX, forever),
-            meet: RateLimit::new(u32::MAX, forever),
-            meet_requests: RateLimit::new(u32::MAX, forever),
-            calls: RateLimit::new(u32::MAX, forever),
+            invites: RateLimit::new(u32::MAX, forever),
         }
     }
 }
@@ -278,8 +259,7 @@ mod tests {
             ("reactions", &limits.reactions),
             ("profile", &limits.profile),
             ("membership", &limits.membership),
-            ("meet", &limits.meet),
-            ("meet_requests", &limits.meet_requests),
+            ("invites", &limits.invites),
         ] {
             assert!(
                 limit.max < u32::MAX,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { asMeetError, listStories, type Story } from "../../lib/meet";
+import { asConversationError } from "../../lib/conversations";
+import { listStories, type Story } from "../../lib/stories";
 
 export interface StoriesRead {
   /** `null` until the first read returns. */
@@ -32,7 +33,7 @@ export function useStories(): StoriesRead {
       setStories(await listStories());
       setProblem(null);
     } catch (error) {
-      const e = asMeetError(error);
+      const e = asConversationError(error);
       // Not being signed in yet is not a failure worth a banner.
       if (e.kind !== "signed_out") setProblem(e.message);
     }

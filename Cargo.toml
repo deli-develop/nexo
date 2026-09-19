@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/protocol",
     "crates/crypto",
+    "crates/crypto-wasm",
     "crates/platform",
     "crates/store",
     "crates/client",
@@ -72,18 +73,6 @@ dotenvy = "=0.15.7"
 # cmake dependency.
 ureq = { version = "=3.4.0", features = ["json"] }
 
-# --- TURN credentials (server only) ---
-# coturn's REST API mints a username/password pair from a shared secret, and
-# the algorithm it specifies is HMAC-SHA1. Not a choice: the relay verifies
-# what it verifies, and rule 1 says wrap the standard rather than invent a
-# better one.
-#
-# The 0.12 / 0.10 pair, not the newer 0.13 / 0.11 line, for the same reason
-# sqlx sits on 0.8: this is the settled RustCrypto generation, and both are
-# already in `Cargo.lock` as transitive dependencies, so naming them here adds
-# nothing to the build.
-hmac = "=0.12.1"
-sha1 = "=0.10.7"
 # The live socket, and blocking like everything else in this client.
 #
 # `tungstenite` rather than `tokio-tungstenite`: the async one would drag a

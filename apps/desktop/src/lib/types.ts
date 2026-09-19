@@ -123,21 +123,6 @@ export interface MessageReaction {
   mine: boolean;
 }
 
-/**
- * How a call ended, as the conversation records it.
- *
- * `reason` is spelled the way the wire spells it, so the UI switches on the
- * same word the protocol uses and neither side invents a synonym for the
- * other. `seconds` is zero for a call that never connected — which is not the
- * same statement as the reason makes, since a call can end after two seconds
- * or after an hour.
- */
-export interface CallRecord {
-  reason: "cancelled" | "declined" | "ended" | "failed";
-  seconds: number;
-  video: boolean;
-}
-
 export interface Message {
   id: string;
   conversationId: string;
@@ -214,14 +199,6 @@ export interface Message {
    * the store, so a later build reads what arrived today.
    */
   unsupported?: string;
-  /**
-   * Set when this message is the record a finished call left behind.
-   *
-   * A call stores exactly one row — the hangup — and this is what "Missed
-   * call" and the duration beside it are drawn from. Absent on every ordinary
-   * message, which is almost all of them.
-   */
-  call?: CallRecord;
 }
 
 export interface Conversation {

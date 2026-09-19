@@ -162,7 +162,7 @@ without that being said each time.
 ## 3. The gap list, ordered by what blocks a user test
 
 "User test" here means what `docs/PLAN.md` M9 describes: real people, real
-accounts, on the production server at `api.dice.fit`, installing from a link.
+accounts, on the production server at `api.delidev.net`, installing from a link.
 
 ### Blocking — do not run a public test without these
 

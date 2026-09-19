@@ -184,11 +184,11 @@ fi
 LOCAL="$(curl -fsS --max-time 5 http://127.0.0.1:8080/v1/health || true)"
 [ -n "$LOCAL" ] || { sudo journalctl -u nexo-server -n 40 --no-pager; die "no answer on 127.0.0.1:8080"; }
 echo "local:  $LOCAL"
-PUBLIC="$(curl -fsS --max-time 10 https://api.dice.fit/v1/health || true)"
+PUBLIC="$(curl -fsS --max-time 10 https://api.delidev.net/v1/health || true)"
 if [ -n "$PUBLIC" ]; then
   echo "public: $PUBLIC"
-  printf '\n\033[1;32mDone. api.dice.fit is live.\033[0m\n'
+  printf '\n\033[1;32mDone. api.delidev.net is live.\033[0m\n'
 else
-  printf '\n\033[1;33mThe service is up locally but api.dice.fit did not answer.\033[0m\n'
+  printf '\n\033[1;33mThe service is up locally but api.delidev.net did not answer.\033[0m\n'
   echo "That is Caddy, not this service. Check: sudo systemctl status caddy"
 fi

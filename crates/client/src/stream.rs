@@ -319,16 +319,16 @@ mod tests {
             "ws://127.0.0.1:8080/v1/stream"
         );
         assert_eq!(
-            socket_url("https://api.dice.fit"),
-            "wss://api.dice.fit/v1/stream"
+            socket_url("https://api.delidev.net"),
+            "wss://api.delidev.net/v1/stream"
         );
     }
 
     #[test]
     fn a_trailing_slash_does_not_double_up() {
         assert_eq!(
-            socket_url("https://api.dice.fit/"),
-            "wss://api.dice.fit/v1/stream"
+            socket_url("https://api.delidev.net/"),
+            "wss://api.delidev.net/v1/stream"
         );
     }
 
@@ -336,8 +336,8 @@ mod tests {
     fn a_socket_url_is_left_as_it_was() {
         // A caller that already knows the scheme it wants is not corrected.
         assert_eq!(
-            socket_url("wss://api.dice.fit"),
-            "wss://api.dice.fit/v1/stream"
+            socket_url("wss://api.delidev.net"),
+            "wss://api.delidev.net/v1/stream"
         );
     }
 

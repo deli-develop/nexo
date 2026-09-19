@@ -164,6 +164,29 @@ could be evaded — absent from search, and unreachable without a live invitatio
 Had only the search half shipped, this would have been the switch `profiles.rs`
 refused to add, one that offers privacy it cannot keep.
 
+**Meet&Greet is withdrawn.** Built as M10, deleted in 0.2.0. The map, the pins,
+the characters, the agreement and the intro requests are gone; the half of the
+module that was never about the map — the private-account gate and its
+invitations — stays, which is what keeps the decision above defensible. The
+reasoning is in [`REWORK.md`](REWORK.md), and the record of what was built is
+still in [`STATUS.md`](STATUS.md) rather than deleted with the code.
+
+**The domain moved, and three hosts became one.** The brief's header fixes
+`dice.fit` with `api.`, `nexo.` and `updates.` under it, and says to use those
+exact hosts everywhere. None of them is in use now. The API is
+`api.delidev.net`; the app is a website at `nexo.delidev.net`, served by
+Netlify rather than by the box; and the updater reads `latest.json` from the
+GitHub release, which is what `tauri.conf.json` has actually pointed at since
+the bug recorded in `.github/workflows/release.yml` was fixed. `OPS.md`
+Phase 0.1 is the short version.
+
+**Voice and video calls are withdrawn.** §11 listed them as out of scope for
+v0.1; they were built anyway, in six waves, and removed in 0.2.0. So the brief
+is accurate again — by a route nobody planned. What the six waves learned is
+kept in [`STATUS.md`](STATUS.md), and the invariant they bent is written up in
+[`THREAT-MODEL.md`](THREAT-MODEL.md) §5b rather than deleted with them: the
+next person to propose calls should read what they cost first.
+
 ## Changes to the brief, taken during M1
 
 Two, both in §7 and neither structural. They are recorded here rather than
@@ -336,6 +359,6 @@ envelope code never share a module, so the distinction cannot erode quietly.
 ## External dependencies with their own clocks
 
 - **Code-signing certificate** — start now; weeks of lead time (risk 1).
-- **Hetzner VPS and `dice.fit` DNS** — needed by M4.
+- **Hetzner VPS and `delidev.net` DNS** — needed by M4, and needed again: the box this described was deleted. See [`REWORK.md`](REWORK.md) wave 4.
 - **Hetzner Object Storage credentials** — needed by M6.
 - **Strawberry Perl on the dev machine** — needed by M2 (risk 3).

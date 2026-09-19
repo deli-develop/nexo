@@ -1,0 +1,18 @@
+{
+  "name": "@nexo/crypto-wasm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MLS, the identity keypair and safety numbers, compiled from crates/crypto to WebAssembly.",
+  "main": "pkg/nexo_crypto_wasm.js",
+  "types": "pkg/nexo_crypto_wasm.d.ts",
+  "files": [
+    "pkg"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/build.mjs --if-missing && vitest run"
+  },
+  "devDependencies": {
+    "vitest": "4.1.11"
+  }
+}

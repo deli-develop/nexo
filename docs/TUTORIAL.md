@@ -45,11 +45,11 @@ a day). Start those early; the rest is an afternoon each.
 | # | Value | Roughly | Needed by |
 |---|---|---|---|
 | 5 | Hetzner Cloud account + CAX21 server | €8–11/month | M4 |
-| 6 | Control of `dice.fit` (registrar of your choice) | domain price | M4 |
+| 6 | *(was: control of `dice.fit`)* — folded into row 10. One domain now, not two. | — | — |
 | 7 | Hetzner Object Storage, 2 buckets + 2 credential pairs | from ~€5/month | M6 |
 | 8 | Hetzner Storage Box (backups) | from ~€3.20/month | M4, in practice |
 | 9 | Authenticode code-signing certificate, ideally **EV** | €200–600/year, days-to-weeks lead | M9 |
-| 10 | Control of `delidev.net`, and the ability to add a CNAME for `nexo` | domain price | the web client |
+| 10 | Control of `delidev.net`: an `A`/`AAAA` for `api` at the server, and a CNAME for `nexo` at Netlify | domain price | M4, and the web client |
 | 11 | A Netlify account with this repository connected | free tier is enough to start | the web client |
 
 Nothing here is a third-party API key: no SMS provider, no push service, no
@@ -202,8 +202,10 @@ Work through [`docs/OPS.md`](OPS.md) in order. The decisions and values it asks
 
 **Phase 0 — decide before clicking anything**
 
-- Do you control `dice.fit`? You do not need to transfer it to Hetzner: point
-  its nameservers at Hetzner DNS and leave the registration where it is.
+- Do you control `delidev.net`? You do not need to transfer it to Hetzner:
+  point its nameservers at Hetzner DNS and leave the registration where it is.
+  `dice.fit` is no longer used by anything — see `OPS.md` Phase 0.1 for what
+  happened to the two hosts that lived on it.
 - Disk encryption: option **A** (none, boots unattended) or **B** (LUKS +
   dropbear, where every reboot waits for you at an SSH prompt). Record the
   choice in [`docs/THREAT-MODEL.md`](THREAT-MODEL.md) either way — it currently
@@ -229,14 +231,18 @@ static), 80, 443 — plus 2222 if you chose LUKS option B. Keep the IPv4 address
 clients on arbitrary home and mobile networks cannot rely on IPv6-only
 reachability.
 
-**Phase 5 — DNS.** In Hetzner DNS: zone `dice.fit`, then at your registrar change
-the nameservers to the ones Hetzner shows. Records — `A` to the server's IPv4,
-`AAAA` to its IPv6:
+**Phase 5 — DNS.** In Hetzner DNS: zone `delidev.net`, then at your registrar
+change the nameservers to the ones Hetzner shows. One record pair — `A` to the
+server's IPv4, `AAAA` to its IPv6:
 
 ```
 api       A / AAAA    the API and the WebSocket
-nexo      A / AAAA    marketing and download page
-updates   A / AAAA    updater manifests
+```
+
+And one that does not point at this box at all:
+
+```
+nexo      CNAME       the Netlify site serving the app
 ```
 
 Wait for propagation before you touch Caddy. Caddy asks Let's Encrypt for a
@@ -301,9 +307,9 @@ There is **no `.env` in the desktop app**, and there should not be one. A Tauri
 client ships whatever you put in it, so an "environment variable" in a desktop
 binary is just a string the user can read. Two things get entered instead:
 
-**The base URL** lives in Rust, not in the WebView: `https://api.dice.fit` and
-`wss://api.dice.fit/v1/stream`, compiled in, with a debug-only override for
-pointing a dev build at your own machine.
+**The base URL** lives in Rust, not in the WebView: `https://api.delidev.net`
+and `wss://api.delidev.net/v1/stream`, compiled in, with a debug-only override
+for pointing a dev build at your own machine.
 
 **The CSP stays as narrow as it is.** Today
 `apps/desktop/src-tauri/tauri.conf.json` says:
@@ -312,7 +318,7 @@ pointing a dev build at your own machine.
 connect-src 'self' ipc: https://ipc.localhost
 ```
 
-A `fetch` to `api.dice.fit` from the WebView is blocked by that, quietly. The
+A `fetch` to `api.delidev.net` from the WebView is blocked by that, quietly. The
 alternative the brief already chose is the better one: **all network I/O happens
 in Rust**, the WebView only speaks IPC, and the CSP never widens. That also
 removes CORS from the attachment path entirely (BRIEF §5.3) and keeps encryption
@@ -430,10 +436,10 @@ Before M4:
 - [ ] `deploy` user; root login off; password auth off — verified in a second
       terminal before closing the first
 - [ ] Postgres 17 with a generated password, loopback only
-- [ ] `dice.fit` nameservers at Hetzner; `api`, `nexo`, `updates` all resolving
+- [ ] `delidev.net` nameservers at Hetzner; `api` resolving to the box and `nexo` to Netlify
 - [ ] Caddy issuing certificates; pinning **off**
 - [ ] `/etc/nexo/nexo.env` at `chmod 600`; JWT keypair generated
-- [ ] `curl https://api.dice.fit/v1/health` answers from your machine
+- [ ] `curl https://api.delidev.net/v1/health` answers from your machine
 - [ ] Nightly `pg_dump` into Borg on a Storage Box — **and one restore actually
       tested**, because an untested backup is a belief, not a backup
 

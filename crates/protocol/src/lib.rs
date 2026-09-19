@@ -17,18 +17,15 @@ pub mod window;
 // dependency on `uuid`. The type is already this crate's vocabulary: every id
 // on the wire is one.
 pub use uuid::Uuid as MessageId;
-/// The same type under the name the call code means by it.
-///
-/// An alias, not a new type: it buys documentation rather than safety, which is
-/// the same trade [`MessageId`] already makes. What it prevents is a signature
-/// reading `MessageId` for something that names a call and not a message.
-pub use uuid::Uuid as CallId;
 
 /// Wire protocol version. Bump on any breaking change to the types below.
 ///
-/// 2 adds the Meet&Greet types at the end of this file. 3 gives a message a
+/// 2 added the Meet&Greet types at the end of this file. 3 gives a message a
 /// name of its own, so a later reaction, edit or retraction can refer to it.
-pub const PROTOCOL_VERSION: u16 = 3;
+/// 4 takes the Meet&Greet types away again — the map is gone, and a build
+/// that still speaks 3 would expect endpoints this server no longer has. 5
+/// does the same for calls: no `Payload::Call`, no signalling, no relay.
+pub const PROTOCOL_VERSION: u16 = 5;
 
 /// A conversation identifier. One MLS group per conversation; a 1:1 chat is a
 /// two-member group with no special-casing (§4.2).
@@ -476,37 +473,6 @@ pub enum Payload {
         /// to go, and only the reader can remove that.
         expires_at_ms: i64,
     },
-    /// One step of setting up, accepting or ending a call.
-    ///
-    /// Signalling rides the conversation rather than a route of its own, and
-    /// that is what makes it end-to-end encrypted without any new machinery:
-    /// an offer's SDP names codecs and, once gathering has finished, the
-    /// network candidates that reach this device. On a plaintext route the
-    /// server would read both. Here it moves the same opaque envelope it
-    /// already moves — rule 4, at no cost.
-    ///
-    /// **Candidates are bundled into the offer and the answer, never
-    /// trickled.** Trickle ICE sends a message per candidate, and a build that
-    /// predates this variant draws every one of them as an `Unsupported`
-    /// bubble — one call would fill an older installation's conversation with
-    /// punctuation. Waiting for gathering to finish costs a fraction of a
-    /// second against a relay and holds the whole exchange to two messages, so
-    /// what an old client sees is at most an offer and a hangup.
-    ///
-    /// Only [`CallSignal::Hangup`] leaves a bubble behind. An offer and an
-    /// answer are machinery: they end the receive branch with `continue`, the
-    /// way [`Payload::Rename`] does.
-    Call {
-        /// Which call this is about.
-        ///
-        /// Minted by the caller and echoed by every later signal. Without it a
-        /// hangup that crosses a second invitation on the wire would end the
-        /// wrong call — two people ringing each other at once is the ordinary
-        /// way that happens, not a rare one.
-        call_id: CallId,
-        /// What this message does.
-        signal: CallSignal,
-    },
     /// A payload this build cannot read.
     ///
     /// Produced only by [`Payload::decode`] and never sent — it is what a
@@ -525,125 +491,6 @@ pub enum Payload {
         /// The `kind` the sender used.
         kind: String,
     },
-}
-
-/// A step in one call's life, inside [`Payload::Call`].
-///
-/// Tagged like [`Payload`] itself and for the same reason: a build that meets a
-/// signal it does not know must be able to say so rather than guess. An
-/// unreadable signal fails the call closed (rule 7) — it never falls back to
-/// "probably an answer".
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "signal", rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum CallSignal {
-    /// Somebody is calling. Ring.
-    Offer {
-        /// Whether the caller is offering video as well as sound.
-        ///
-        /// The SDP says this too, but only to something that parses SDP. The
-        /// callee has to draw a ringing screen — "video call from …" — before
-        /// anything has parsed anything, so the answer is carried plainly.
-        video: bool,
-        /// The offer, with ICE candidates already gathered into it.
-        sdp: String,
-    },
-    /// Accepted, with the other half of the negotiation.
-    Answer {
-        /// Whether the answerer is sending video back. A video call answered
-        /// with the camera off is an ordinary thing to do, and it is not the
-        /// caller's decision.
-        video: bool,
-        /// The answer, candidates included.
-        sdp: String,
-    },
-    /// The call is over — before it started, or after.
-    ///
-    /// The only signal that leaves a message behind, because it is the only one
-    /// a person would ever want to look back at. It is written by whichever
-    /// side ends the call, and both sides store the record from it, so a
-    /// conversation reads the same on both machines.
-    Hangup {
-        /// Why it ended. The receiving UI says "Missed call" or "Declined"
-        /// from this rather than inferring it from who sent what.
-        reason: HangupReason,
-        /// How long the two were connected, in whole seconds.
-        ///
-        /// Zero for a call that never connected, which is not the same
-        /// statement as `reason` makes: a call can be `Ended` after two seconds
-        /// or after an hour, and the record shows the difference.
-        ///
-        /// Defaulted so a signal written before this field existed still reads.
-        #[serde(default)]
-        seconds: u32,
-    },
-}
-
-/// Why a call ended, for the record it leaves in the conversation.
-///
-/// Separate from "who sent the hangup", because the two do not line up: a
-/// caller who gives up sends `Cancelled` and the callee shows a *missed* call,
-/// while a callee who refuses sends `Declined` and the caller shows exactly
-/// that. Deriving either from the sender would get one of them wrong.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum HangupReason {
-    /// The caller gave up before it was answered. The callee missed it.
-    Cancelled,
-    /// The callee refused it.
-    Declined,
-    /// It connected, and then somebody hung up. The ordinary ending.
-    Ended,
-    /// The media path never came up. Not anybody's decision — a failure, and
-    /// the UI is allowed to say so rather than pretending somebody hung up.
-    Failed,
-}
-
-/// Where to reach the relay, and the short-lived credential that opens it.
-///
-/// Fetched per call rather than compiled into the client, for two reasons that
-/// both matter. The credential **expires**, so a copy that leaked from a device
-/// stops working on its own rather than handing somebody free bandwidth for
-/// ever. And the relay's address can move — a second host, a different port —
-/// without shipping a release to every installation.
-///
-/// The shape deliberately mirrors WebRTC's `RTCIceServer`, so the page hands
-/// this to `RTCPeerConnection` almost unchanged. Inventing a different shape
-/// here would buy a translation step and nothing else.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct IceServers {
-    /// The servers to try, in order.
-    pub servers: Vec<IceServer>,
-    /// When the credential stops working, ms since the epoch.
-    ///
-    /// Carried so a client can tell "my credential expired mid-call" from "the
-    /// relay is down", which need different answers: the first is refetched,
-    /// the second is reported.
-    pub expires_at_ms: i64,
-    /// Whether every call must go through the relay rather than peer to peer.
-    ///
-    /// The server decides this, not the client, so the policy can change
-    /// without a release. It is `true` today and the reason is not bandwidth:
-    /// a direct connection hands the other side your home IP address in the
-    /// ICE candidates, and "who you called" plus "where you live" is not a
-    /// trade a messenger should make silently. Relaying costs a hop and hides
-    /// both ends from each other.
-    pub relay_only: bool,
-}
-
-/// One relay or STUN server, in WebRTC's own vocabulary.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct IceServer {
-    /// One server reachable several ways — UDP, TCP, TLS.
-    pub urls: Vec<String>,
-    /// Absent for a plain STUN server, which needs no credential.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    /// The credential that goes with `username`. Short-lived, and useless once
-    /// `expires_at_ms` has passed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential: Option<String>,
 }
 
 /// `serde` needs a function, not a literal, for a default of `true`.
@@ -740,12 +587,7 @@ impl Payload {
             | Payload::Retract { .. }
             | Payload::Edit { .. }
             | Payload::Story { .. }
-            // A call has no words. The record a finished call leaves is drawn
-            // from its `reason` and `seconds` by the bubble, the way a sticker
-            // is drawn from the payload -- putting "Missed call" here would
-            // bake English into a crate that has none, and the wrong English
-            // for anybody not reading it.
-            | Payload::Call { .. } => "",
+            => "",
             // Nor is this. Whatever it says, this build cannot read it, and
             // guessing at a preview would be the same mistake in a smaller
             // place.
@@ -1002,99 +844,6 @@ pub fn is_reaction_emoji(value: &str) -> bool {
         && value.chars().count() <= 4
         && value.len() <= 16
         && !value.chars().any(|c| c.is_whitespace() || c.is_control())
-}
-
-// ------------------------------------------------------------- Meet&Greet ---
-//
-// These are the exception to this file's usual rule, and it is worth being
-// exact about why. Everything above carries ciphertext the server cannot read.
-// A Meet&Greet presence is the opposite: a pin, a headline and a character are
-// *meant* to be readable by the server and by every signed-in person, exactly
-// as a profile is. Rule 4 is not weakened by that, because none of this is
-// message content -- and rule 5 is what makes it honest, so the agreement
-// screen says all three are public in those words.
-//
-// What is deliberately absent: any field a device could fill in by itself. No
-// accuracy, no heading, no speed, no "seen at". A pin is a claim somebody
-// typed, and a schema that cannot express a measurement cannot later be made
-// to carry one by a well-meaning change.
-
-/// Somebody's presence on the Meet&Greet map.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MeetProfile {
-    /// Who this is.
-    pub handle: String,
-    /// What to call them.
-    pub display_name: String,
-    /// Latitude, **as the server stored it** — snapped to a grid and jittered.
-    ///
-    /// Never the value a client submitted. The coarsening happens on write, so
-    /// the precise figure is not kept anywhere and cannot leak from here later.
-    pub lat: f64,
-    /// Longitude, under the same rule as `lat`.
-    pub lon: f64,
-    /// One line about themselves. The only free text in P0.
-    pub headline: Option<String>,
-    /// The NexoChar, as its generator config.
-    ///
-    /// `Value` on purpose: the server does not know what a hairstyle is and
-    /// must not learn. It enforces a size ceiling and nothing else, and the
-    /// character is rendered on whichever client draws it. Storing the config
-    /// rather than an image is also what keeps this out of object storage —
-    /// there is no picture to host, and none to moderate.
-    pub char_config: serde_json::Value,
-    /// When the pin last moved, in milliseconds since the Unix epoch.
-    pub updated_at_ms: i64,
-}
-
-/// A change to one's own presence. Every field is optional: this is a patch.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct MeetProfileUpdate {
-    /// Where the pin was dropped. Coarsened by the server before it is stored.
-    pub lat: Option<f64>,
-    /// The other half of the pin.
-    pub lon: Option<f64>,
-    /// One line, at most 80 characters.
-    pub headline: Option<String>,
-    /// The NexoChar config.
-    pub char_config: Option<serde_json::Value>,
-    /// Whether to appear on the map at all.
-    ///
-    /// Leaving is a flag rather than a delete: a character somebody spent ten
-    /// minutes on survives being off the map, and coming back is one tap.
-    pub active: Option<bool>,
-}
-
-/// How far an intro has got.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum MeetRequestState {
-    /// Sent, not yet answered. The sender may not send again while this holds.
-    Pending,
-    /// The conversation is now an ordinary one.
-    Accepted,
-    /// Refused. Nothing is sent back beyond the state itself.
-    Declined,
-}
-
-/// One intro, from a stranger on the map.
-///
-/// The conversation is a real MLS group opened through the ordinary delivery
-/// path — there is no second, lesser kind of message here. What the request
-/// adds is the one-message rule while it is `Pending`, enforced by the server
-/// because a cap the client applies is not a cap.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MeetRequest {
-    /// The server's id for this request.
-    pub id: i64,
-    /// Who sent it.
-    pub from_handle: String,
-    /// The conversation their one message is in.
-    pub conversation_id: ConversationId,
-    /// Where it has got to.
-    pub state: MeetRequestState,
-    /// When it was sent, in milliseconds since the Unix epoch.
-    pub created_at_ms: i64,
 }
 
 #[cfg(test)]
@@ -1442,126 +1191,6 @@ mod tests {
     }
 
     #[test]
-    fn a_call_signal_round_trips() {
-        let call_id = Uuid::new_v4();
-        for signal in [
-            CallSignal::Offer {
-                video: true,
-                sdp: "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n".into(),
-            },
-            CallSignal::Answer {
-                video: false,
-                sdp: "v=0\r\na=recvonly\r\n".into(),
-            },
-            CallSignal::Hangup {
-                reason: HangupReason::Declined,
-                seconds: 0,
-            },
-            CallSignal::Hangup {
-                reason: HangupReason::Ended,
-                seconds: 272,
-            },
-        ] {
-            let payload = Payload::Call {
-                call_id,
-                signal: signal.clone(),
-            };
-            assert_eq!(Payload::decode(&payload.encode()), payload);
-        }
-    }
-
-    #[test]
-    fn a_call_is_tagged_so_an_older_build_names_it_instead_of_reading_it() {
-        // An installation that predates calls must land in `Unsupported`
-        // rather than render the SDP as though somebody had typed it (rule 7).
-        // That hinges on one thing only: the encoding carries a `kind` that
-        // `tagged_kind` can pull out without understanding it. This build knows
-        // `call`, so it cannot demonstrate the fallback by decoding -- what it
-        // can check is the property the fallback depends on.
-        let encoded = Payload::Call {
-            call_id: Uuid::new_v4(),
-            signal: CallSignal::Offer {
-                video: false,
-                sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n".into(),
-            },
-        }
-        .encode();
-
-        assert_eq!(tagged_kind(&encoded).as_deref(), Some("call"));
-        assert_eq!(
-            Payload::Unsupported {
-                kind: "call".into()
-            }
-            .preview(),
-            ""
-        );
-    }
-
-    #[test]
-    fn a_call_signals_shape_on_the_wire() {
-        // Pinned because both ends and every future build depend on it, and
-        // because the signal enum is tagged *inside* the payload rather than
-        // flattened into it -- a difference that is invisible until something
-        // hand-writes this JSON and finds it does not parse.
-        let json = serde_json::to_value(Payload::Call {
-            call_id: "00000000-0000-0000-0000-000000000001"
-                .parse()
-                .expect("a literal uuid"),
-            signal: CallSignal::Hangup {
-                reason: HangupReason::Ended,
-                seconds: 272,
-            },
-        })
-        .expect("a payload serialises");
-
-        assert_eq!(
-            json,
-            serde_json::json!({
-                "kind": "call",
-                "call_id": "00000000-0000-0000-0000-000000000001",
-                "signal": { "signal": "hangup", "reason": "ended", "seconds": 272 },
-            })
-        );
-    }
-
-    #[test]
-    fn a_hangup_from_before_the_duration_existed_still_reads() {
-        // Same rule as every other defaulted field: a signal written by an
-        // earlier build must not become unreadable, and zero is the honest
-        // answer for a call whose length nobody recorded.
-        let before = br#"{"kind":"call","call_id":"00000000-0000-0000-0000-000000000001","signal":{"signal":"hangup","reason":"cancelled"}}"#;
-        assert_eq!(
-            Payload::decode(before),
-            Payload::Call {
-                call_id: "00000000-0000-0000-0000-000000000001"
-                    .parse()
-                    .expect("a literal uuid"),
-                signal: CallSignal::Hangup {
-                    reason: HangupReason::Cancelled,
-                    seconds: 0,
-                },
-            }
-        );
-    }
-
-    #[test]
-    fn a_call_is_not_a_preview() {
-        // Like a sticker and a reaction: it has no words, and the conversation
-        // list must not invent any.
-        assert_eq!(
-            Payload::Call {
-                call_id: Uuid::new_v4(),
-                signal: CallSignal::Hangup {
-                    reason: HangupReason::Ended,
-                    seconds: 61,
-                },
-            }
-            .preview(),
-            ""
-        );
-    }
-
-    #[test]
     fn an_unsupported_payload_previews_as_nothing() {
         // It must not reach the conversation list. A row that shows the kind
         // of a thing it cannot read is leaking structure into prose again.
@@ -1819,78 +1448,6 @@ mod tests {
         assert_eq!(payload.preview(), "");
     }
 
-    #[test]
-    fn a_meet_profile_round_trips() {
-        let profile = MeetProfile {
-            handle: "dice".into(),
-            display_name: "Dice".into(),
-            lat: 47.25,
-            lon: 8.5,
-            headline: Some("here for the mountains".into()),
-            char_config: serde_json::json!({ "topVariant": "hoodie", "eyesVariant": "happy" }),
-            updated_at_ms: 1_760_000_000_000,
-        };
-        let wire = serde_json::to_string(&profile).unwrap();
-        assert_eq!(serde_json::from_str::<MeetProfile>(&wire).unwrap(), profile);
-    }
-
-    /// A headline is optional, and absent is not the same as empty.
-    #[test]
-    fn a_meet_profile_without_a_headline_round_trips() {
-        let profile = MeetProfile {
-            handle: "bananaaboy".into(),
-            display_name: "bananaaboy".into(),
-            lat: -33.75,
-            lon: 151.0,
-            headline: None,
-            char_config: serde_json::json!({}),
-            updated_at_ms: 1,
-        };
-        let wire = serde_json::to_string(&profile).unwrap();
-        let back: MeetProfile = serde_json::from_str(&wire).unwrap();
-        assert_eq!(back, profile);
-        assert!(back.headline.is_none());
-    }
-
-    /// The update is a patch: an omitted field means "leave it alone", which is
-    /// a different instruction from "set it to nothing".
-    #[test]
-    fn a_meet_update_round_trips_and_defaults_to_changing_nothing() {
-        let empty = MeetProfileUpdate::default();
-        assert!(empty.lat.is_none() && empty.char_config.is_none() && empty.active.is_none());
-
-        let leaving = MeetProfileUpdate {
-            active: Some(false),
-            ..Default::default()
-        };
-        let wire = serde_json::to_string(&leaving).unwrap();
-        assert_eq!(
-            serde_json::from_str::<MeetProfileUpdate>(&wire).unwrap(),
-            leaving
-        );
-    }
-
-    #[test]
-    fn a_meet_request_round_trips_in_every_state() {
-        for state in [
-            MeetRequestState::Pending,
-            MeetRequestState::Accepted,
-            MeetRequestState::Declined,
-        ] {
-            let request = MeetRequest {
-                id: 7,
-                from_handle: "dice".into(),
-                conversation_id: ConversationId::nil(),
-                state,
-                created_at_ms: 1_760_000_000_000,
-            };
-            let wire = serde_json::to_string(&request).unwrap();
-            assert_eq!(serde_json::from_str::<MeetRequest>(&wire).unwrap(), request);
-        }
-    }
-
-    /// The states are written into the database's CHECK constraint, so their
-    /// wire spelling is not free to drift.
     /// The field was added after stories shipped, so a story from a build
     /// that predates it must still decode -- as a story, with the id unknown,
     /// rather than as `Unsupported`.
@@ -1922,17 +1479,5 @@ mod tests {
             expires_at_ms: 7,
         };
         assert_eq!(Payload::decode(&payload.encode()), payload);
-    }
-
-    #[test]
-    fn meet_request_states_are_snake_case_on_the_wire() {
-        assert_eq!(
-            serde_json::to_string(&MeetRequestState::Pending).unwrap(),
-            "\"pending\""
-        );
-        assert_eq!(
-            serde_json::to_string(&MeetRequestState::Declined).unwrap(),
-            "\"declined\""
-        );
     }
 }

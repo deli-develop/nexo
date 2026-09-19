@@ -1,7 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { IncomingCall } from "./calls";
-import type { CallRecord } from "./types";
 
 /**
  * Conversations, as the WebView sees them.
@@ -74,14 +72,6 @@ export interface Message {
    * whatever the bytes happen to look like.
    */
   unsupported: string | null;
-  /**
-   * Set when this message is the record a finished call left behind.
-   *
-   * A call stores exactly one row — the hangup — so this is what "Missed call"
-   * and the duration beside it are drawn from. `null` for every ordinary
-   * message, which is almost all of them.
-   */
-  call: CallRecord | null;
   /** Who a forwarded message says it came from. `null` when the forwarder
    *  could not name the author — `forwarded` still says it is one. */
   forwarded_from: string | null;
@@ -205,15 +195,6 @@ export interface SyncResult {
    * sends are written locally at send time and are never an arrival.
    */
   arrivals: { conversation_id: string; messages: number }[];
-  /**
-   * Call signalling decrypted during this sync, oldest first.
-   *
-   * It rides the sync result because sync is what decrypts an envelope — there
-   * is no earlier point at which the signal exists in the clear. Acted on
-   * immediately or not at all: none of it is replayed, and a signal that
-   * arrived while the app was shut is a call that was missed.
-   */
-  calls: IncomingCall[];
 }
 
 /** What a flush of the offline queue did (M8). */
@@ -240,6 +221,10 @@ export interface ConversationError {
     | "unwritable_file"
     | "too_large"
     | "not_an_attachment"
+    /** A story that is not a picture or a video — see `lib/stories.ts`. */
+    | "not_an_image"
+    /** A story whose bytes the WebView will not draw. */
+    | "not_renderable"
     | "invalid_request"
     | "internal";
   message: string;

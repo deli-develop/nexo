@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE meet_invites SET revoked_at = now()\n         WHERE id = $1 AND owner_id = $2 AND revoked_at IS NULL\n         RETURNING id",
+  "query": "UPDATE invites SET revoked_at = now()\n         WHERE id = $1 AND owner_id = $2 AND revoked_at IS NULL\n         RETURNING id",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "66fad8a78f7c74895e4f079be6ef3499918886af045b70e6723d948cc05863c3"
+  "hash": "e4a62efbc4a4e51a23a320cdcbdc2ffcc88f4bbe7060e072bd439557bc5e4fa4"
 }

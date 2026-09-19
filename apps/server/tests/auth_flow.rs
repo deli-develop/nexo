@@ -34,7 +34,6 @@ async fn app() -> Option<axum::Router> {
         storage: None,
         fanout: Arc::new(nexo_server::stream::hub::LocalHub::new()),
         limits: Arc::new(nexo_server::limits::Limits::permissive()),
-        turn: None,
     }))
 }
 
@@ -60,7 +59,6 @@ async fn app_with_auth_limit(max: u32) -> Option<axum::Router> {
         storage: None,
         fanout: Arc::new(nexo_server::stream::hub::LocalHub::new()),
         limits: Arc::new(limits),
-        turn: None,
     }))
 }
 

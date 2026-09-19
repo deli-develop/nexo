@@ -4,7 +4,8 @@ import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/Feedback";
 import { Icon } from "../../components/ui/Icon";
 import { timeLeft } from "../../lib/format";
-import { asMeetError, openStory, type Story } from "../../lib/meet";
+import { asConversationError } from "../../lib/conversations";
+import { openStory, type Story } from "../../lib/stories";
 import { StoryViewer } from "../home/StoryViewer";
 import { storyGroupFor } from "../home/storyGroups";
 import { useStories } from "../home/useStories";
@@ -135,7 +136,7 @@ function StoryTile({
         if (!cancelled) setSrc(next);
       })
       .catch((error) => {
-        if (!cancelled) setFailed(asMeetError(error).message);
+        if (!cancelled) setFailed(asConversationError(error).message);
       });
     return () => {
       cancelled = true;

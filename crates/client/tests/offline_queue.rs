@@ -256,7 +256,7 @@ impl Transport for CutNetwork {
     }
 
     // Delegated like everything else: this file cuts the network for `send`
-    // and nothing more, so the map behaves normally through it.
+    // and nothing more, so stories behave normally through it.
     fn story_upload_url(&self, size: u64) -> Result<(String, String), TransportError> {
         self.inner.story_upload_url(size)
     }
@@ -273,14 +273,6 @@ impl Transport for CutNetwork {
     }
     fn list_stories(&self) -> Result<Vec<nexo_client::transport::StorySummary>, TransportError> {
         self.inner.list_stories()
-    }
-
-    fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError> {
-        Ok(nexo_protocol::IceServers {
-            servers: Vec::new(),
-            expires_at_ms: 0,
-            relay_only: true,
-        })
     }
 
     fn search_users(
@@ -311,41 +303,6 @@ impl Transport for CutNetwork {
         note: Option<&str>,
     ) -> Result<(), TransportError> {
         self.inner.report(kind, id, reason, note)
-    }
-
-    fn meet_pins(
-        &self,
-        after: Option<&str>,
-    ) -> Result<Vec<nexo_protocol::MeetProfile>, TransportError> {
-        self.inner.meet_pins(after)
-    }
-    fn meet_me(&self) -> Result<Option<nexo_protocol::MeetProfile>, TransportError> {
-        self.inner.meet_me()
-    }
-    fn meet_set_me(&self, update: &nexo_protocol::MeetProfileUpdate) -> Result<(), TransportError> {
-        self.inner.meet_set_me(update)
-    }
-    fn meet_leave(&self) -> Result<(), TransportError> {
-        self.inner.meet_leave()
-    }
-    fn meet_consent(&self, version: i32) -> Result<(), TransportError> {
-        self.inner.meet_consent(version)
-    }
-    fn meet_requests(&self) -> Result<Vec<nexo_protocol::MeetRequest>, TransportError> {
-        self.inner.meet_requests()
-    }
-    fn meet_open_request(
-        &self,
-        handle: &str,
-        conversation_id: &str,
-    ) -> Result<nexo_protocol::MeetRequest, TransportError> {
-        self.inner.meet_open_request(handle, conversation_id)
-    }
-    fn meet_accept(&self, id: i64) -> Result<(), TransportError> {
-        self.inner.meet_accept(id)
-    }
-    fn meet_decline(&self, id: i64) -> Result<(), TransportError> {
-        self.inner.meet_decline(id)
     }
 }
 

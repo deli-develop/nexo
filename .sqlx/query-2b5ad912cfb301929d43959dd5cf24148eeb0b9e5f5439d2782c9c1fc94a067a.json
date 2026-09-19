@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT i.id, i.label, (i.revoked_at IS NOT NULL) AS revoked,\n                (EXTRACT(EPOCH FROM i.created_at) * 1000)::BIGINT AS created_at_ms,\n                (EXTRACT(EPOCH FROM i.expires_at) * 1000)::BIGINT AS expires_at_ms,\n                (i.revoked_at IS NULL AND i.expires_at > now()) AS live,\n                (SELECT count(*) FROM meet_requests r WHERE r.invite_id = i.id) AS used\n         FROM meet_invites i\n         WHERE i.owner_id = $1\n         ORDER BY i.created_at DESC\n         LIMIT $2",
+  "query": "SELECT i.id, i.label, (i.revoked_at IS NOT NULL) AS revoked,\n                (EXTRACT(EPOCH FROM i.created_at) * 1000)::BIGINT AS created_at_ms,\n                (EXTRACT(EPOCH FROM i.expires_at) * 1000)::BIGINT AS expires_at_ms,\n                (i.revoked_at IS NULL AND i.expires_at > now()) AS live,\n                (SELECT count(*) FROM invite_uses u WHERE u.invite_id = i.id) AS used\n         FROM invites i\n         WHERE i.owner_id = $1\n         ORDER BY i.created_at DESC\n         LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       null
     ]
   },
-  "hash": "4225b872d10cac8a5722f82d0f62198fd7269a238305aa4d741cb074b2288cea"
+  "hash": "2b5ad912cfb301929d43959dd5cf24148eeb0b9e5f5439d2782c9c1fc94a067a"
 }

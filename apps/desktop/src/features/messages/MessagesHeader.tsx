@@ -12,7 +12,6 @@ import type { LiveConversations } from "../../app/useConversations";
 import { HandleAvatar } from "../../components/ui/HandleAvatar";
 import { ConversationAvatar } from "../../components/ui/ConversationAvatar";
 import { Button, IconButton } from "../../components/ui/Button";
-import { startCall, useCall } from "../calls/useCall";
 import { Field } from "../../components/ui/Controls";
 import { Callout } from "../../components/ui/Feedback";
 import { Modal } from "../../components/ui/Modal";
@@ -43,9 +42,7 @@ export function MessagesHeader({
   const setConversationSearch = useApp((s) => s.setConversationSearch);
   const mute = useApp((s) => s.muteConversation);
   const overrides = useApp((s) => s.conversationOverrides);
-  // One call at a time, so the button goes quiet while one is up rather than
   // starting a second that `applySignal` would only decline.
-  const callBusy = useCall((s) => s.phase !== "idle");
   const layout = useLayout();
 
   const account = useApp((s) => s.account);
@@ -171,24 +168,6 @@ export function MessagesHeader({
           (contextOpen && layout.canShowContext ? " w-[280px]" : "")
         }
       >
-        <IconButton
-          name="video"
-          label="Start a video call"
-          size={17}
-          disabled={!conversation || conversation.kind !== "dm" || callBusy}
-          onClick={() => conversation && void startCall(conversation.id, true)}
-        />
-        <IconButton
-          name="phone"
-          label="Start a voice call"
-          size={17}
-          // Only in a DM. A group call is a different thing entirely -- one
-          // connection per pair stops scaling almost immediately -- and a
-          // button that rings one arbitrary member of a group would be worse
-          // than no button.
-          disabled={!conversation || conversation.kind !== "dm" || callBusy}
-          onClick={() => conversation && void startCall(conversation.id)}
-        />
         <IconButton
           name="userPlus"
           label="Add someone to this conversation"

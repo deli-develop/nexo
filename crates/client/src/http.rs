@@ -35,10 +35,9 @@ use crate::transport::{
     Accepted, ClaimedKeyPackage, ConversationSummary, Envelope, InviteSummary, MintedInvite,
     SaltResponse, SearchResult, SessionTokens, StorySummary, Transport, TransportError,
 };
-use nexo_protocol::{MeetProfile, MeetProfileUpdate, MeetRequest};
 
 /// Where a release build talks to.
-pub const DEFAULT_BASE_URL: &str = "https://api.dice.fit";
+pub const DEFAULT_BASE_URL: &str = "https://api.delidev.net";
 
 /// How long to wait before giving up on the server.
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -272,17 +271,6 @@ impl HttpTransport {
             Self::finish(
                 self.agent
                     .post(&format!("{}{path}", self.base_url))
-                    .header("authorization", &format!("Bearer {token}"))
-                    .send_json(body),
-            )
-        })
-    }
-
-    fn put_auth<B: serde::Serialize>(&self, path: &str, body: &B) -> Result<(), TransportError> {
-        self.with_refresh(|token| {
-            Self::finish::<()>(
-                self.agent
-                    .put(&format!("{}{path}", self.base_url))
                     .header("authorization", &format!("Bearer {token}"))
                     .send_json(body),
             )
@@ -751,56 +739,6 @@ impl Transport for HttpTransport {
         ))
     }
 
-    // ------------------------------------------------------------ Meet&Greet ---
-
-    fn meet_pins(&self, after: Option<&str>) -> Result<Vec<MeetProfile>, TransportError> {
-        match after {
-            Some(handle) => self.get_auth(&format!("/v1/meet/pins?after={}", query_escape(handle))),
-            None => self.get_auth("/v1/meet/pins"),
-        }
-    }
-
-    fn meet_me(&self) -> Result<Option<MeetProfile>, TransportError> {
-        // Not being on the map is an ordinary answer, not a failure, so the
-        // 404 the server gives becomes `None` rather than an error the caller
-        // has to know how to read.
-        match self.get_auth::<MeetProfile>("/v1/meet/me") {
-            Ok(profile) => Ok(Some(profile)),
-            Err(TransportError::NotFound) => Ok(None),
-            Err(error) => Err(error),
-        }
-    }
-
-    fn meet_set_me(&self, update: &MeetProfileUpdate) -> Result<(), TransportError> {
-        self.put_auth("/v1/meet/me", update)
-    }
-
-    fn meet_leave(&self) -> Result<(), TransportError> {
-        self.delete_auth("/v1/meet/me")
-    }
-
-    fn meet_consent(&self, version: i32) -> Result<(), TransportError> {
-        self.post_auth(
-            "/v1/meet/consent",
-            &serde_json::json!({ "version": version }),
-        )
-    }
-
-    fn meet_requests(&self) -> Result<Vec<MeetRequest>, TransportError> {
-        self.get_auth("/v1/meet/requests")
-    }
-
-    fn meet_open_request(
-        &self,
-        handle: &str,
-        conversation_id: &str,
-    ) -> Result<MeetRequest, TransportError> {
-        self.post_auth(
-            "/v1/meet/requests",
-            &serde_json::json!({ "handle": handle, "conversation_id": conversation_id }),
-        )
-    }
-
     fn create_story(&self, s3_key: &str, size: i64) -> Result<StorySummary, TransportError> {
         self.post_auth(
             "/v1/stories",
@@ -821,9 +759,7 @@ impl Transport for HttpTransport {
         self.get_auth("/v1/stories")
     }
 
-    fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError> {
-        self.get_auth("/v1/calls/ice")
-    }
+    // --------------------------------------------------------------- people ---
 
     fn search_users(&self, term: &str) -> Result<Vec<SearchResult>, TransportError> {
         self.get_auth(&format!("/v1/users?q={}", query_escape(term)))
@@ -835,17 +771,17 @@ impl Transport for HttpTransport {
         days: i64,
     ) -> Result<MintedInvite, TransportError> {
         self.post_auth(
-            "/v1/meet/invites",
+            "/v1/invites",
             &serde_json::json!({ "label": label, "days": days }),
         )
     }
 
     fn list_invites(&self) -> Result<Vec<InviteSummary>, TransportError> {
-        self.get_auth("/v1/meet/invites")
+        self.get_auth("/v1/invites")
     }
 
     fn revoke_invite(&self, id: i64) -> Result<(), TransportError> {
-        self.delete_auth(&format!("/v1/meet/invites/{id}"))
+        self.delete_auth(&format!("/v1/invites/{id}"))
     }
 
     fn report(
@@ -865,14 +801,6 @@ impl Transport for HttpTransport {
             }),
         )
     }
-
-    fn meet_accept(&self, id: i64) -> Result<(), TransportError> {
-        self.post_auth(&format!("/v1/meet/requests/{id}/accept"), &())
-    }
-
-    fn meet_decline(&self, id: i64) -> Result<(), TransportError> {
-        self.post_auth(&format!("/v1/meet/requests/{id}/decline"), &())
-    }
 }
 
 #[cfg(test)]
@@ -881,13 +809,13 @@ mod tests {
 
     #[test]
     fn a_trailing_slash_does_not_produce_a_double_slash() {
-        let t = HttpTransport::with_base_url("https://api.dice.fit/");
-        assert_eq!(t.base_url(), "https://api.dice.fit");
+        let t = HttpTransport::with_base_url("https://api.delidev.net/");
+        assert_eq!(t.base_url(), "https://api.delidev.net");
     }
 
     #[test]
     fn the_release_default_is_the_real_api() {
-        assert_eq!(DEFAULT_BASE_URL, "https://api.dice.fit");
+        assert_eq!(DEFAULT_BASE_URL, "https://api.delidev.net");
         assert!(DEFAULT_BASE_URL.starts_with("https://"));
     }
 

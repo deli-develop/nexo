@@ -8,7 +8,6 @@ import { Panel } from "../ui/Surface";
 const destinations: { route: Route; icon: IconName; label: string }[] = [
   { route: "home", icon: "home", label: "Home" },
   { route: "messages", icon: "messages", label: "Messages" },
-  { route: "meet", icon: "meet", label: "Meet&Greet" },
   { route: "profile", icon: "user", label: "Profile" },
 ];
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO meet_invites (owner_id, secret_hash, label, expires_at)\n         VALUES ($1, $2, $3, now() + make_interval(days => $4::int))\n         RETURNING id, (EXTRACT(EPOCH FROM expires_at) * 1000)::BIGINT AS expires_at_ms",
+  "query": "INSERT INTO invites (owner_id, secret_hash, label, expires_at)\n         VALUES ($1, $2, $3, now() + make_interval(days => $4::int))\n         RETURNING id, (EXTRACT(EPOCH FROM expires_at) * 1000)::BIGINT AS expires_at_ms",
   "describe": {
     "columns": [
       {
@@ -27,5 +27,5 @@
       null
     ]
   },
-  "hash": "0e09877966f3060454e0e8dbe52650705e5e2d1c8ae9ba0619bfdab9583f3fc3"
+  "hash": "a9b87cfb37087f7804d9f45e8ad4746cebfe1266f4b8dff21f4d30e60b9d380b"
 }

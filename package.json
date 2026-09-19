@@ -8,7 +8,8 @@
     "dev": "pnpm --filter nexo-desktop dev",
     "dev:server": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cargo.ps1 run -p nexo-server",
     "typecheck": "pnpm --filter nexo-desktop typecheck",
-    "test": "pnpm -r test",
+    "test": "pnpm -r --filter=!@nexo/crypto-wasm test",
+    "test:wasm": "pnpm --filter @nexo/crypto-wasm test",
     "build:tokens": "pnpm --filter @nexo/design-tokens build:tokens",
     "tauri": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tauri.ps1"
   }

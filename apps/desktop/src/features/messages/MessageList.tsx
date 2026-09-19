@@ -42,7 +42,6 @@ import { formatDuration } from "./useRecorder";
 import { fieldFor, fileTone } from "../../lib/palette";
 import type {
   Attachment,
-  CallRecord,
   Conversation,
   Message,
   QuotedMessage,
@@ -807,8 +806,6 @@ function Bubble({
 
         {message.undecryptable ? (
           <UndecryptableBubble />
-        ) : message.call ? (
-          <CallBubble call={message.call} mine={mine} />
         ) : message.unsupported ? (
           <UnsupportedBubble />
         ) : (
@@ -999,11 +996,6 @@ function Bubble({
 }
 
 /**
- * Rule 7: fail closed. A message that will not decrypt says so, in place,
- * permanently. There is no plaintext fallback, and skipping it silently would
- * hide exactly the event a user needs to know about.
- */
-/**
  * A message that decrypted but whose shape this build does not know.
  *
  * Deliberately not the danger treatment of `UndecryptableBubble`: nothing
@@ -1014,50 +1006,6 @@ function Bubble({
  * putting it in front of someone would be leaking the wire format into prose
  * to no purpose.
  */
-/**
- * The one row a finished call leaves behind.
- *
- * Not a chat bubble: nobody said anything, so there is nothing to quote, react
- * to or edit. It keeps the sender's side of the thread, which is what makes an
- * outgoing call read differently from one that came in without a word of
- * explanation.
- */
-function CallBubble({ call, mine }: { call: CallRecord; mine: boolean }) {
-  // "Missed" is the receiver's word for a call the caller cancelled, and the
-  // caller's own word for it is "cancelled" -- the same event, named from two
-  // sides. `mine` is what tells them apart.
-  const missed = call.reason === "cancelled" || call.reason === "declined";
-  const label =
-    call.reason === "ended"
-      ? "Call"
-      : call.reason === "failed"
-        ? "Call failed"
-        : call.reason === "declined"
-          ? mine
-            ? "Call declined"
-            : "Declined call"
-          : mine
-            ? "No answer"
-            : "Missed call";
-
-  return (
-    <div className="rounded-bubble border-line bg-surface-3 flex items-center gap-2.5 border px-3.5 py-2">
-      <Icon
-        name={missed ? "phone-off" : "phone"}
-        size={15}
-        className={cn("shrink-0", missed ? "text-text-lo" : "text-accent")}
-      />
-      <span className="text-meta text-text-hi">{label}</span>
-      {call.seconds > 0 ? (
-        <span className="text-meta text-text-lo tabular-nums">
-          {Math.floor(call.seconds / 60)}:
-          {String(call.seconds % 60).padStart(2, "0")}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 function UnsupportedBubble() {
   return (
     <div className="rounded-bubble border-line bg-surface-3 flex items-start gap-2.5 border px-3.5 py-2.5">
@@ -1074,6 +1022,11 @@ function UnsupportedBubble() {
   );
 }
 
+/**
+ * Rule 7: fail closed. A message that will not decrypt says so, in place,
+ * permanently. There is no plaintext fallback, and skipping it silently would
+ * hide exactly the event a user needs to know about.
+ */
 function UndecryptableBubble() {
   return (
     <div className="rounded-bubble border-danger/35 bg-danger/8 flex items-start gap-2.5 border px-3.5 py-2.5">

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { totalUnread, useApp } from "./app/store";
 import { startSyncAgent } from "./app/syncAgent";
 import { useAutoLock } from "./app/useAutoLock";
-import { CallLayer } from "./features/calls/CallLayer";
 import { useShortcuts } from "./app/useShortcuts";
 import { useLayout } from "./app/useLayout";
 import { useMaximized } from "./app/useWindow";
@@ -10,7 +9,6 @@ import { IconRail } from "./components/chrome/IconRail";
 import { PageTitleCell, TopBar } from "./components/chrome/TopBar";
 import { IconButton } from "./components/ui/Button";
 import { HomePage } from "./features/home/HomePage";
-import { MeetPage } from "./features/meet/MeetPage";
 import { MessagesHeader } from "./features/messages/MessagesHeader";
 import { MessagesPage } from "./features/messages/MessagesPage";
 import { useConversations } from "./app/useConversations";
@@ -99,7 +97,6 @@ function AppShell({ account }: { account: Account }) {
     <div className="relative h-full overflow-hidden">
       {/* Above everything and outside every route: a call outlives the screen
           it was started from. */}
-      <CallLayer />
       <div className="app-field absolute inset-0 flex flex-col overflow-hidden">
         <TopBar maximized={maximized}>
           {route === "messages" ? <MessagesHeader now={now} live={live} /> : null}
@@ -130,7 +127,6 @@ function AppShell({ account }: { account: Account }) {
               }
             />
           ) : null}
-          {route === "meet" ? <PageTitleCell title="Meet&Greet" /> : null}
           {route === "profile" ? <PageTitleCell title="Profile" /> : null}
           {route === "settings" ? <PageTitleCell title="Settings" /> : null}
         </TopBar>
@@ -138,7 +134,6 @@ function AppShell({ account }: { account: Account }) {
         <div className="flex min-h-0 flex-1">
           <IconRail unread={unread} />
           {route === "home" ? <HomePage now={now} /> : null}
-          {route === "meet" ? <MeetPage /> : null}
           {route === "messages" ? <MessagesPage now={now} live={live} /> : null}
           {route === "profile" ? (
             viewingHandle ? (

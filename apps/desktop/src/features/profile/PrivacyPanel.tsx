@@ -10,15 +10,14 @@ import {
   revokeInvite,
   type Invite,
   type MintedInvite,
-} from "../../lib/meet";
-import { Requests } from "../meet/Requests";
+} from "../../lib/people";
 
 /**
- * Public or private, the invitations that get past private, and who is asking.
+ * Public or private, and the invitations that get past private.
  *
- * All three belong together because they are one decision seen from three
- * sides: whether strangers can find you, how a particular stranger gets
- * through anyway, and what to do when one has.
+ * The two belong together because they are one decision seen from two sides:
+ * whether strangers can find you, and how a particular stranger gets through
+ * anyway.
  *
  * **What "private" honestly covers**, and the UI says exactly this much:
  *
@@ -212,15 +211,6 @@ export function PrivacyPanel({
           ))}
         </ul>
       ) : null}
-
-      <div>
-        <h3 className="text-text-hi mb-2 text-[14px] font-medium">
-          People asking to reach you
-        </h3>
-        {/* The same data the Meet&Greet inbox shows. One set of requests, two
-            places to answer them from — not two mechanisms. */}
-        <Requests />
-      </div>
     </section>
   );
 }

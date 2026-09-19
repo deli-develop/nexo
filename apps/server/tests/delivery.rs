@@ -39,7 +39,6 @@ async fn app() -> Option<axum::Router> {
         storage: None,
         fanout: Arc::new(nexo_server::stream::hub::LocalHub::new()),
         limits: Arc::new(nexo_server::limits::Limits::permissive()),
-        turn: None,
     }))
 }
 

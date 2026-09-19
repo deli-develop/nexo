@@ -65,7 +65,7 @@ Current version: `0.1.23`. The authority is `[workspace.package] version` in
 `Cargo.toml`, and `apps/desktop/src-tauri/tauri.conf.json` has to agree with it
 — the release workflow refuses a tag that does not match.
 Current state: [`STATUS.md`](STATUS.md). Milestones: [`PLAN.md`](PLAN.md).
-Upstream: <https://github.com/YungDice/nexo>.
+Upstream: <https://github.com/deli-develop/nexo>.
 
 ---
 
@@ -105,22 +105,31 @@ Line counts are source only — tests are counted with the crate they test, in t
 tables below.
 
 ```
-crates/protocol       2 063 ln   Wire types shared by client and server. No I/O, no crypto.
+crates/protocol       1 608 ln   Wire types shared by client and server. No I/O, no crypto.
 crates/crypto         1 863 ln   MLS, the identity keypair, safety numbers, attachment crypto.
-crates/platform         425 ln   The OS seam: SecureStore, and the Windows DPAPI backing.
-crates/store          4 220 ln   The client's SQLCipher database.
-crates/client         7 668 ln   Session logic, portable across Windows and Android.
-apps/server           8 619 ln   axum API + MLS Delivery Service (Linux aarch64).
+crates/crypto-wasm      479 ln   The same, through wasm-bindgen, for a browser engine.
+crates/platform         427 ln   The OS seam: SecureStore, and the Windows DPAPI backing.
+crates/store          4 113 ln   The client's SQLCipher database.
+crates/client         7 248 ln   Session logic, portable across Windows and Android.
+apps/server           8 299 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      7 317 ln   The Windows shell: 116 Tauri commands, windowing, IPC.
-apps/desktop/src     25 087 ln   React 19 client (TypeScript, Tailwind, Zustand).
+                      6 968 ln   The Windows shell: 103 Tauri commands, windowing, IPC.
+apps/desktop/src     22 314 ln   React 19 client (TypeScript, Tailwind, Zustand).
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
+packages/crypto-wasm             Builds crates/crypto-wasm into an npm package. Generated, not committed.
 ```
+
+Counted the same way each time: every `.rs` under a crate's `src/`, every
+`.ts`/`.tsx` under the page, tests included where they live inside those files
+and excluded where they have a directory of their own. The figures above were
+remeasured in full after several were found to have drifted; adjusting a stale
+number by a delta keeps it stale.
 
 The dependency direction is one-way and worth holding in your head:
 
 ```
 protocol  ←  crypto   ←  client  ←  src-tauri  ←  src (React, over IPC)
+             crypto   ←  crypto-wasm  ←  packages/crypto-wasm  (the web path)
              store    ←  client
              platform ←  store, client
 protocol  ←  server                    (the server shares only the wire types)
@@ -143,14 +152,16 @@ do:
 - **`packages/design-tokens` has a second consumer**, which holds a *copy*
   pinned to a commit here rather than importing the package. Generated values
   only; the exception does not extend to anything with logic in it.
-- **`crates/protocol` and `crates/crypto` have a WASM target.** They compile
-  for `wasm32-unknown-unknown` (with `uuid`, `getrandom` and `openmls` on their
-  `js` features) and are published as an artifact `nexo-web` pins by version.
-  `crates/client` does **not** compile for WASM and is not expected to:
-  `crates/store` is SQLCipher over vendored OpenSSL, which is C and has no
-  business in a browser. That is why `nexo-web` re-implements session logic in
-  TypeScript instead of reusing `crates/client`, and why its crypto still comes
-  from here rather than being hand-translated.
+- **`crates/crypto` compiles to WASM, and this is now true rather than
+  aspirational.** An earlier version of this paragraph claimed it before it
+  was, which is why it is worth saying plainly: `crates/crypto-wasm` is a
+  `wasm-bindgen` facade over it, `packages/crypto-wasm` builds that into an npm
+  package, and the `crypto-wasm` job in `ci.yml` drives two devices through a
+  real MLS conversation against it. `crates/client` will **not** compile for
+  WASM, and that one is genuine: `crates/store` is SQLCipher over vendored
+  OpenSSL, which is C and has no business in a browser. That is why session
+  logic is being reimplemented in TypeScript — see [`REWORK.md`](REWORK.md)
+  wave 6.
 
 Its own map is `docs/CONTEXT.md` in that repository, and its threat model is
 `docs/WEB-THREAT-MODEL.md` there — the web build does not inherit invariants 2,
@@ -187,12 +198,44 @@ up. Do not touch OpenMLS internals.
 
 ---
 
+### `crates/crypto-wasm` — the same crypto, for a browser engine
+
+A `wasm-bindgen` facade over [`crates/crypto`](#cratescrypto--mls-and-the-keys)
+and **not** a second implementation: nothing in it computes anything, so rule 1
+is where it always was. It exists because a browser has no Rust process under
+it, and [`REWORK.md`](REWORK.md) makes one page serve web, Windows and Android.
+
+| File | Ln | Owns |
+|---|---|---|
+| `src/lib.rs` | 479 | `Device` (identity, credential, signer, MLS provider) and `Group` (one conversation). Also the state blob, encoded exactly as `crates/client/src/mls_state.rs` encodes it. |
+
+Three things to know before touching it:
+
+- **The wasm-only dependencies are target-scoped**, in a
+  `[target.'cfg(target_arch = "wasm32")'.dependencies]` table. Cargo unifies
+  features across a workspace build, so moving `getrandom/js` up into the
+  ordinary `[dependencies]` would switch the JavaScript backend on for
+  `nexo-client` and `nexo-server` as well.
+- **getrandom 0.3 also needs a cfg**, not only a feature. It is in
+  `.cargo/config.toml`, scoped to the wasm target. Without it the build fails
+  at link time with a message about the `wasm_js` backend.
+- **`wasm-bindgen-cli` must match the `wasm-bindgen` crate exactly.**
+  `packages/crypto-wasm/scripts/build.mjs` refuses to run when they disagree,
+  because a mismatch produces a module that loads and then fails on the first
+  call.
+
+The state codec is written twice today — here and in
+`crates/client/src/mls_state.rs`, byte for byte — and wave 6 moves it into
+`crates/crypto` so there is one of it.
+
+---
+
 ### `crates/platform` — the OS seam
 
 | File | Ln | Owns |
 |---|---|---|
 | `src/lib.rs` | 54 | The `SecureStore` trait and `STORE_KEY_NAME`. **The whole seam.** Adding an OS capability means adding a trait method here and implementing it per platform. |
-| `src/dpapi.rs` | 371 | Windows DPAPI. **One of the two `unsafe` blocks in the workspace** (the other is `src-tauri/src/permissions.rs`), confined to `dpapi::ffi`. One file per secret under `%APPDATA%\Nexo`, with name-bound extra entropy so one blob cannot be unwrapped as another. |
+| `src/dpapi.rs` | 371 | Windows DPAPI. **The only `unsafe` in the workspace**, confined to `dpapi::ffi`. `src-tauri` carried the other until calls were removed; it is `forbid(unsafe_code)` again. One file per secret under `%APPDATA%\Nexo`, with name-bound extra entropy so one blob cannot be unwrapped as another. |
 
 Read `dpapi.rs`'s module header before touching it. The named secrets in use are
 `store-db-key`, `nexo-unlock-pin` and `nexo-unlock-pin-attempts`; each becomes
@@ -216,7 +259,7 @@ it.
 ```
 account          conversation_peers   conversations   drafts
 folder_members   folders              forgotten_conversations
-identity         meet_pins            message_reactions
+identity         message_reactions
 messages         mls_state            outbox          pinned_messages
 refresh_token    stories              view_once
 messages_fts   (fts5 virtual table — backs conversation search)
@@ -242,7 +285,7 @@ the crate that has to survive the Android port.
 | `src/stream.rs` | 357 | The WebSocket client. Behind `http`. | Live events. |
 | `src/feed.rs` | 343 | Feed and profile calls. Not encrypted, on purpose. | Feed or profile behaviour. |
 | `src/pin.rs` | 323 | The unlock PIN: a salted Argon2id verifier, DPAPI-wrapped, attempt-limited (`MAX_ATTEMPTS = 5`, 4–12 digits). | The lock screen path. |
-| `src/meet.rs` | 262 | Meet&Greet calls and the local pin cache. | A Meet&Greet change. |
+| `src/people.rs` | 87 | Search, invitations, reporting — what Meet&Greet left behind. | Finding somebody, or letting a stranger past a private account. |
 | `src/stories.rs` | 215 | Stories: encrypted once, the key handed to every contact. | Stories. |
 | `src/mls_state.rs` | 209 | Persisting and restoring the MLS provider across restarts. | A restart losing group state. |
 | `src/outbox.rs` | 188 | The offline queue. | Send-while-offline behaviour. |
@@ -256,7 +299,6 @@ Tests (`crates/client/tests/`), each building its own fake transport:
 | `offline_queue.rs` | 588 | A cut network queues and later flushes, in order, without duplicates. |
 | `leftover_conversations.rs` | 366 | A conversation the server lists but this device cannot open is not shown as broken. |
 | `stories.rs` | 348 | Story creation, listing and expiry. |
-| `meet_offline.rs` | 276 | A flaky server and a refusing one both leave the map usable. |
 | `mls_persistence.rs` | 172 | Group state survives a restart. |
 | `live_auth.rs` | 168 | Register, login, refresh, logout against a real server. |
 | `wipe.rs` | 140 | Sign-out erases the PIN and the key even when the unlink fails. |
@@ -275,7 +317,7 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `src/delivery/mod.rs` | 1 120 | The MLS Delivery Service: conversations, envelopes, members, key packages. Moves opaque bytes — rule 4. |
 | `src/delivery/epoch.rs` | 111 | The commit-ordering rule, isolated so it can be reasoned about alone. |
 | `src/profiles.rs` | 881 | Public profiles and per-field visibility (G2). The client never picks what is visible. |
-| `src/meet.rs` | 833 | Meet&Greet: pin coarsening, consent, intro requests, invitations. |
+| `src/invites.rs` | 321 | Invitations, and `may_reach` — **the private-account gate the delivery service calls before creating any conversation**. |
 | `src/auth/mod.rs` | 754 | Register, login, refresh, logout, change-password, delete-account. |
 | `src/auth/tokens.rs` | 345 | Access and refresh tokens, **rotation, and the reuse-is-theft response**. |
 | `src/auth/bearer.rs` | 142 | Who is calling: the extractor every authenticated route depends on. |
@@ -287,7 +329,6 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `src/stories.rs` | 294 | 24-hour encrypted stories. Owns the three access conditions. |
 | `src/stories/expiry.rs` | 65 | Whether a story is still available. |
 | `src/blocks.rs` | 243 | Blocking, in both directions. |
-| `src/calls.rs` | 385 | The TURN relay's address and a short-lived credential for it. **The only thing calls need from the server** — signalling never comes here. |
 | `src/stream/mod.rs` | 220 | The WebSocket at `/v1/stream`. |
 | `src/stream/hub.rs` | 212 | Fan-out, from the socket that accepted an envelope to the ones that want it. |
 | `src/follows.rs` | 201 | The follow graph, and the feed that follows from it. |
@@ -340,16 +381,9 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `/v1/media/download` | POST | `media.rs` |
 | `/v1/stories` | GET, POST | `stories.rs` |
 | `/v1/stories/{id}/url` | POST | `stories.rs` |
-| `/v1/meet/pins` | GET | `meet.rs` |
-| `/v1/meet/me` | GET, PUT, DELETE | `meet.rs` |
-| `/v1/meet/consent` | POST | `meet.rs` |
-| `/v1/meet/requests` | GET, POST | `meet.rs` |
-| `/v1/meet/requests/{id}/accept` | POST | `meet.rs` |
-| `/v1/meet/requests/{id}/decline` | POST | `meet.rs` |
-| `/v1/meet/invites` | GET, POST | `meet.rs` |
-| `/v1/meet/invites/{id}` | DELETE | `meet.rs` |
+| `/v1/invites` | GET, POST | `invites.rs` |
+| `/v1/invites/{id}` | DELETE | `invites.rs` |
 | `/v1/reports` | POST | `reports.rs` |
-| `/v1/calls/ice` | GET | `calls.rs` |
 | `/v1/stream` | GET (upgrade) | `stream/mod.rs` |
 
 **Before adding a route, check whether it already exists.** `/v1/stream` sat
@@ -357,7 +391,7 @@ unused for months, and `follows` was the opposite case.
 
 #### Migrations
 
-`apps/server/migrations/`, applied with `sqlx-cli`. Fifteen files, oldest first:
+`apps/server/migrations/`, applied with `sqlx-cli`. Seventeen files, oldest first:
 
 ```
 20260825090806_create_users_devices             20260902120000_create_meet
@@ -370,7 +404,23 @@ unused for months, and `follows` was the opposite case.
 20260829170000_pin_posts
 20260831120000_retire_devices
 20260831130000_create_reports
+20260919120000_drop_meet_keep_invites
+20260920090000_rename_invite_constraints
 ```
+
+`drop_meet_keep_invites` is the only destructive migration in the list. It
+drops the map, the agreement and the intro requests, and **renames
+`meet_invites` to `invites` rather than dropping it** — that table is what
+`may_reach` reads, so dropping it would have turned every private account into
+an unreachable one.
+
+`rename_invite_constraints` is its second half, and exists because
+`ALTER TABLE ... RENAME TO` does **not** rename the indexes Postgres creates
+behind a `PRIMARY KEY` or `UNIQUE` constraint. Those kept their old names, so
+a product with no Meet&Greet still had a `meet_invites_pkey` in its schema. A
+separate file rather than an edit to the first, because the first had already
+been applied to a developer's database — and a migration that has been applied
+anywhere is one that gets edited at somebody's cost.
 
 A schema change is a **new file**, never an edit to an old one, and it is
 followed by regenerating `.sqlx/` — see [Conventions](#conventions-that-will-trip-you-up).
@@ -383,7 +433,6 @@ They share one development database and never clean up, so a test must assert on
 
 | Test | Ln | Covers |
 |---|---|---|
-| `meet.rs` | 918 | Pins, coarsening, consent, requests, invitations, blocking. |
 | `delivery.rs` | 839 | Envelopes, epochs, membership, key packages. |
 | `auth_flow.rs` | 718 | Register → login → refresh → rotation → logout. |
 | `blocks.rs` | 588 | Blocking in both directions across every surface. |
@@ -404,13 +453,13 @@ nothing else does: no tokens, no key material, no salt.
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
 | `src/client.rs` | 209 | — | `LoggedIn` (session, transport, MLS provider, store, signer, credential), `ClientState`, `build()`, `resume()`, `Resumed`. One mutex covers store + MLS + transport. |
 | `src/auth.rs` | 842 | 11 | Register, login, restore, change password, fingerprint, the PIN, sign-out, delete account. `SessionState` (tokens) lives here. |
-| `src/conversations.rs` | 2 567 | 46 | Messaging, replies, attachments, voice, view-once, reactions, pinning, local delete, edit, retract, folders, drafts, search, outbox, **call signalling**. Owns a `with_client` helper. |
+| `src/conversations.rs` | 2 415 | 42 | Messaging, replies, attachments, voice, view-once, reactions, pinning, local delete, edit, retract, folders, drafts, search, outbox. Owns a `with_client` helper, which `stories.rs` borrows. |
 | `src/feed.rs` | 943 | 25 | Posts, comments, votes, reactions, follows, blocks, profiles, images. Owns its own `with_client`. |
-| `src/meet.rs` | 635 | 17 | Meet&Greet: map, own pin, intros, reporting, search, invitations, stories. Owns its own `with_client`. |
+| `src/people.rs` | 235 | 5 | Search, reporting, invitations. Owns its own `with_client`. |
+| `src/stories.rs` | 142 | 3 | Posting, listing and opening a story. **Borrows `conversations.rs`'s `with_client`, error view and `now_ms`** rather than copying them — a fourth copy of the rotated-token drain is a fourth place to forget it. |
 | `src/commands.rs` | 330 | 15 | Version, notifications, tray count, **lock**, window backdrop, autostart, storage, cache, link preview, updater. |
 | `src/stream.rs` | 142 | 2 | The live socket: opens it with the session, forwards typing to the page. |
 | `src/media.rs` | 394 | — | The `nexo-media` custom scheme (served as `http://nexo-media.localhost/<envelope id>` on Windows): decrypted video, one byte range at a time, **without holding the client lock across the download**. |
-| `src/permissions.rs` | 181 | — | WebView2's camera and microphone gate, open only during a call. **The workspace's second `unsafe`** — COM is FFI — and the reason this crate is `deny(unsafe_code)` rather than `forbid`. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
 | `src/windows.rs` | 502 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
 
@@ -426,7 +475,7 @@ without touching the network.
 
 #### Every IPC command
 
-**116 commands.** A command needs a `#[tauri::command]` attribute *and* an entry
+**103 commands.** A command needs a `#[tauri::command]` attribute *and* an entry
 in `generate_handler!` in `lib.rs`; missing the second is a runtime rejection,
 not a compile error.
 
@@ -454,8 +503,7 @@ not a compile error.
 `delete_message_for_me` · `draft` · `set_draft` · `conversations_with_drafts` ·
 `list_folders` · `create_folder` · `rename_folder` · `delete_folder` ·
 `set_folder_member` · `sync_conversation` · `sync_all` · `flush_outbox` ·
-`outbox_count` · `call_ice_servers` · `call_offer` · `call_answer` ·
-`call_hangup`
+`outbox_count`
 
 **`feed.rs` (25)**
 `feed` · `set_following` · `follow_state` · `posts_by` · `create_post` ·
@@ -465,12 +513,11 @@ not a compile error.
 `upload_image` · `read_image_for_crop` · `upload_image_bytes` · `image_url` ·
 `image_data_url`
 
-**`meet.rs` (17)**
-`meet_pins` · `meet_me` · `meet_set_me` · `meet_leave` · `meet_consent` ·
-`meet_requests` · `meet_send_request` · `meet_accept_request` ·
-`meet_decline_request` · `meet_report` · `meet_search` · `meet_create_invite` ·
-`meet_invites` · `meet_revoke_invite` · `story_post` · `story_list` ·
-`story_open`
+**`people.rs` (5)**
+`search_users` · `report` · `create_invite` · `invites` · `revoke_invite`
+
+**`stories.rs` (3)**
+`story_post` · `story_list` · `story_open`
 
 **`stream.rs` (2)**
 `drain_stream` · `typing`
@@ -479,8 +526,8 @@ not a compile error.
 
 ### `apps/desktop/src` — the React client
 
-React 19, TypeScript, Tailwind, Zustand. 23 707 lines. **There is no router**:
-five destinations and no deep links do not need one, and §7.4 asks for no page
+React 19, TypeScript, Tailwind, Zustand. **There is no router**: four
+destinations and no deep links do not need one, and §7.4 asks for no page
 transitions anyway.
 
 ```
@@ -497,7 +544,7 @@ package, and `main.tsx` imports them.
 
 | File | Ln | Owns |
 |---|---|---|
-| `store.ts` | 479 | The Zustand store: `account`, `locked`, `route`, panel state, the unread ledger, `conversationOverrides`, and `preferences`. **Only `preferences` and `conversationOverrides` are persisted** (localStorage), merged by hand so a blob from an older build keeps the new defaults. `Route = "home" \| "messages" \| "meet" \| "profile" \| "settings"`. |
+| `store.ts` | 479 | The Zustand store: `account`, `locked`, `route`, panel state, the unread ledger, `conversationOverrides`, and `preferences`. **Only `preferences` and `conversationOverrides` are persisted** (localStorage), merged by hand so a blob from an older build keeps the new defaults. `Route = "home" \| "messages" \| "profile" \| "settings"`. |
 | `useConversations.ts` | 415 | Live conversation data in the shapes the UI renders. **Mounted once, in `AppShell`**, and handed to both the header and the page — two instances meant two of every call and two copies of the truth. |
 | `useFeed.ts` | 292 | The Home feed, against the real server. |
 | `syncAgent.ts` | 215 | The one sync loop (M8): flush the outbox, pull, badge, toast. Stops when signed out or locked. |
@@ -568,20 +615,6 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `useStories.ts` | 46 | Every live story this device holds, read once and re-readable. |
 | `story.ts` | 32 | Picks a file and posts it as a story. |
 
-**`meet/`** — the map.
-
-| File | Ln | Owns |
-|---|---|---|
-| `MeetMap.tsx` | 281 | The map itself (MapLibre). Read the `?worker&url` note in Conventions before touching its imports. |
-| `MeetPage.tsx` | 237 | Meet&Greet, and the gate in front of it. |
-| `CharStudio.tsx` | 207 | Building a NexoChar. |
-| `MeetCard.tsx` | 203 | Somebody on the map, and the one message you may send them. |
-| `mapStyle.ts` | 132 | The map's own style, built from design tokens. |
-| `Requests.tsx` | 115 | Intros waiting for an answer. |
-| `NexoChar.tsx` | 79 | Somebody's character, rendered from its config. |
-| `MeetAgreement.tsx` | 73 | What somebody agrees to before appearing on the map. |
-| `world.ts` | 41 | The basemap. |
-
 **`messages/`** — the largest surface.
 
 | File | Ln | Owns |
@@ -621,7 +654,8 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `conversations.ts` | 780 | The 45 conversation commands. |
 | `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
 | `feed.ts` | 338 | Feed, posts, comments, profiles, images. |
-| `meet.ts` | 315 | Meet&Greet and stories. |
+| `people.ts` | 127 | Search, invitations, reporting. |
+| `stories.ts` | 75 | Stories. Its errors narrow with `asConversationError`, because that is what the Rust side answers in. |
 | `types.ts` | 270 | The shapes the UI renders. |
 | `auth.ts` | 181 | Register, login, restore, the PIN, password, sign-out, delete. |
 | `dialogs.ts` | 163 | In-app dialogs and toasts (`confirm`, `notify`) — not OS dialogs. |
@@ -630,7 +664,6 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
-| `calls.ts` | 150 | Call signalling, as the page sees it. Signalling only — the media stack is `RTCPeerConnection` in the WebView. |
 | `blocks.ts` | 35 | Blocking. |
 | `cn.ts` | 5 | Class-name join. |
 
@@ -650,7 +683,6 @@ functions rather than on the components:
 app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · useUserSearch
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
-              meet: NexoChar
               messages: grouping · menu · pan · peer · pinned · selection
 lib/          dialogs · format · media
 mock/         data
@@ -658,6 +690,20 @@ mock/         data
 
 `packages/design-tokens` has its own suite (18 tests), one of which fails if
 `tokens.json` has drifted from `tokens.css`.
+
+---
+
+### `packages/crypto-wasm`
+
+```
+scripts/build.mjs        cargo build --target wasm32 + wasm-bindgen, into pkg/
+src/conversation.test.ts Two devices, one real MLS conversation, in wasm
+pkg/                     Generated. Git-ignored; CI builds it and so does a clone.
+```
+
+`pnpm test:wasm` builds and runs it. Deliberately **not** part of `pnpm test`:
+that runs in a CI job with no Rust toolchain, and a test that silently skips
+when its subject is missing is worse than one that is not run at all.
 
 ---
 
@@ -700,12 +746,11 @@ it is expensive.
 | Anything **MLS / group membership** | `crates/crypto/src/mls.rs` → `crates/client/src/conversations.rs` → `apps/server/src/delivery/` | OpenMLS internals |
 | **Auth, login, tokens** | `apps/server/src/auth/` → `crates/client/src/session.rs` → `apps/desktop/src-tauri/src/auth.rs` → `apps/desktop/src/features/auth/` | — |
 | **Lock screen / PIN** | `crates/client/src/pin.rs` → `apps/desktop/src-tauri/src/auth.rs` (`unlock_with_pin`, and `commands.rs::lock`) → `apps/desktop/src/features/auth/` | `PIN-ROTATION.md` — that is TLS key pinning, an unrelated subject |
-| A **Meet&Greet** change | `crates/protocol` → `apps/server/src/meet.rs` → `crates/client/src/meet.rs` → `apps/desktop/src-tauri/src/meet.rs` → `features/meet/` | `BRIEF.md` |
+| **Search, invitations, reporting** | `apps/server/src/invites.rs` or `profiles.rs` → `crates/client/src/people.rs` → `apps/desktop/src-tauri/src/people.rs` → `apps/desktop/src/lib/people.ts` | `BRIEF.md` |
+| **Who may open a conversation with whom** | `apps/server/src/invites.rs::may_reach` → its call site in `apps/server/src/delivery/mod.rs`, before anything is written | The client — the rule is the server's or it is nothing |
 | **Stories** | `crates/client/src/stories.rs` → `apps/server/src/stories.rs` → `features/home/storyGroups.ts` (read it before changing grouping) → `features/home/Stories.tsx`, `features/profile/MyStories.tsx` | — |
 | **Attachments or media playback** | `crates/crypto/src/attachment.rs` (which encoding?) → `crates/client/src/conversations.rs::send_attachment` → `apps/desktop/src-tauri/src/media.rs` → `apps/desktop/src/lib/media.ts` | — |
 | The **live socket** | `apps/server/src/stream/` → `crates/client/src/stream.rs` → `apps/desktop/src-tauri/src/stream.rs` → `apps/desktop/src/lib/stream.ts` | — |
-| **Calls** (voice, video) | `apps/desktop/src/features/calls/useCall.ts` (the state machine and the `RTCPeerConnection`) → `features/calls/CallLayer.tsx` → `apps/desktop/src/lib/calls.ts` → `apps/desktop/src-tauri/src/conversations.rs` → `crates/client/src/conversations.rs` → `crates/protocol/src/lib.rs` (`Payload::Call`) | `apps/server/delivery/` — **signalling** adds no route; it rides the conversation |
-| The **call relay** (TURN, ICE) | `apps/server/src/calls.rs` → `crates/client/src/transport.rs` (then **all seven** implementors) → `apps/desktop/src/lib/calls.ts` → [`OPS.md`](OPS.md)'s coturn phase | The signalling path above — the two share nothing but the word "call" |
 | **Feed, posts, comments** | `apps/server/src/posts.rs` → `apps/desktop/src-tauri/src/feed.rs` → `app/useFeed.ts` → `features/home/` | — |
 | **Keyboard shortcuts** | `app/useShortcuts.ts` — all of them, in one listener | Anywhere else |
 | **Colours, spacing, motion** | `packages/design-tokens/tokens.css`, then regenerate the JSON | Never hardcode a value in a component |
@@ -737,8 +782,8 @@ it is expensive.
 | The session ends by itself | A rotated refresh token that never reached the store. See the drain rule in [Conventions](#conventions-that-will-trip-you-up) |
 | The app stutters while a video plays | Something is holding the client lock across the network. See the lock rule in [Conventions](#conventions-that-will-trip-you-up) |
 | A server test passes locally and fails for somebody else | It asserted on a global listing in a shared database, or `.sqlx/` was not regenerated |
-| Nothing in the app works at all — sign-in, feed, messages | Ask `api.dice.fit` itself: `curl -i https://api.dice.fit/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.dice.fit` answers 502* |
-| `nexo-server` restart-loops after an edit to `/etc/nexo/nexo.env` | It refuses a half-finished deployment by design: the TURN pair, the S3 block and `NEXO_CORS_ORIGINS` are each all-or-nothing and checked at startup. `journalctl -u nexo-server -n 60` names the one that failed |
+| Nothing in the app works at all — sign-in, feed, messages | Ask `api.delidev.net` itself: `curl -i https://api.delidev.net/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.delidev.net` answers 502* |
+| `nexo-server` restart-loops after an edit to `/etc/nexo/nexo.env` | It refuses a half-finished deployment by design: the S3 block and `NEXO_CORS_ORIGINS` are each all-or-nothing and checked at startup. `journalctl -u nexo-server -n 60` names the one that failed |
 | The UI looks stale after a `cargo build --release` | `pnpm build` was not run first; the binary embeds `apps/desktop/dist` |
 
 ---
@@ -758,6 +803,7 @@ terminal — dot-source it, leading `. ` included:
 | `pnpm dev:server` | The API on `127.0.0.1:8080`. Needs `docker compose up -d` for Postgres on **5433**. |
 | `pnpm dev` | UI alone at `localhost:1420`. Nothing that calls Rust works. Layout work only. |
 | `pnpm typecheck` | `tsc --noEmit`. |
+| `pnpm test:wasm` | Builds `crates/crypto-wasm` and drives an MLS conversation through it. Needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the pinned version. |
 | `pnpm test` | Vitest, both workspaces. |
 | `pnpm build` | Must run before `cargo build --release` — the binary embeds `apps/desktop/dist`. |
 | `pnpm build:tokens` | Regenerates `tokens.json` from `tokens.css`. |
@@ -809,9 +855,11 @@ failed silently.
   `take_rotated_refresh_token` and writes it to the store. Skipping that leaves
   a **spent** token on disk; the next resume replays it, and the server reads a
   reused refresh token as theft: it revokes every session for the account. Four
-  places do it — `conversations.rs` and `feed.rs`'s `with_client`, `media.rs`'s
-  `persist_rotated`, and `auth.rs`'s key-package publish — and `meet.rs` did
-  not, which is how a map call could silently end somebody's session.
+  places do it — `conversations.rs`, `feed.rs` and `people.rs`'s `with_client`,
+  `media.rs`'s `persist_rotated`, and `auth.rs`'s key-package publish. The old
+  `meet.rs` did not, which is how one of its calls could silently end
+  somebody's session; `stories.rs` avoids the risk entirely by borrowing
+  `conversations.rs`'s helper rather than copying it.
   `grep -rn "take_rotated_refresh_token"` finds them all; anything new that
   reaches the network under a bearer token joins the list.
 - **An attachment has two encodings, and the reader must know which.**
@@ -868,12 +916,14 @@ failed silently.
   Adding a player, a font, a worker or anything that fetches means adding its
   directive in the same change — and then *looking at the console of a real
   run*, because that is the only place the failure appears.
-- **`?url` does not follow what a file imports.** `MeetMap.tsx` loaded
+- **`?url` does not follow what a file imports.** The Meet&Greet map loaded
   MapLibre's worker with `?url`, which copies the file verbatim; the worker
   imports a sibling, `maplibre-gl-shared.mjs`, which was therefore never
   emitted. The worker died on a `text/html` 404, the map still drew, and every
-  worker task ran on the main thread instead. Use `?worker&url` for anything
-  with imports of its own.
+  worker task ran on the main thread instead. Nothing bundles a worker today —
+  MapLibre left with the map — so this is a rule for the next one rather than a
+  description of anything here. Use `?worker&url` for anything with imports of
+  its own.
 - **The client lock covers the store and MLS, never the network.** One mutex
   in `apps/desktop/src-tauri/src/client.rs` guards the store, the MLS provider
   and the transport together, because neither the `rusqlite::Connection` nor
@@ -942,19 +992,18 @@ failed silently.
   `apps/server/tests/*` connect to `DATABASE_URL` and skip when it is absent;
   they invent unique handles so they do not collide, but every run leaves its
   rows behind. So a test must assert on *its own* data, never on a global
-  listing containing it. `a_blocked_person_is_off_the_map_in_both_directions`
-  read the first page of `/v1/meet/pins` and asked whether a handle was in it —
-  which is "is it among the first five hundred alphabetically", not "is it on
-  the map". It passed on a fresh database for months and started failing once
-  the local one held more than `PAGE` pins. It now follows the cursor. CI never
-  saw it because CI is always fresh, which is exactly what makes this class of
-  test wrong in the direction nobody notices.
+  listing containing it. A Meet&Greet test read the first page of the pin
+  listing and asked whether a handle was in it — which is "is it among the
+  first five hundred alphabetically", not "is it on the map". It passed on a
+  fresh database for months and started failing once the local one held more
+  than a page of pins. CI never saw it because CI is always fresh, which is
+  exactly what makes this class of test wrong in the direction nobody
+  notices.
 - **A `Transport` trait method needs an implementation everywhere the trait is
-  implemented**, not just in `http.rs`. **Seven** places today: the real
-  `HttpTransport`, `lib.rs`'s in-crate `FakeTransport`, and five purpose-built
+  implemented**, not just in `http.rs`. **Five** places today: the real
+  `HttpTransport`, `lib.rs`'s in-crate `FakeTransport`, and three purpose-built
   fakes under `crates/client/tests/` (`Listing` in `leftover_conversations.rs`,
-  `Flaky` and `Refusing` in `meet_offline.rs`, `CutNetwork` in
-  `offline_queue.rs`, `Listing` in `stories.rs`). `grep -rn "impl Transport
+  `CutNetwork` in `offline_queue.rs`, `Listing` in `stories.rs`). `grep -rn "impl Transport
   for"` finds all of them; missing one is a compile error, not a silent gap.
 - **Two different questions decide what an attachment is**, and only one of
   them is about safety. `lib/media.ts` reads the sender's declared MIME to pick
@@ -978,35 +1027,15 @@ failed silently.
   a second `confirm` while one is open goes *behind* it, and each has to be
   answered. That is why `useSignOut` puts its busy flag around the question and
   not only around the answer.
-- **Call signalling is not queued, and its candidates are not trickled.** Both
-  are deliberate and both look like omissions. `send_call_signal` sends
-  directly, the way `rename` and `react` do, and never through the outbox: an
-  offer that left a queue ten minutes late would ring somebody about a call that
-  ended before they sat down, so a signal that cannot be sent *now* is an error
-  to show rather than work to retry. And the SDP is sent only once ICE gathering
-  has finished, which costs a fraction of a second and holds a call to two
-  messages — trickle ICE would send one envelope per candidate, and an
-  installation that predates `Payload::Call` draws every one of them as an
-  `Unsupported` bubble it cannot read. One call would fill an older client's
-  conversation with punctuation. Anything later that adds an ICE restart has to
-  answer the same question before it sends.
-- **An offer and an answer leave no bubble; the hangup is the record.** The
-  `Payload::Call` branch in `sync` hands every signal to the caller through
-  `SyncOutcome::calls` and then `continue`s — except the hangup, which falls
-  through to the ordinary insert. That asymmetry is the feature: storing all of
-  it would put two blocks of SDP in the conversation each time somebody called,
-  and storing none of it would lose the missed-call row. `live_messaging.rs`'s
-  `a_call_rings_without_leaving_a_bubble_and_its_ending_leaves_one` is what
-  keeps both halves honest.
 - **A server refusal must be JSON, or its message is thrown away.**
   `HttpTransport`'s `refusal` parses the body as `{error, message}` and falls
   back to `"the server returned {status}"` when it cannot. So a handler that
   answers `(StatusCode::SERVICE_UNAVAILABLE, "some prose")` — which compiles,
   reads fine, and looks right — turns a considered sentence into a generic
-  failure at the last moment. `calls.rs` shipped that way and it was found by
-  driving the app, not by review: "Calls are not available on this server."
-  arrived as "Something went wrong. Try again.", which is exactly the honesty
-  rule 5 asks for, lost in translation. Every module defines its own private
+  failure at the last moment. The old `calls.rs` shipped that way and it was
+  found by driving the app, not by review: "Calls are not available on this
+  server." arrived as "Something went wrong. Try again.", which is exactly the
+  honesty rule 5 asks for, lost in translation. Every module defines its own private
   `ErrorBody` for this; a new one joins them.
 - **A `--release` build ignores `NEXO_API_BASE` and talks to production.**
   `base_url()` in `stream.rs` and `HttpTransport::new` both read the override
@@ -1016,16 +1045,6 @@ failed silently.
   and a route that only exists locally comes back 404 — which maps to
   `NotFound` and then to a generic error, so it looks like a bug in the feature
   rather than a binary aimed at the wrong host.
-- **A video call's codec is chosen, not accepted.** Chromium's default order
-  negotiates VP8, and at the bitrate a call actually uses that costs
-  *resolution*: measured in this WebView from one canvas source at 1.5 Mbps and
-  30 fps, VP8 held 480x270 where H.264 held 960x540 — four times the pixels for
-  the same bytes. `useCall.ts` reorders the codec list before creating the
-  offer, which has to happen *before* `createOffer` and is a preference rather
-  than a requirement, so a peer without H.264 still negotiates. Anything that
-  rebuilds the connection has to keep doing it, and the number to re-measure is
-  `frameWidth` on the receiver's `inbound-rtp`, not the frame rate — the frame
-  rate looks fine either way, which is what makes this easy to miss.
 - **Locking clears the client and the socket, and it has to do the second one
   by hand.** `commands.rs::lock` drops `ClientState` *and* `StreamState`. The
   second is not redundant: `follow_session` closes the socket when there is no
@@ -1036,18 +1055,7 @@ failed silently.
   unmounts with the app shell. `stream.rs` claimed for months that locking
   closed the socket; it did not, and an authenticated WebSocket stayed open
   behind the lock screen collecting events nobody could decrypt. Anything that
-  adds a long-lived connection joins that line in `lock`.
-- **WebView2 remembers a permission answer, which silently disables the
-  handler that gave it.** A decision saved into the profile is served from the
-  profile, and `PermissionRequested` simply stops firing — so a gate that
-  consults application state is consulted exactly once and then bypassed for
-  ever. It is not theoretical: a microphone granted long ago walked straight
-  past `permissions.rs` while the camera, which had no saved answer, was
-  correctly refused. Every handler here calls `SetSavesInProfile(false)` on the
-  args first (it lives on `ICoreWebView2PermissionRequestedEventArgs3`), so
-  nothing is remembered and every request is judged again. A stale grant made
-  by an older build survives in `%LOCALAPPDATA%\fit.dice.nexo\EBWebView` until
-  that profile is cleared.
+  adds a long-lived connection or an open device joins that line in `lock`.
 - **Two `cargo deny` passes, never one.** The Windows client and the Linux
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.
@@ -1071,7 +1079,8 @@ Read cost matters. Sizes are approximate and current.
 | Document | Size | Answers |
 |---|---|---|
 | [`CONTEXT.md`](CONTEXT.md) | 70 KB | This file. Where things are, and what not to break. |
-| [`STATUS.md`](STATUS.md) | 83 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
+| [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
+| [`STATUS.md`](STATUS.md) | 95 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
 | [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
 | [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `crates/client/src/pin.rs` and `THREAT-MODEL.md` §3. |
@@ -1080,14 +1089,13 @@ Read cost matters. Sizes are approximate and current.
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | 8 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
-| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 37 KB | Adversaries in and out of scope; what is deliberately not protected. |
-| [`TUTORIAL.md`](TUTORIAL.md) | 18 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
-| [`OPS.md`](OPS.md) | 31 KB | The Hetzner runbook. Deploy, TLS, backups, incidents. |
+| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 34 KB | Adversaries in and out of scope; what is deliberately not protected. |
+| [`TUTORIAL.md`](TUTORIAL.md) | 19 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
+| [`OPS.md`](OPS.md) | 24 KB | The Hetzner runbook. Deploy, TLS, backups, incidents. |
 | [`PLAN.md`](PLAN.md) | 23 KB | Milestones M0–M9 and the open risks. |
 | [`BRIEF.md`](BRIEF.md) | 27 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 29 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |
 | [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 38 KB | Why each technology decision beat its alternative. Background, not instruction. |
-| [`CALLS-HANDOVER.md`](CALLS-HANDOVER.md) | 7 KB | **Temporary.** What is left to finish on calls, and the five silent traps in the TLS-relay deployment. Delete when its list is empty. |
 
 Also under `docs/`: `design/` (two reference images) and `superpowers/plans/`
 (two dated planning documents — historical, not current instruction).

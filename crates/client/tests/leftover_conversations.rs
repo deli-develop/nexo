@@ -148,7 +148,7 @@ impl Transport for Listing {
         unimplemented!("these tests never reach a syncable conversation")
     }
 
-    // Meet&Greet is not what this file is about.
+    // Stories are not what this file is about.
     fn story_upload_url(&self, _size: u64) -> Result<(String, String), TransportError> {
         unimplemented!("not a story test")
     }
@@ -165,14 +165,6 @@ impl Transport for Listing {
     }
     fn list_stories(&self) -> Result<Vec<nexo_client::transport::StorySummary>, TransportError> {
         unimplemented!("not a story test")
-    }
-
-    fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError> {
-        Ok(nexo_protocol::IceServers {
-            servers: Vec::new(),
-            expires_at_ms: 0,
-            relay_only: true,
-        })
     }
 
     fn search_users(
@@ -203,44 +195,6 @@ impl Transport for Listing {
         _note: Option<&str>,
     ) -> Result<(), TransportError> {
         unimplemented!("not a report test")
-    }
-
-    fn meet_pins(
-        &self,
-        _after: Option<&str>,
-    ) -> Result<Vec<nexo_protocol::MeetProfile>, TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_me(&self) -> Result<Option<nexo_protocol::MeetProfile>, TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_set_me(
-        &self,
-        _update: &nexo_protocol::MeetProfileUpdate,
-    ) -> Result<(), TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_leave(&self) -> Result<(), TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_consent(&self, _version: i32) -> Result<(), TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_requests(&self) -> Result<Vec<nexo_protocol::MeetRequest>, TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_open_request(
-        &self,
-        _handle: &str,
-        _conversation_id: &str,
-    ) -> Result<nexo_protocol::MeetRequest, TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_accept(&self, _id: i64) -> Result<(), TransportError> {
-        unimplemented!("not a map test")
-    }
-    fn meet_decline(&self, _id: i64) -> Result<(), TransportError> {
-        unimplemented!("not a map test")
     }
 }
 

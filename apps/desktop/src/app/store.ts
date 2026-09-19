@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 import type { Account } from "../lib/auth";
 import type { BackdropReport } from "../lib/native";
 
-export type Route = "home" | "messages" | "meet" | "profile" | "settings";
+export type Route = "home" | "messages" | "profile" | "settings";
 
 /**
  * What a person has decided about one conversation.

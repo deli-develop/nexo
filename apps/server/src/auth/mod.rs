@@ -641,8 +641,8 @@ pub struct DeleteAccountRequest {
 ///    included, so a message sent minutes ago may never arrive. The UI says
 ///    so; it is the one consequence people do not expect.
 /// 2. **The user row**, and with it posts, comments, reactions, votes, blocks,
-///    profile fields and their visibility, Meet&Greet's profile, consent and
-///    intros, reports, refresh tokens, and conversation membership.
+///    profile fields and their visibility, invitations and the uses recorded
+///    against them, reports, refresh tokens, and conversation membership.
 /// 3. **Conversations left with nobody in them.** Bounded to the ones this
 ///    account was in: a two-person conversation whose other member is gone is
 ///    unreachable for anyone, and leaving it would be the first orphan row in

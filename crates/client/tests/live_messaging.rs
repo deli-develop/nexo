@@ -26,7 +26,7 @@ use nexo_client::{HttpTransport, session};
 use nexo_crypto::identity::{IdentityKeypair, SafetyNumber};
 use nexo_crypto::mls::{Conversation, credential_for};
 use nexo_platform::SecureStore;
-use nexo_protocol::{CallSignal, ConversationId, DeviceId, HangupReason};
+use nexo_protocol::{ConversationId, DeviceId};
 use nexo_store::EncryptedStore;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider;
@@ -270,83 +270,6 @@ fn two_clients_exchange_messages_and_their_safety_numbers_match() {
 /// Welcome waits inside a conversation the invitee's app has never heard of.
 /// Syncing iterates the *local* list, so without discovery that list stays
 /// empty and the invitation is invisible forever.
-#[test]
-#[ignore = "needs a running nexo-server and Postgres"]
-fn a_call_rings_without_leaving_a_bubble_and_its_ending_leaves_one() {
-    // The whole design of call signalling in one test: an offer and an answer
-    // are machinery that must vanish, and the hangup is the single row a person
-    // would ever look back at. Getting this wrong in either direction is bad --
-    // storing everything puts two blocks of SDP in the conversation each time
-    // somebody calls, and storing nothing loses the missed-call record.
-    let alice = Client::new("alice");
-    let bob = Client::new("bob");
-    println!("alice: {}  bob: {}", alice.handle, bob.handle);
-
-    conversations::publish_key_packages(&bob.ctx(), 5).expect("publish");
-    let conversation_id = conversations::start_with(&alice.ctx(), &bob.handle).expect("start");
-    conversations::sync(&bob.ctx(), conversation_id).expect("bob joins");
-
-    // Alice rings.
-    let call_id = nexo_protocol::CallId::new_v4();
-    conversations::send_call_signal(
-        &alice.ctx(),
-        conversation_id,
-        call_id,
-        CallSignal::Offer {
-            video: false,
-            sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n".into(),
-        },
-    )
-    .expect("alice offers");
-
-    let outcome = conversations::sync(&bob.ctx(), conversation_id).expect("bob sync");
-    assert_eq!(
-        outcome.messages, 0,
-        "an offer is machinery and must not become a bubble, got {outcome:?}"
-    );
-    assert_eq!(outcome.calls.len(), 1, "bob should be ringing: {outcome:?}");
-    assert_eq!(outcome.calls[0].call_id, call_id);
-    assert_eq!(outcome.calls[0].conversation_id, conversation_id);
-    assert!(
-        matches!(
-            &outcome.calls[0].signal,
-            CallSignal::Offer { video: false, sdp } if sdp.starts_with("v=0")
-        ),
-        "the offer must arrive intact: {:?}",
-        outcome.calls[0].signal
-    );
-
-    // Bob declines, and that much is worth keeping.
-    conversations::send_call_signal(
-        &bob.ctx(),
-        conversation_id,
-        call_id,
-        CallSignal::Hangup {
-            reason: HangupReason::Declined,
-            seconds: 0,
-        },
-    )
-    .expect("bob declines");
-
-    let outcome = conversations::sync(&alice.ctx(), conversation_id).expect("alice sync");
-    assert_eq!(
-        outcome.calls.len(),
-        1,
-        "alice should learn the call ended: {outcome:?}"
-    );
-    assert_eq!(
-        outcome.messages, 1,
-        "the end of a call is the one part that stays, got {outcome:?}"
-    );
-    assert!(matches!(
-        outcome.calls[0].signal,
-        CallSignal::Hangup {
-            reason: HangupReason::Declined,
-            seconds: 0
-        }
-    ));
-}
-
 #[test]
 #[ignore = "needs a running nexo-server and Postgres"]
 fn an_invitee_discovers_a_conversation_it_was_never_told_about() {

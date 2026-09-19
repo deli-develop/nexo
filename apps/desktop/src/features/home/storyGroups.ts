@@ -1,4 +1,4 @@
-import type { Story } from "../../lib/meet";
+import type { Story } from "../../lib/stories";
 
 /** Marks the group that is this device's own stories. */
 const MINE = "__mine__";

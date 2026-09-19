@@ -7,7 +7,7 @@ config option.
 
 ## The decision: v0.1 does not pin
 
-The client validates `api.dice.fit` and `updates.dice.fit` with normal WebPKI
+The client validates `api.delidev.net` with normal WebPKI
 plus TLS 1.3 — the platform trust store, no custom verifier.
 
 Reasons, in order:
@@ -24,7 +24,7 @@ Reasons, in order:
    feed the app a build — which is the highest-value thing pinning would have
    protected.
 3. **What TLS pinning would add** is protection of the *API* traffic against
-   an attacker holding a mis-issued certificate for `dice.fit` — a CA-level
+   an attacker holding a mis-issued certificate for `delidev.net` — a CA-level
    compromise. Against that adversary, message content is already E2EE, and
    what is exposed is metadata and the public feed. Real, but not worth a
    self-bricking mechanism in a v0.1 with no staged rollout to catch it.

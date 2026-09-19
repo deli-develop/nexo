@@ -1,4 +1,7 @@
 [toolchain]
 channel = "1.97.1"
 components = ["clippy", "rustfmt"]
-targets = ["x86_64-pc-windows-msvc"]
+# wasm32 is listed so a fresh clone can build crates/crypto-wasm without
+# knowing to run `rustup target add` first. The server's Linux target is not
+# here on purpose: it is cross-compiled on its own machine, not on this one.
+targets = ["x86_64-pc-windows-msvc", "wasm32-unknown-unknown"]

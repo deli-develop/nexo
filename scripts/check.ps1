@@ -3,8 +3,18 @@
   Runs the same gate CI runs. Run this before pushing.
 
 .DESCRIPTION
-  Assumes the session has already been prepared by scripts\dev-env.ps1.
+  Prepares its own environment, so `.\scripts\check.ps1` works from any shell.
+
+  It did not always. The header used to say "assumes the session has already
+  been prepared by dev-env.ps1", and running it without that produced a
+  *specific and misleading* failure: cargo clippy keeps its own build cache, so
+  it is usually the one step that has to compile from scratch, and without
+  MSVC and Perl on PATH the vendored OpenSSL in SQLCipher fails to build. The
+  report read "cargo clippy FAILED" -- which looks exactly like a lint error in
+  code that is in fact clean. Twice.
 #>
+
+. "$PSScriptRoot\dev-env.ps1"
 
 $ErrorActionPreference = 'Continue'
 $failed = @()

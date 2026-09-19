@@ -12,7 +12,7 @@
 
 use nexo_crypto::CryptoError;
 use nexo_crypto::mls::{self, Conversation, Incoming, Peeked};
-use nexo_protocol::{CallSignal, ConversationId, Payload, VoiceMeta};
+use nexo_protocol::{ConversationId, Payload, VoiceMeta};
 use nexo_store::EncryptedStore;
 use openmls::prelude::CredentialWithKey;
 use openmls_basic_credential::SignatureKeyPair;
@@ -1194,29 +1194,6 @@ fn title_from(members: &[String], me: Option<&str>) -> Option<String> {
     }
 }
 
-/// One piece of call signalling, with enough context to answer it.
-///
-/// Deliberately not a `Payload`: the shell needs to know *which conversation*
-/// and *which device* a signal came from, and neither is inside the ciphertext
-/// — the first is the envelope's, the second is MLS's answer about who
-/// encrypted it. Handing the payload alone would make the shell reconstruct
-/// both from state it does not have.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IncomingCall {
-    /// Which conversation it belongs to.
-    pub conversation_id: ConversationId,
-    /// The device that sent it, when MLS could name one.
-    ///
-    /// `None` is not a failure — it is what an envelope whose sender cannot be
-    /// resolved looks like, and a call from a device nobody can name is one the
-    /// UI is entitled to describe that way rather than drop.
-    pub sender_device_id: Option<String>,
-    /// Which call.
-    pub call_id: uuid::Uuid,
-    /// What arrived.
-    pub signal: nexo_protocol::CallSignal,
-}
-
 /// What a sync did.
 // No longer `Copy`: `key_changes` is a `Vec`. Nothing moved it by value
 // where a borrow would not do.
@@ -1238,19 +1215,6 @@ pub struct SyncOutcome {
     /// apart, and neither can this -- which is why it is reported rather than
     /// judged.
     pub key_changes: Vec<String>,
-    /// Call signalling that arrived in this pass, oldest first.
-    ///
-    /// Handed back rather than stored, because a call is not history: an offer
-    /// and an answer are worth nothing a second later, and writing them into
-    /// the message table would put two rows of SDP in every conversation
-    /// somebody called. Only the hangup leaves a message, and that one goes
-    /// through the ordinary insert below like any other bubble.
-    ///
-    /// The caller is expected to act on these promptly or not at all. Nothing
-    /// here is replayed: a signal that arrives while the app is closed is a
-    /// call that was missed, which is exactly what the hangup that follows it
-    /// records.
-    pub calls: Vec<IncomingCall>,
     /// Envelopes that predate this device joining, and so are not its to
     /// apply.
     ///
@@ -1470,27 +1434,6 @@ pub fn sync<T: Transport>(
                                 outcome.messages += 1;
                                 continue;
                             }
-                            // Signalling is handed to the caller and, unless it
-                            // is the hangup, leaves nothing behind. See
-                            // `SyncOutcome::calls` for why none of it is
-                            // stored: an offer is worthless a second after it
-                            // arrives, and a conversation is not the place to
-                            // keep two rows of SDP per call.
-                            if let Payload::Call { call_id, signal } = &payload {
-                                outcome.calls.push(IncomingCall {
-                                    conversation_id,
-                                    sender_device_id: sender.as_ref().map(|s| s.to_string()),
-                                    call_id: *call_id,
-                                    signal: signal.clone(),
-                                });
-                                // The hangup falls through to the ordinary
-                                // insert below: it is the one signal somebody
-                                // would look back at, and it draws the "Missed
-                                // call" row.
-                                if !matches!(signal, CallSignal::Hangup { .. }) {
-                                    continue;
-                                }
-                            }
                             if matches!(payload, Payload::GroupAvatar { .. }) {
                                 // The payload is kept, not the picture: it
                                 // holds the key, and the bytes are fetched when
@@ -1507,13 +1450,9 @@ pub fn sync<T: Transport>(
                                 // A sticker's body is empty, so the payload is
                                 // the only record of which one it was. Without
                                 // this the message arrives as a blank bubble.
-                                // A finished call has no body either. Why it
-                                // ended and how long it lasted live only in the
-                                // payload, and without keeping it the record
-                                // arrives as a blank bubble.
-                                Payload::Attachment { .. }
-                                | Payload::Sticker { .. }
-                                | Payload::Call { .. } => Some(payload.encode_string()),
+                                Payload::Attachment { .. } | Payload::Sticker { .. } => {
+                                    Some(payload.encode_string())
+                                }
                                 // Kept verbatim rather than re-encoded: this
                                 // build cannot represent what arrived, so
                                 // encoding it back would write "{}" over it.
@@ -1658,50 +1597,6 @@ pub fn rename<T: Transport>(
     )?;
 
     ctx.store.set_conversation_title(&id, title)?;
-    mls_state::save(ctx.provider, ctx.store)?;
-    Ok(())
-}
-
-/// Sends one step of a call.
-///
-/// Offer, answer and hangup all take this path, because all three are ordinary
-/// encrypted payloads inside the conversation and there is no call endpoint to
-/// send them to. Rule 4 again: signalling is content, and the server never
-/// holds content.
-///
-/// **Nothing here is queued.** `rename` and `react` send directly rather than
-/// through the outbox, and a call needs that property far more than they do: an
-/// offer that leaves the queue ten minutes late would ring somebody about a
-/// call that ended before they sat down. A signal that cannot be sent now is an
-/// error the caller has to show, not work to retry later.
-///
-/// It writes nothing locally either. A call lives in the shell while it is
-/// happening, and in the message table only once it has ended — and the record
-/// of that is the hangup, which reaches the other side through `sync` like any
-/// other message.
-pub fn send_call_signal<T: Transport>(
-    ctx: &Context<'_, T>,
-    conversation_id: ConversationId,
-    call_id: uuid::Uuid,
-    signal: CallSignal,
-) -> Result<(), ConversationError> {
-    let id = conversation_id.to_string();
-    let payload = Payload::Call { call_id, signal };
-
-    let mut conversation = Conversation::load(ctx.provider, conversation_id, now_ms())?
-        .ok_or(ConversationError::NotAMember)?;
-    let ciphertext = conversation.encrypt(ctx.provider, ctx.signer, &payload.encode())?;
-
-    ctx.transport.send(
-        &id,
-        &to_hex(&ciphertext),
-        conversation.epoch() as i64,
-        false,
-        &outbox::new_message_id(),
-    )?;
-
-    // The ratchet moved when it encrypted, so the provider has to be written
-    // back even though nothing was stored — the same reason `rename` does it.
     mls_state::save(ctx.provider, ctx.store)?;
     Ok(())
 }

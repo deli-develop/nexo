@@ -167,37 +167,21 @@ WebView already holds decrypted messages this is a small step, but it is a step.
 never asks for, and it does not survive the app: nothing is stored, logged, or
 sent anywhere.
 
-### 2.8 A Meet&Greet pin says roughly where you are, to everyone
+### 2.8 Nexo no longer publishes any location, coarse or otherwise
 
-Placing a pin publishes three things — the pin, a headline and a character — to
-every signed-in Nexo user and to the server. None of it is encrypted. That is
-the same deal as a profile or a post, and the agreement screen says so in those
-words before anyone appears on the map.
+This section used to describe the Meet&Greet map: a pin somebody typed, snapped
+to a 25 km grid and offset by an amount derived from their account id, published
+to every signed-in user.
 
-**What a pin actually discloses.** Not a measurement. Nexo never reads device
-location: there is no `navigator.geolocation` call in the client and no column
-in `meet_profiles` that could hold an accuracy, a heading or a time of
-observation. A pin is a place somebody dragged onto a map, and the schema
-cannot express anything stronger.
+**That feature is gone**, and with it the only surface in this product that
+touched location at all. `meet_profiles` has been dropped, there is no
+`navigator.geolocation` call in the client, and no route accepts a coordinate.
+The honest statement is now the short one: Nexo does not know where you are and
+has nowhere to put the answer.
 
-What is stored is deliberately worse than what was submitted. `meet::coarsen`
-snaps the pin to a 0.25° grid — roughly 25 km — and then offsets it by an
-amount derived from the account id. The submitted figure is never written, so
-it cannot leak from the database later, and the map's `MAX_ZOOM` of 6 means the
-UI cannot draw a pin at a building even if one were stored.
-
-**Why the offset is fixed rather than random.** A jitter re-rolled on each save
-would let anyone who watched a pin being written several times average the
-offsets away and recover the true grid point. Deriving it from the account
-makes every save land in the same place, so saving a hundred times discloses
-exactly what saving once did. This is tested, in
-`the_same_account_is_jittered_identically_every_time`.
-
-**What it does not protect against.** Somebody who says where they live has
-said where they live. A grid cell of 25 km is meaningful against an observer
-reading the database; it is not a defence against a person choosing to place
-their pin on their own street and writing their town in the headline. The
-feature is honest about being public, and that honesty is the protection.
+What remains of that module is the part that was never about the map — the
+private-account gate and its invitations, covered in §2.6 — and the reasoning
+for the removal is in [`REWORK.md`](REWORK.md).
 
 **Metadata, as everywhere else.** An intro is an ordinary MLS conversation, so
 its contents are end-to-end encrypted and *who wrote to whom, and when* is not
@@ -208,8 +192,8 @@ service rather than the app, for the reason §2.6 gives about blocking.
 
 Deletion is real where the server is concerned. The account row goes and takes
 its posts, comments, reactions, votes, blocks, profile fields and their
-visibility settings, Meet&Greet profile, consent and intros, reports, refresh
-tokens and conversation membership with it; the device row goes and takes its
+visibility settings, invitations and the uses recorded against them, reports,
+refresh tokens and conversation membership with it; the device row goes and takes its
 published KeyPackages and every envelope it sent that the server still held.
 Conversations left with nobody in them are removed rather than kept as
 unreachable rows. Locally, the SQLCipher store, the wrapped key and the unlock
@@ -600,60 +584,26 @@ before it happens. Encrypted key backup behind a recovery code is a v0.2 answer.
   is better than sending a password and worse than a real PAKE (OPAQUE), and it
   is chosen for implementation simplicity in v0.1.
 
-## 5b. Calls, and the one invariant they bend
+## 5b. Calls, and the invariant they used to bend
 
-Voice calls carry media with WebRTC inside the WebView. That is a deliberate
-exception to invariant 2 — *no key material in the WebView* — and it is written
-here rather than left to be discovered.
+Voice and video calls were built, shipped and then removed in 0.2.0. This
+section used to describe the one place the product knowingly bent invariant 2:
+`RTCPeerConnection` generated the DTLS certificate and the SRTP session keys
+**in the page**, because a media stack in Rust would have meant writing or
+wrapping an echo canceller, a jitter buffer and an Opus pipeline — worse calls
+and, for the crypto, a larger violation of rule 1 than the one it avoided.
 
-**What is protected.** Media is DTLS-SRTP, negotiated end to end between the
-two devices. The relay forwards encrypted packets and cannot decrypt them. The
-signalling that sets a call up — the offer, the answer, the ICE candidates
-inside them — travels as an ordinary MLS payload in the conversation, so the
-server never reads an SDP. That last part is better than it needs to be: an
-SDP names codecs and network addresses, and on a plaintext signalling route the
-server would hold both.
+None of that applies any more. There is no `RTCPeerConnection` in the client,
+no relay, no `/v1/calls/ice`, and no signalling payload on the wire. The
+exception is withdrawn along with the feature, and the reasoning is kept here
+because the next person to propose calls should read what it cost before
+building it again.
 
-**The exception, stated plainly.** `RTCPeerConnection` generates the DTLS
-certificate and the SRTP session keys in the page. Rule 2 exists to keep the
-identity keypair, the MLS state and the store key out of a JavaScript context;
-those are unchanged and still never cross the IPC boundary. Call media keys are
-a different class: ephemeral, per call, and worth one call's audio if they
-leak — the same exposure as the decrypted message text the WebView already
-holds legitimately. What makes them trustworthy at all is that the DTLS
-fingerprint is authenticated by **travelling inside an MLS message**: the page
-never asserts an identity, Rust does. An attacker who can run code in the
-WebView can already read every message on screen, so this widens no door that
-was shut.
-
-The alternative — a media stack in Rust — was considered and rejected: it would
-mean writing or wrapping an echo canceller, a jitter buffer and an Opus
-pipeline, which is worse calls and, for the crypto, a larger violation of
-rule 1 than the one it avoids.
-
-**What the server and the relay learn.**
-
-- The server learns that an account asked for relay credentials, and therefore
-  that it is about to place *a* call. It does not learn who is being called:
-  that name is inside the ciphertext of the offer.
-- Both endpoints reach the relay, so the relay sees both IP addresses, the
-  timing, and the volume of encrypted media. Metadata, exactly as §2 says of
-  conversation metadata generally.
-- The conversation records that a call happened, how it ended and how long it
-  lasted, because the hangup is an ordinary encrypted message. The server
-  cannot read it.
-
-**Why calls relay by default.** A peer-to-peer connection puts each side's IP
-address into the candidates the other side receives. "Who called you" together
-with "roughly where you live" is not a pair to hand over silently, so the
-server sets `relay_only` and the client obeys it. Turning it off is a
-deliberate decision with this paragraph attached.
-
-**What is not protected.** A call ringing tells an observer of the network that
-two devices exchanged something at that moment; traffic analysis against a
-relay is out of scope for the same reason it is elsewhere in this document.
-Nothing here defends against malware on either machine, which §4 already
-excludes.
+What has *not* changed: the bend was always narrow. The identity keypair, the
+MLS state and the store key never crossed the IPC boundary for a call, and they
+still do not. The removal of calls does not make invariant 2 stronger than it
+was for everything else — and [`REWORK.md`](REWORK.md) explains why that
+invariant is being retired for a different reason entirely.
 
 ## 6. Object storage
 

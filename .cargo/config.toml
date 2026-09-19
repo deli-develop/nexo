@@ -10,3 +10,14 @@
 # cache.
 [env]
 SQLX_OFFLINE = "true"
+
+# getrandom 0.3 will not choose a browser backend from a feature alone: it
+# wants this cfg as well, and without it a wasm build fails to link with
+# "the wasm_js backend requires --cfg getrandom_backend". Scoped to the wasm
+# target, so no other build sees it.
+#
+# The 0.2 line in the same tree needs only its `js` feature, which
+# `crates/crypto-wasm/Cargo.toml` sets. Two majors, two mechanisms; both are
+# genuinely present -- `rand 0.8` brings 0.2 and OpenMLS brings 0.3.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

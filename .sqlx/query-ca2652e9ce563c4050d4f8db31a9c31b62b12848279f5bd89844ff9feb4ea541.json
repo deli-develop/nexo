@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE meet_requests\n         SET state = $3, resolved_at = now()\n         WHERE id = $1 AND to_id = $2 AND state = 'pending'\n         RETURNING id",
+  "query": "SELECT id FROM invites\n         WHERE owner_id = $1 AND secret_hash = $2\n           AND revoked_at IS NULL AND expires_at > now()\n         LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -12,7 +12,6 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Int8",
         "Text"
       ]
     },
@@ -20,5 +19,5 @@
       false
     ]
   },
-  "hash": "44b0df27b315f9cff5bb432cbc0dc91d1c01775f585b1221a0ca7a3909e3d398"
+  "hash": "ca2652e9ce563c4050d4f8db31a9c31b62b12848279f5bd89844ff9feb4ea541"
 }

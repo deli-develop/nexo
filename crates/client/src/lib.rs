@@ -17,9 +17,9 @@ pub mod conversations;
 pub mod feed;
 #[cfg(feature = "http")]
 pub mod http;
-pub mod meet;
 pub mod mls_state;
 pub mod outbox;
+pub mod people;
 pub mod pin;
 pub mod session;
 pub mod stories;
@@ -292,9 +292,9 @@ mod tests {
             Ok(Vec::new())
         }
 
-        // Meet&Greet is not what these tests are about. `unimplemented!` rather
-        // than an empty answer, so that a test which starts touching the map
-        // fails loudly instead of quietly exercising a stub.
+        // Stories are not what these tests are about. `unimplemented!` rather
+        // than an empty answer, so that a test which starts posting one fails
+        // loudly instead of quietly exercising a stub.
         fn story_upload_url(&self, _size: u64) -> Result<(String, String), TransportError> {
             unimplemented!("not a story test")
         }
@@ -311,14 +311,6 @@ mod tests {
         }
         fn list_stories(&self) -> Result<Vec<transport::StorySummary>, TransportError> {
             unimplemented!("not a story test")
-        }
-
-        fn ice_servers(&self) -> Result<nexo_protocol::IceServers, TransportError> {
-            Ok(nexo_protocol::IceServers {
-                servers: Vec::new(),
-                expires_at_ms: 0,
-                relay_only: true,
-            })
         }
 
         fn search_users(
@@ -349,44 +341,6 @@ mod tests {
             _note: Option<&str>,
         ) -> Result<(), TransportError> {
             unimplemented!("these tests do not report")
-        }
-
-        fn meet_pins(
-            &self,
-            _after: Option<&str>,
-        ) -> Result<Vec<nexo_protocol::MeetProfile>, TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_me(&self) -> Result<Option<nexo_protocol::MeetProfile>, TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_set_me(
-            &self,
-            _update: &nexo_protocol::MeetProfileUpdate,
-        ) -> Result<(), TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_leave(&self) -> Result<(), TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_consent(&self, _version: i32) -> Result<(), TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_requests(&self) -> Result<Vec<nexo_protocol::MeetRequest>, TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_open_request(
-            &self,
-            _handle: &str,
-            _conversation_id: &str,
-        ) -> Result<nexo_protocol::MeetRequest, TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_accept(&self, _id: i64) -> Result<(), TransportError> {
-            unimplemented!("these tests do not touch the map")
-        }
-        fn meet_decline(&self, _id: i64) -> Result<(), TransportError> {
-            unimplemented!("these tests do not touch the map")
         }
     }
 

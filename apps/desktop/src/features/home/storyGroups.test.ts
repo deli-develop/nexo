@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Story } from "../../lib/meet";
+import type { Story } from "../../lib/stories";
 import { groupStories, hasLiveStory, storyGroupFor } from "./storyGroups";
 
 const story = (over: Partial<Story>): Story => ({

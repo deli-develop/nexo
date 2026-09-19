@@ -1,4 +1,5 @@
-import { asMeetError, postStory } from "../../lib/meet";
+import { asConversationError } from "../../lib/conversations";
+import { postStory } from "../../lib/stories";
 import { pickFile } from "../../lib/native";
 
 /** What happened, so a caller can react without a second error convention. */
@@ -27,6 +28,6 @@ export async function pickAndPostStory(): Promise<StoryPost> {
     await postStory(picked.path);
     return { posted: true };
   } catch (error) {
-    return { posted: false, problem: asMeetError(error).message };
+    return { posted: false, problem: asConversationError(error).message };
   }
 }

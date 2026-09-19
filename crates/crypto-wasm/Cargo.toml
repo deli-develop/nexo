@@ -1,0 +1,41 @@
+[package]
+name = "nexo-crypto-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The WASM face of nexo-crypto. MLS in a browser, for the web, Windows and Android clients that share one page."
+
+[lib]
+# `cdylib` is what wasm-bindgen emits; `rlib` keeps `cargo check` on the host
+# useful, which is the only reason a non-wasm build of this crate exists at all.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nexo-crypto.workspace = true
+nexo-protocol.workspace = true
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
+openmls_basic_credential.workspace = true
+uuid.workspace = true
+wasm-bindgen = "=0.2.127"
+
+# Everything wasm needs, and nothing the host build has to carry.
+#
+# Target-scoped on purpose. Cargo unifies features across a workspace build, so
+# writing `getrandom/js` as an ordinary dependency here would switch the
+# JavaScript backend on for `nexo-client` and `nexo-server` too -- crates that
+# have no JavaScript anywhere near them. A `[target.'cfg(...)']` table is the
+# one form cargo does not unify across targets.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Two majors of getrandom, because the tree genuinely has two: `rand 0.8`
+# (which `nexo-crypto` and `openmls_rust_crypto` both use) is on 0.2, and
+# OpenMLS's own `js` feature is on 0.3. Each needs its browser backend turned
+# on separately, and 0.3 needs a cfg as well -- see `.cargo/config.toml`.
+getrandom_02 = { package = "getrandom", version = "=0.2.17", features = ["js"] }
+openmls = { workspace = true, features = ["js"] }
+uuid = { version = "=1.25.0", features = ["v4", "serde", "js"] }
+# A panic in wasm is otherwise `unreachable executed` with no stack. This turns
+# it into the message and backtrace the console can show.
+console_error_panic_hook = "=0.1.7"

@@ -4,9 +4,8 @@
 //! identifiers. No ciphertext, no MLS state, no keys. The WebView never learns
 //! that MLS exists.
 
-use nexo_client::Transport;
 use nexo_client::conversations;
-use nexo_protocol::{CallSignal, ConversationId, HangupReason, Payload, VoiceMeta};
+use nexo_protocol::{ConversationId, Payload, VoiceMeta};
 use serde::Serialize;
 use tauri::State;
 
@@ -83,12 +82,6 @@ pub struct MessageView {
     /// message sent before names existed and for one still in the outbox that
     /// somehow lost it -- the UI offers no action that needs a name on those.
     pub client_id: Option<String>,
-    /// Set when this message is the record of a call.
-    ///
-    /// A call leaves exactly one row behind — the hangup — and it is drawn as
-    /// a line rather than a bubble: nobody said anything, so there is nothing
-    /// to quote, react to or edit.
-    pub call: Option<CallRecordView>,
     /// The `kind` of a payload this build cannot read, when that is what
     /// arrived.
     ///
@@ -349,49 +342,6 @@ fn reply_target(payload: Option<&str>) -> Option<String> {
     }
 }
 
-/// How a call ended, as the bubble draws it.
-#[derive(Debug, Clone, Serialize)]
-pub struct CallRecordView {
-    /// `cancelled`, `declined`, `ended` or `failed`.
-    pub reason: String,
-    /// How long the two were connected. Zero for a call that never was.
-    pub seconds: u32,
-    /// Whether it was a video call. Audio-only today.
-    pub video: bool,
-}
-
-impl CallRecordView {
-    /// Reads a call record out of a stored payload, if that is what it is.
-    ///
-    /// Only a hangup is ever stored, so an offer or an answer reaching here
-    /// would mean the receive branch let one through — and `None` is the right
-    /// answer for that too: an unbroken UI beats a bubble full of SDP.
-    fn from_payload(encoded: Option<&str>) -> Option<Self> {
-        let Payload::Call { signal, .. } = Payload::decode(encoded?.as_bytes()) else {
-            return None;
-        };
-        let CallSignal::Hangup { reason, seconds } = signal else {
-            return None;
-        };
-        Some(CallRecordView {
-            // Spelled the way the wire spells it, so the page switches on the
-            // same word the protocol uses and neither side invents a synonym.
-            reason: match reason {
-                HangupReason::Cancelled => "cancelled",
-                HangupReason::Declined => "declined",
-                HangupReason::Ended => "ended",
-                HangupReason::Failed => "failed",
-                // `HangupReason` is non-exhaustive: a reason from a newer build
-                // is shown as a plain ended call rather than dropping the row.
-                _ => "ended",
-            }
-            .to_string(),
-            seconds,
-            video: false,
-        })
-    }
-}
-
 /// The `kind` of an unreadable payload, when that is what was stored.
 ///
 /// `None` for everything this build understands, including a message with no
@@ -452,44 +402,6 @@ pub struct SyncView {
     /// UI raises a banner on these; the totals above decide nothing here.
     #[serde(default)]
     pub key_changed: Vec<String>,
-    /// Call signalling that arrived during this sync, oldest first.
-    ///
-    /// Rides the sync result rather than a push, because sync is what decrypts
-    /// an envelope and there is nowhere earlier the signal exists in the clear.
-    /// The page acts on these immediately or not at all — see
-    /// `nexo_client::conversations::SyncOutcome::calls`.
-    #[serde(default)]
-    pub calls: Vec<CallSignalView>,
-}
-
-/// One piece of call signalling, on its way to the page.
-///
-/// The signal itself is handed over as the protocol defines it, tag and all,
-/// rather than flattened into a bag of optional fields: the page has to switch
-/// on which signal this is anyway, and a shape that mirrors the wire is one
-/// fewer translation to get wrong.
-///
-/// Rule 2 holds here. An SDP carries codec lists, ICE candidates and a DTLS
-/// *fingerprint* — a hash of a certificate, not a key — and the page is where
-/// it was generated in the first place.
-#[derive(Debug, Clone, Serialize)]
-pub struct CallSignalView {
-    pub conversation_id: String,
-    /// The device that sent it, when MLS could name one.
-    pub sender_device_id: Option<String>,
-    pub call_id: String,
-    pub signal: CallSignal,
-}
-
-impl From<conversations::IncomingCall> for CallSignalView {
-    fn from(call: conversations::IncomingCall) -> Self {
-        Self {
-            conversation_id: call.conversation_id.to_string(),
-            sender_device_id: call.sender_device_id,
-            call_id: call.call_id.to_string(),
-            signal: call.signal,
-        }
-    }
 }
 
 /// New messages in one conversation, from one sync pass.
@@ -508,7 +420,7 @@ pub struct ConversationErrorView {
     pub message: String,
 }
 
-fn failure(kind: &'static str, message: impl Into<String>) -> ConversationErrorView {
+pub(crate) fn failure(kind: &'static str, message: impl Into<String>) -> ConversationErrorView {
     ConversationErrorView {
         kind,
         message: message.into(),
@@ -638,7 +550,10 @@ pub async fn delete_message_for_me(
 /// Runs a blocking closure against the signed-in client.
 ///
 /// One helper, so no command can forget the lock or the `spawn_blocking`.
-async fn with_client<T, F>(state: &ClientState, work: F) -> Result<T, ConversationErrorView>
+pub(crate) async fn with_client<T, F>(
+    state: &ClientState,
+    work: F,
+) -> Result<T, ConversationErrorView>
 where
     T: Send + 'static,
     F: FnOnce(&crate::client::LoggedIn) -> Result<T, ConversationErrorView> + Send + 'static,
@@ -1128,7 +1043,6 @@ pub async fn send_message(
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
             // We wrote it, so this build understands it by construction.
-            call: None,
             unsupported: None,
             // Nothing is pinned, reacted to, edited or taken back the moment
             // it is sent.
@@ -1182,7 +1096,6 @@ pub async fn send_reply(
             pending: sent.envelope_id().is_none(),
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
-            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -1256,7 +1169,6 @@ pub async fn send_view_once(
             pending: false,
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
-            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -1376,7 +1288,6 @@ pub async fn send_sticker(
             pending: sent.envelope_id().is_none(),
             attachment: None,
             client_id: sent.client_id().map(str::to_string),
-            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -1577,11 +1488,6 @@ pub async fn sync_conversation(
         } else {
             Vec::new()
         };
-        let calls = outcome
-            .calls
-            .into_iter()
-            .map(CallSignalView::from)
-            .collect::<Vec<_>>();
         Ok(SyncView {
             messages: outcome.messages,
             commits: outcome.commits,
@@ -1592,7 +1498,6 @@ pub async fn sync_conversation(
             } else {
                 vec![id.to_string()]
             },
-            calls,
         })
     })
     .await
@@ -1628,7 +1533,6 @@ pub async fn sync_all(state: State<'_, ClientState>) -> Result<SyncView, Convers
             failed: 0,
             arrivals: Vec::new(),
             key_changed: Vec::new(),
-            calls: Vec::new(),
         };
         for id in ids {
             let Ok(parsed) = id.parse::<ConversationId>() else {
@@ -1641,9 +1545,6 @@ pub async fn sync_all(state: State<'_, ClientState>) -> Result<SyncView, Convers
                     total.messages += outcome.messages;
                     total.commits += outcome.commits;
                     total.failed += outcome.failed;
-                    total
-                        .calls
-                        .extend(outcome.calls.into_iter().map(CallSignalView::from));
                     if !outcome.key_changes.is_empty() {
                         // Named, not counted. The UI raises a banner on the
                         // conversation, and a total would say nothing about
@@ -1665,127 +1566,6 @@ pub async fn sync_all(state: State<'_, ClientState>) -> Result<SyncView, Convers
         Ok(total)
     })
     .await
-}
-
-/// Parses a call id the page handed back.
-fn parse_call_id(id: &str) -> Result<nexo_protocol::CallId, ConversationErrorView> {
-    id.parse()
-        .map_err(|_| failure("invalid_request", "That is not a call id."))
-}
-
-/// Where to send a call's media, and the credential that opens the relay.
-///
-/// Asked once per call, immediately before offering or answering. Not cached:
-/// the credential expires, and a stale one fails inside ICE where there is
-/// nothing useful to report. A server with no relay configured refuses this,
-/// which is how the page learns that calls are unavailable here.
-#[tauri::command]
-pub async fn call_ice_servers(
-    state: State<'_, ClientState>,
-) -> Result<nexo_protocol::IceServers, ConversationErrorView> {
-    let servers = with_client(&state, |client| {
-        client
-            .transport
-            .ice_servers()
-            .map_err(|e| ConversationErrorView::from(conversations::ConversationError::from(e)))
-    })
-    .await?;
-
-    // The gate for the microphone and the camera opens here and nowhere else.
-    //
-    // This is the first thing either side of a call does -- the caller before
-    // it offers, the callee before it answers -- so it is the earliest honest
-    // moment to say "a call is starting". Opened only after the server agreed
-    // to relay it: a deployment with no relay never gets as far as a device.
-    crate::permissions::allow_call_media(true);
-    Ok(servers)
-}
-
-/// Rings somebody: names a new call and sends the offer.
-///
-/// The id is minted here rather than in the page because it is the one thing
-/// about a call that both sides must agree on, and a value invented in the
-/// WebView would be a value Rust could only take somebody's word for. Handing
-/// it back afterwards is what lets the page address the call it just started.
-///
-/// The SDP arrives already gathered — see [`nexo_protocol::Payload::Call`] for
-/// why candidates are bundled rather than trickled.
-#[tauri::command]
-pub async fn call_offer(
-    state: State<'_, ClientState>,
-    conversation_id: String,
-    video: bool,
-    sdp: String,
-) -> Result<String, ConversationErrorView> {
-    with_client(&state, move |client| {
-        let id = parse_id(&conversation_id)?;
-        let call_id = nexo_protocol::CallId::new_v4();
-        conversations::send_call_signal(
-            &client.context(),
-            id,
-            call_id,
-            CallSignal::Offer { video, sdp },
-        )?;
-        Ok(call_id.to_string())
-    })
-    .await
-}
-
-/// Accepts a call that is ringing.
-#[tauri::command]
-pub async fn call_answer(
-    state: State<'_, ClientState>,
-    conversation_id: String,
-    call_id: String,
-    video: bool,
-    sdp: String,
-) -> Result<(), ConversationErrorView> {
-    with_client(&state, move |client| {
-        let id = parse_id(&conversation_id)?;
-        let call_id = parse_call_id(&call_id)?;
-        conversations::send_call_signal(
-            &client.context(),
-            id,
-            call_id,
-            CallSignal::Answer { video, sdp },
-        )
-        .map_err(ConversationErrorView::from)
-    })
-    .await
-}
-
-/// Ends a call — declined, cancelled, or finished.
-///
-/// One command for all three because they are one thing on the wire, and the
-/// difference between them is the `reason` the record keeps. `seconds` is zero
-/// for a call that never connected; the reason says which kind of nothing that
-/// was.
-#[tauri::command]
-pub async fn call_hangup(
-    state: State<'_, ClientState>,
-    conversation_id: String,
-    call_id: String,
-    reason: HangupReason,
-    seconds: u32,
-) -> Result<(), ConversationErrorView> {
-    let result = with_client(&state, move |client| {
-        let id = parse_id(&conversation_id)?;
-        let call_id = parse_call_id(&call_id)?;
-        conversations::send_call_signal(
-            &client.context(),
-            id,
-            call_id,
-            CallSignal::Hangup { reason, seconds },
-        )
-        .map_err(ConversationErrorView::from)
-    })
-    .await;
-
-    // Shut whatever happened above. A hangup that failed to send is still the
-    // end of the call locally, and leaving the gate open because the network
-    // was down would be the wrong way for this to fail.
-    crate::permissions::allow_call_media(false);
-    result
 }
 
 /// The decrypted history of one conversation, oldest first.
@@ -1873,7 +1653,6 @@ pub async fn conversation_messages(
                 pending: true,
                 attachment: AttachmentView::from_payload(item.payload.as_deref()),
                 client_id: item.client_id.clone(),
-                call: None,
                 unsupported: None,
                 // A queued message has no envelope id yet, and that is what a
                 // pin is keyed by. Nothing to pin until the server has it.
@@ -1929,7 +1708,6 @@ pub async fn conversation_messages(
                     outgoing,
                     sender_device_id: m.sender_device_id,
                     attachment: AttachmentView::from_payload(m.payload.as_deref()),
-                    call: CallRecordView::from_payload(m.payload.as_deref()),
                     unsupported: unsupported_kind(m.payload.as_deref()),
                     pinned: m.pinned,
                     retracted_at_ms: m.retracted_at_ms,
@@ -2098,7 +1876,6 @@ pub async fn send_attachment(
             // and taken back without waiting for a reload.
             client_id: sent.client_id().map(str::to_string),
             // It parsed: this build wrote it.
-            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -2219,7 +1996,6 @@ pub async fn send_voice_message(
                 streamable: false,
             }),
             client_id: sent.client_id().map(str::to_string),
-            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -2378,7 +2154,7 @@ pub async fn safety_number(
     .await
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -2400,7 +2176,6 @@ mod tests {
             pending: false,
             attachment: None,
             client_id: Some("11111111-1111-1111-1111-111111111111".into()),
-            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,
@@ -2600,7 +2375,6 @@ mod tests {
             pending: false,
             attachment: None,
             client_id: None,
-            call: None,
             unsupported: None,
             pinned: false,
             retracted_at_ms: None,

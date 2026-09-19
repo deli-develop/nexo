@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../../components/ui/Icon";
 import { Modal } from "../../components/ui/Modal";
 import { cn } from "../../lib/cn";
-import { asMeetError, openStory } from "../../lib/meet";
+import { asConversationError } from "../../lib/conversations";
+import { openStory } from "../../lib/stories";
 import type { StoryGroup } from "./storyGroups";
 
 /**
@@ -47,7 +48,7 @@ export function StoryViewer({
         if (!cancelled) setSrc(next);
       })
       .catch((error) => {
-        if (!cancelled) setProblem(asMeetError(error).message);
+        if (!cancelled) setProblem(asConversationError(error).message);
       });
     return () => {
       cancelled = true;

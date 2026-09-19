@@ -61,13 +61,24 @@ existing one first and send both rules together.
 
 ## Phase 0 — Decisions to make before you click anything
 
-### 0.1 Do you control `dice.fit`?
+### 0.1 Do you control `delidev.net`?
 
-The whole design hardcodes `api.dice.fit`, `nexo.dice.fit` and
-`updates.dice.fit`. Hetzner is an ICANN-accredited registrar but its TLD list is
-conventional (`.com`, `.de`, `.net`, `.org`, `.eu`, `.ch`, `.at` …) and almost
-certainly excludes `.fit`. That is fine: leave the registration wherever it is
-and point the nameservers at Hetzner DNS. You do not need to transfer it.
+One host is hardcoded into the client: `api.delidev.net`, in
+`crates/client/src/http.rs`. Leave the registration wherever it is and point
+the nameservers at Hetzner DNS; you do not need to transfer it.
+
+**Two hosts this runbook used to describe are gone**, and it is worth knowing
+why before looking for them:
+
+- `nexo.dice.fit` was a marketing and download page. The app itself is now a
+  website, served by Netlify at `nexo.delidev.net`, and the Windows installer
+  is offered from the GitHub release. There is no third page to host.
+- `updates.dice.fit` served the updater. It does not any more: the app fetches
+  `latest.json` from the GitHub release, which `plugins.updater.endpoints` in
+  `tauri.conf.json` names and `.github/workflows/release.yml` explains. A
+  manifest pointing at this host was a bug, and it was fixed.
+
+The old domain, `dice.fit`, is not in use by anything here.
 
 ### 0.2 Full-disk encryption: read this before choosing
 
@@ -268,34 +279,33 @@ external ever needs to reach the database.
 
 In **Hetzner DNS Console** (<https://dns.hetzner.com>, free):
 
-1. Add zone `dice.fit`.
+1. Add zone `delidev.net`.
 2. At your existing registrar, change the nameservers to the ones Hetzner shows.
 3. Add records:
 
 ```
 api       A     <server IPv4>
 api       AAAA  <server IPv6>
-nexo      A     <server IPv4>
-nexo      AAAA  <server IPv6>
-updates   A     <server IPv4>
-updates   AAAA  <server IPv6>
 ```
+
+One name, because one thing runs on this box. `nexo` is a CNAME at Netlify
+(below) and `updates` no longer exists.
 
 Wait for propagation before Phase 6 — Caddy's certificate request will fail if
 the name does not resolve to the box yet.
 
-**The web client is not in this zone and not on this box.** `nexo-web` is
-served by Netlify at `nexo.delidev.net`, which needs a CNAME in the
-`delidev.net` zone pointing at the Netlify site — a different registrar
-account from this one, and a value somebody has to actually control
-(`docs/TUTORIAL.md` §1, rows 10 and 11). Netlify issues and renews that
-certificate itself; Caddy on this machine never sees it. The `nexo` record
-above is a separate name under `dice.fit` and is unrelated to it.
+**The app is in this zone but not on this box.** `nexo.delidev.net` is served
+by Netlify and needs a CNAME in the same `delidev.net` zone pointing at the
+Netlify site. Netlify issues and renews that certificate itself; Caddy on this
+machine never sees it.
 
-One consequence worth seeing before it surprises someone: `nexo.delidev.net`
-and `api.dice.fit` are different registrable domains, so every call the web
-client makes is cross-origin. That is why `NEXO_CORS_ORIGINS` exists in Phase 7
-and why it has to name the origin exactly.
+One consequence worth seeing before it surprises someone: **the app and the API
+are still cross-origin.** They are the same registrable domain now, which is a
+change from when they were not — but an origin is scheme, host *and* port, and
+`nexo.delidev.net` is a different host from `api.delidev.net`. A browser treats
+them as strangers. That is why `NEXO_CORS_ORIGINS` exists in Phase 7 and why it
+has to name the origin exactly, and it is why moving both under one domain did
+**not** make the CORS layer optional.
 
 ---
 
@@ -313,7 +323,7 @@ sudo apt update && sudo apt install -y caddy
 `/etc/caddy/Caddyfile`:
 
 ```caddyfile
-api.dice.fit {
+api.delidev.net {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
@@ -322,12 +332,10 @@ api.dice.fit {
 	}
 	reverse_proxy 127.0.0.1:8080
 }
-
-updates.dice.fit {
-	root * /srv/updates
-	file_server
-}
 ```
+
+One site block, because one thing runs here. There is no updates host any more
+— see Phase 0.1.
 
 ```bash
 sudo systemctl reload caddy
@@ -427,14 +435,14 @@ there; `ProtectHome=yes` means a key under a home directory could not be read.
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin nexo
 sudo systemctl daemon-reload
 sudo systemctl enable --now nexo-server
-curl -s https://api.dice.fit/v1/health
+curl -s https://api.delidev.net/v1/health
 # {"status":"ok","protocol_version":3}
 ```
 
 Logs: `journalctl -u nexo-server -f`. Nothing above `debug` may contain user
 content, and `debug` is compiled out of release builds.
 
-### When `api.dice.fit` answers 502
+### When `api.delidev.net` answers 502
 
 A 502 with `server: Caddy` in the headers is Caddy saying it reached nothing on
 `127.0.0.1:8080`. It is never the database and never the client: `/v1/health`
@@ -454,7 +462,6 @@ half-finished deployment rather than boot into one:
 | What the log says | What happened |
 |---|---|
 | `NEXO_JWT_PRIVATE_KEY_PEM is not set; refusing to start` | The key path is missing from `/etc/nexo/nexo.env`, or `ProtectHome=yes` puts the file out of reach |
-| `the TURN relay is partly configured` | One of `NEXO_TURN_SECRET` / `NEXO_TURN_URLS` was edited without the other. Both or neither |
 | `object storage is N/8 configured` | The same rule for the S3 block |
 | a panic naming `NEXO_CORS_ORIGINS` | A wildcard, a non-`https://` origin, or a value with a path or trailing slash |
 | a database connection error | Postgres is down, or the password in `DATABASE_URL` no longer matches the role |
@@ -465,7 +472,7 @@ single crash but a loop, and the 502 stays until the file is right:
 ```bash
 sudo -e /etc/nexo/nexo.env
 sudo systemctl restart nexo-server
-curl -fsS https://api.dice.fit/v1/health && echo   # 200 before walking away
+curl -fsS https://api.delidev.net/v1/health && echo   # 200 before walking away
 ```
 
 If the unit *is* active and the 502 persists, then it is the other half: check
@@ -538,235 +545,6 @@ Base price includes 1 TB storage and 1 TB egress. Objects under 64 kB bill as
 
 ---
 
-## Phase 8b — coturn, the call relay (calls, not before)
-
-Calls need a TURN relay. Without one `/v1/calls/ice` answers 503 and the app
-says *"Calls are not available on this server."* — a working deployment, not a
-broken one. Skip this phase until you want calls.
-
-**Why a relay at all, when WebRTC can go peer to peer.** A direct connection
-puts each side's IP address into the ICE candidates the other side receives.
-"Who called you" together with "roughly where you live" is not a pair a
-messenger should hand over silently, so Nexo relays by default and the server
-says so per call (`relay_only`). It costs a hop through Falkenstein and hides
-both ends from each other.
-
-Do this in two passes. **Pass 1 is plain TURN and is enough for working calls.**
-Pass 2 adds TLS, which only helps on networks that block everything but
-443-shaped traffic — and it depends on a certificate you do not have yet, so
-doing it first is the usual way to get stuck.
-
----
-
-### Pass 1 — plain TURN
-
-#### 1. DNS
-
-An `A` record for `turn.dice.fit` pointing at the server's IPv4. Wait for it to
-resolve before going on:
-
-```sh
-dig +short turn.dice.fit
-```
-
-#### 2. Install, and mint the shared secret
-
-```sh
-sudo apt install -y coturn
-sudo sed -i 's/^#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/' /etc/default/coturn
-
-openssl rand -hex 32
-```
-
-Keep that value. It goes in **two** places and they must match byte for byte:
-`static-auth-secret` below, and `NEXO_TURN_SECRET` in step 5.
-
-#### 3. Configure
-
-`/etc/turnserver.conf`, replacing what ships:
-
-```conf
-listening-port=3478
-
-# The public address. coturn hands this out in candidates, so it must be the
-# address clients can actually reach, not a private one.
-external-ip=YOUR.PUBLIC.IPV4
-
-realm=turn.dice.fit
-server-name=turn.dice.fit
-
-# The REST API: no per-user rows, no database. nexo-server mints a
-# username/password pair from this secret and coturn recomputes it.
-use-auth-secret
-static-auth-secret=PASTE_THE_SECRET_FROM_STEP_2
-
-# A relay is an open pipe unless you close it. These lines are what stop it
-# being used to reach your own private network, or anybody else's. Do not leave
-# them out to "simplify" -- an open relay is somebody else's proxy.
-no-multicast-peers
-denied-peer-ip=10.0.0.0-10.255.255.255
-denied-peer-ip=172.16.0.0-172.31.255.255
-denied-peer-ip=192.168.0.0-192.168.255.255
-denied-peer-ip=127.0.0.0-127.255.255.255
-denied-peer-ip=169.254.0.0-169.254.255.255
-denied-peer-ip=::1
-denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
-
-# Bounded so one account cannot take the box out on its own.
-user-quota=12
-total-quota=1200
-# Bits per second per allocation. 1.5 Mbps is a 720p call with headroom, and
-# matches the cap the client puts on its own sender.
-max-bps=1500000
-
-no-cli
-simple-log
-log-file=/var/log/turnserver.log
-```
-
-```sh
-sudo systemctl enable --now coturn
-sudo systemctl status coturn --no-pager
-```
-
-Expect `active (running)`, not `failed`. If it failed, `journalctl -u coturn -n
-40 --no-pager` says why — most often a typo in `external-ip`, or a stray `cert=`
-line pointing at a file that does not exist yet (see Pass 2).
-
-#### 4. Firewall
-
-In the **Hetzner cloud firewall**, inbound:
-
-| Port | Protocol | Why |
-|---|---|---|
-| 3478 | TCP **and** UDP | TURN and STUN |
-| 49152–65535 | UDP | The relay range. coturn allocates one port per call from it |
-
-**The second row is the one everybody forgets**, and the symptom is a call that
-negotiates, connects, and then carries no sound at all. If audio is silent and
-nothing else looks wrong, check this first.
-
-If `ufw` is also enabled, mirror both rules there.
-
-#### 5. Tell nexo-server
-
-In `/etc/nexo/nexo.env`:
-
-```sh
-NEXO_TURN_SECRET=the secret from step 2, byte-identical to static-auth-secret
-NEXO_TURN_URLS=turn:turn.dice.fit:3478?transport=udp,turn:turn.dice.fit:3478?transport=tcp
-NEXO_STUN_URLS=stun:turn.dice.fit:3478
-# Optional. Defaults to 3600.
-NEXO_TURN_TTL_SECS=3600
-# Optional. Defaults to true, and turning it off hands each caller's IP address
-# to the other. Read the paragraph at the top of this phase first.
-NEXO_TURN_RELAY_ONLY=true
-```
-
-```sh
-sudo systemctl restart nexo-server
-sudo journalctl -u nexo-server -n 20 --no-pager | grep -i turn
-```
-
-Expect `TURN relay configured; calls are available`.
-
-Set **both** of `NEXO_TURN_SECRET` and `NEXO_TURN_URLS`, or neither: the server
-refuses to boot on a half-configured relay, deliberately, because the
-alternative is finding out on the first call.
-
-#### 6. Prove it
-
-Three checks, weakest to strongest. Do the third one — the first two pass on
-setups where calls still do not work.
-
-```sh
-# a. coturn is listening and answers STUN.
-turnutils_stunclient turn.dice.fit
-
-# b. nexo-server hands out a credential. Needs a bearer token from a signed-in
-#    client; 503 here means it still has no relay.
-curl -s -H "Authorization: Bearer $TOKEN" https://api.dice.fit/v1/calls/ice | jq
-```
-
-**c. The one that matters.** Take the `urls`, `username` and `credential` from
-(b) into <https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/>
-and gather. You are looking for a candidate whose type is **`relay`**.
-
-- `relay` appears → TURN works, and calls will work.
-- only `srflx` → STUN works, TURN does not. Almost always the 49152–65535 UDP
-  range in step 4.
-- nothing at all → coturn is not reachable on 3478. Firewall, or `external-ip`.
-
----
-
-### Pass 2 — TLS on 5349 (optional)
-
-Worth doing only for people on networks that allow nothing but 443-shaped
-traffic. Calls are already encrypted without it: SRTP is end to end, and
-`turns:` protects the connection *to the relay*, not the media inside it.
-
-**It needs a certificate for `turn.dice.fit`, and you do not have one yet.**
-Caddy obtains certificates only for domains it is configured to serve, so
-`turn.dice.fit` has none until Caddy is given a reason to fetch it. The absence
-of that step is what makes coturn fail to start with a confusing
-file-not-found.
-
-Add to `/etc/caddy/Caddyfile`:
-
-```caddyfile
-turn.dice.fit {
-	respond 204
-}
-```
-
-```sh
-sudo systemctl reload caddy
-# Wait for the certificate to exist before touching coturn.
-sudo ls /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.dice.fit/
-```
-
-Then add to `/etc/turnserver.conf`:
-
-```conf
-tls-listening-port=5349
-cert=/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.dice.fit/turn.dice.fit.crt
-pkey=/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.dice.fit/turn.dice.fit.key
-no-tlsv1
-no-tlsv1_1
-```
-
-coturn runs as the `turnserver` user and has to be able to read those files:
-
-```sh
-sudo apt install -y acl
-sudo setfacl -m u:turnserver:rx /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.dice.fit
-sudo setfacl -m u:turnserver:r /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.dice.fit/*
-sudo systemctl restart coturn
-```
-
-Open **5349/TCP** in the firewall, then append the TLS URL to `NEXO_TURN_URLS`
-and restart `nexo-server`:
-
-```sh
-NEXO_TURN_URLS=turn:turn.dice.fit:3478?transport=udp,turn:turn.dice.fit:3478?transport=tcp,turns:turn.dice.fit:5349?transport=tcp
-```
-
-Caddy renews that certificate on its own schedule and coturn does not notice —
-it reads the files once, at start. Restart it periodically or TLS-TURN breaks at
-renewal; a monthly `systemctl restart coturn` from cron is the cheap answer, and
-plain TURN on 3478 keeps working regardless.
-
----
-
-### What it costs
-
-Relayed media is billed traffic, twice: in and out. A 720p call runs about
-1.5 Mbps each way, so ten minutes is roughly 225 MB relayed and ~450 MB counted.
-Hetzner includes 20 TB/month on this box, on the order of 44 000 call-minutes —
-comfortable now, and the first thing to watch if calls get popular.
-`total-quota` and `max-bps` above are the ceiling that stops a surprise becoming
-an overage.
-
 ## Phase 9 — Backups
 
 A Storage Box (from about €3.20/month for 1 TB) speaks SFTP, rsync and
@@ -782,49 +560,20 @@ backup.
 
 ---
 
-## Phase 10 — Updates host (M9, not before)
+## Phase 10 — Updates host: **not needed**
 
-`updates.dice.fit` serves the updater: static files behind Caddy, nothing
-else. No database, no code — the security of the channel comes from the
-minisign signature the app verifies (`docs/RELEASING.md`), not from this
-host, so it stays boring on purpose.
+This phase used to set up `updates.dice.fit`, a static file server behind Caddy
+that carried the updater's manifests.
 
-1. DNS: `updates` → the server's IP, same as Phase 5.
-2. Caddy: a second site block serving a directory.
+It is gone, and nothing replaced it on this box. The app fetches `latest.json`
+from the GitHub release — `plugins.updater.endpoints` in `tauri.conf.json` is
+where that URL lives, and `.github/workflows/release.yml` uploads the file. The
+security of the channel never came from the host anyway: it comes from the
+minisign signature the app verifies, which is `RELEASING.md`'s subject.
 
-   ```
-   updates.dice.fit {
-   	root * /var/www/nexo-updates
-   	file_server
-   	header {
-   		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-   		X-Content-Type-Options nosniff
-   	}
-   }
-   ```
-
-3. Layout under `/var/www/nexo-updates`:
-
-   ```
-   nexo/releases/Nexo_<version>_x64-setup.exe     the installers
-   nexo/windows-x86_64/<installed-version>        the manifest each installed
-                                                  version fetches (JSON; see
-                                                  RELEASING.md for the body)
-   ```
-
-   The client asks `/nexo/{{target}}/{{current_version}}`. Every *installed*
-   version must answer: on each release, write the new manifest under every
-   older version's path (a loop in the publish script), and give the path for
-   the release itself a `204` (an empty `respond` matcher in Caddy, or simply
-   no file — but a 404 shows up in the About panel as a failed check, so
-   prefer the explicit 204).
-
-4. Uploads are `rsync` from the machine that built and signed the release.
-   The web root is owned by a deploy user; Caddy only reads.
-
-Back up with Phase 9? No — every artifact here is reproducible from a tag
-plus the signing keys, and the signing keys are exactly what must **not** sit
-on this host.
+If a self-hosted update channel is ever wanted again, the shape is a Caddy
+`file_server` block and a DNS record, and the thing to get right is the
+signature rather than the transport.
 
 ---
 

@@ -49,11 +49,6 @@ async fn main() -> anyhow::Result<()> {
     // like a bug rather than a misconfiguration.
     let auth = Arc::new(auth::tokens::load_from_env()?);
 
-    // Absent is a decision, not a failure: a deployment with no relay simply
-    // has calls switched off, and `/v1/calls/ice` answers 503 so the app can
-    // say so. Partly configured is fatal, like storage above.
-    let turn = nexo_server::calls::TurnConfig::from_env()?.map(Arc::new);
-
     // One process, one hub. A second instance needs Redis behind the same
     // trait -- see stream::hub and PLAN.md G5.
     let fanout = Arc::new(LocalHub::new());
@@ -77,20 +72,7 @@ async fn main() -> anyhow::Result<()> {
         //
         // It is opt-in, it is loud, and it must never be set in production.
         limits: Arc::new(limits_from_env()),
-        turn,
     };
-    // Says only what it knows. This process reads two environment variables; it
-    // never contacts the relay, so it cannot tell a working one from a hostname
-    // that resolves to a closed port. The first wording here claimed "calls are
-    // available" and was believed -- the relay was unreachable at the time, and
-    // the log was the reason nobody looked. Reachability is checked from
-    // outside, with a STUN request; see OPS.md Phase 8b step 6.
-    match &state.turn {
-        Some(_) => tracing::info!(
-            "TURN relay configured (not contacted from here -- verify with a STUN request)"
-        ),
-        None => tracing::info!("no TURN relay configured; calls are unavailable"),
-    }
     match &state.storage {
         Some(storage) => tracing::info!(
             media = storage.media().name(),

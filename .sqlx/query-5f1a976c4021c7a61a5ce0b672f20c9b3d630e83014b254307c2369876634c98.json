@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO invite_uses (invite_id, user_id) VALUES ($1, $2)\n         ON CONFLICT (invite_id, user_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f1a976c4021c7a61a5ce0b672f20c9b3d630e83014b254307c2369876634c98"
+}

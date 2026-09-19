@@ -116,11 +116,6 @@ pub fn lock(
         Ok(mut guard) => *guard = None,
         Err(poisoned) => *poisoned.into_inner() = None,
     }
-
-    // And the camera and microphone gate. A locked app must not be able to
-    // open a device, and the flag would otherwise outlive the lock exactly as
-    // the socket used to.
-    crate::permissions::allow_call_media(false);
 }
 
 /// Whether the app is currently unlocked.

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { asMeetError, searchUsers, type SearchResult } from "../lib/meet";
+import { asPeopleError, searchUsers, type SearchResult } from "../lib/people";
 
 /** How long typing has to stop before a search is sent. */
 const DEBOUNCE_MS = 180;
@@ -71,7 +71,7 @@ export function useUserSearch(term: string): UserSearch {
         })
         .catch((error) => {
           if (latest.current !== id) return;
-          const e = asMeetError(error);
+          const e = asPeopleError(error);
           // Not being signed in yet is not a failure worth a line of red.
           setProblem(e.kind === "signed_out" ? null : e.message);
           setResults([]);

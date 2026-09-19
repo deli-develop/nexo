@@ -140,7 +140,14 @@ Written the same way as the rest: walked against the code, not the commit log.
   loud about itself at startup.
 - **Device retirement** on login, and **reporting** (`/v1/reports`).
 
-### Meet&Greet (M10)
+### Meet&Greet (M10) — **removed in 0.2.0**
+
+Kept here as a record of what was built and why, not as a description of the
+app. The map, the pins, the characters, the agreement and the intro requests
+were deleted in wave 1 of [`REWORK.md`](REWORK.md). What survived the removal
+was the part that was never about the map: the private-account gate
+(`may_reach`) and the invitations that get past it, both now in
+`apps/server/src/invites.rs`.
 
 A fifth destination: a world map on which a person may place one pin saying
 roughly where they are, wearing a character they built.
@@ -163,10 +170,12 @@ roughly where they are, wearing a character they built.
 - The whole feature is behind a lazy import: the map chunk is 288 KB gzipped
   and the startup bundle is unchanged.
 
-**Known gap:** on this machine the map shows horizontal banding while being
-dragged, under a transparent window with the DWM acrylic backdrop. WebGL,
-the worker and zoom all work; the banding is cosmetic and unresolved. Three
-candidate fixes were identified and none has been confirmed.
+**Known gap, closed by deletion:** on this machine the map showed horizontal
+banding while being dragged, under a transparent window with the DWM acrylic
+backdrop. WebGL, the worker and zoom all worked; the banding was cosmetic and
+never resolved. Three candidate fixes were identified and none was confirmed.
+The map is gone, so the gap is gone with it — which is worth saying plainly
+rather than quietly closing it as fixed.
 
 ### Since v0.1.18
 
@@ -295,6 +304,7 @@ candidate fixes were identified and none has been confirmed.
   invitation it came through.
 - **Requests are answerable from the profile** as well as from the Meet&Greet
   card — the same data and the same endpoints, not a second mechanism.
+  *(Intro requests went with the map in 0.2.0; the invitations above did not.)*
 
 ### Stories, 24 hours, end-to-end (wave 7)
 
@@ -1118,6 +1128,17 @@ renders the window frame and nothing in it.
 
 ---
 
+### Calls, waves 1–6 — **removed in 0.2.0**
+
+The six sections below are a record of what was built, not a description of
+the app. Voice and video calls were deleted in wave 2 of
+[`REWORK.md`](REWORK.md): no signalling payload, no relay, no
+`RTCPeerConnection`, no `/v1/calls/ice`, and no camera or microphone gate. The
+reasoning is kept because it is the expensive part — what the codec choice
+cost, why candidates were bundled rather than trickled, and what WebView2 does
+with a remembered permission answer are all things that would have to be
+rediscovered.
+
 ### Calls, wave 1: the wire and nothing above it
 
 Signalling only. Nothing rings yet and no sound moves — what exists is the path
@@ -1421,3 +1442,204 @@ microphone and the camera are refused in well under a second with
 `NotAllowedError` — where wave 0 measured the same calls *hanging for eight
 seconds* on a prompt nobody could answer. The allow branch is the sibling `if`
 and is exercised by the first real call; it is not separately measured here.
+
+---
+
+### Since v0.1.23: Meet&Greet removed, private accounts kept
+
+Wave 1 of [`REWORK.md`](REWORK.md). The deletion was asked for; what it nearly
+took with it was not.
+
+- **The map, the pins, the coarsening, the characters, the agreement and the
+  intro requests are gone.** Roughly 2 600 lines across the client crate, the
+  server, the Tauri shell and the page, plus fourteen IPC commands, eight
+  routes, a server test suite and the cached-pin table in the local store
+  (`SCHEMA_VERSION` 19 → 20). `maplibre-gl`, `world-atlas`, `topojson-client`
+  and both `@types` packages left with them, which is the largest single
+  reduction to the bundle so far.
+
+- **`may_reach` was nearly deleted by accident, and would have taken private
+  accounts with it.** It lived in `meet.rs` but had nothing to do with the map:
+  `delivery/mod.rs` calls it before creating *any* conversation, and it is the
+  half of "private account" that stops a stranger writing to you.
+  `profiles.rs` hides a private account from search; this is what makes the
+  hiding mean something. It now lives in `apps/server/src/invites.rs` with the
+  invitations, and the migration renames `meet_invites` to `invites` rather
+  than dropping it.
+
+- **The three story commands lived in the Meet&Greet module** and would have
+  gone the same way. They are now `apps/desktop/src-tauri/src/stories.rs` and
+  `apps/desktop/src/lib/stories.ts`. The new shell module deliberately
+  **borrows** `conversations.rs`'s `with_client`, error view and `now_ms`
+  rather than copying them: the copy is where the rotated-refresh-token drain
+  gets forgotten, and forgetting it is what ended sessions once already.
+
+- **Search and reporting were in there too**, and neither is a map feature —
+  the transport's own comment said so. Both moved to `people.rs`, on all three
+  sides of the seam.
+
+- **An invitation's use count needed a new home.** It was a count of rows in
+  `meet_requests`, which is gone. `invite_uses` records one row per person the
+  first time a secret is spent, written by `may_reach` at the only moment the
+  server can see it happen.
+
+- **`PROTOCOL_VERSION` is 4.** Removing wire types is a breaking change: a
+  build still speaking 3 would expect endpoints this server no longer has.
+
+Checked: `cargo check` clean across every crate and the shell, 144 frontend
+tests passing, `tsc --noEmit` clean. The five NexoChar tests went with the
+feature.
+
+---
+
+### Since v0.1.23: calls removed
+
+Wave 2 of [`REWORK.md`](REWORK.md), and the shortest description of it is that
+the workspace has one `unsafe` block again instead of two.
+
+- **Everything calls touched is gone.** `apps/server/src/calls.rs` and
+  `/v1/calls/ice`; `Payload::Call`, `CallSignal`, `HangupReason`, `IceServers`
+  and `IceServer` in `crates/protocol`; `send_call_signal`, `IncomingCall` and
+  `SyncOutcome::calls` in `crates/client`; `Transport::ice_servers` and its
+  five implementors; the four `call_*` IPC commands; `features/calls/` and
+  `lib/calls.ts`; and the "Missed call" record — `CallRecordView`,
+  `CallRecord`, `CallBubble` — that a finished call used to leave in the
+  conversation.
+
+- **`permissions.rs` went with them, and took the workspace's second `unsafe`
+  block.** It existed for one reason: WebView2 decides camera and microphone
+  access through a COM callback, and COM is FFI. `src-tauri` is
+  `forbid(unsafe_code)` again rather than `deny` with an exception, and
+  `crates/platform`'s DPAPI is now the only `unsafe` in the repository.
+
+- **The idle timer lost its exception.** `useAutoLock` held the lock open while
+  a call was up, because somebody talking touches neither keyboard nor pointer.
+  With no calls there is nothing to hold it open for, and the timer is back to
+  what it was before: keyboard and pointer, nothing else.
+
+- **`lock` has one less thing to close.** It dropped the client, the socket
+  *and* the media gate. The gate is gone; the other two are unchanged, and the
+  convention in `CONTEXT.md` now says "a long-lived connection or an open
+  device" so the next one joins the list.
+
+- **`PROTOCOL_VERSION` is 5.** Wave 1 took it to 4 for the Meet&Greet types;
+  this takes it to 5 for the call types. Nothing shipped between the two, but
+  one bump per breaking change is the rule and a rule bent once is not a rule.
+
+- **Found in passing, fixed in passing.** Two doc comments in `MessageList.tsx`
+  had been stranded from the functions they describe when `CallBubble` was
+  inserted between them; removing it reunited one, and the other was moved down
+  to `UndecryptableBubble` where it belongs. The `every_default_limit_is_finite`
+  test in `limits.rs` was also incomplete — `calls` was the one bucket missing
+  from its list, which is exactly the hole the test's own doc comment warns
+  about. It is complete now, by deletion rather than by addition.
+
+- **Two npm-free removals.** The `phone` and `phone-off` icons had no callers
+  left and are gone. `video` stays — it marks a video attachment, which has
+  nothing to do with a video call.
+
+Checked: `cargo check --workspace --all-targets --all-features` clean, 144
+frontend tests passing, `tsc --noEmit` clean.
+
+---
+
+### Since v0.1.23: MLS runs in a browser
+
+Wave 3 of [`REWORK.md`](REWORK.md), and the only wave in the plan whose job was
+to answer a question rather than build a feature. The question was whether
+OpenMLS runs on `wasm32-unknown-unknown`, because "one TypeScript app that
+keeps end-to-end encryption" is not an available shape for this product if it
+does not.
+
+**It does.** Two devices generate identities, agree on a safety number, publish
+and spend a KeyPackage, open a Welcome, exchange messages in both directions,
+and survive a state blob being exported and imported — in Node, and by hand in
+a real browser.
+
+- **`crates/crypto-wasm`** is a `wasm-bindgen` facade over `nexo-crypto`. A
+  facade, not a second implementation: nothing in it computes anything, so
+  rule 1 is exactly where it was.
+- **`packages/crypto-wasm`** builds it into an npm package with
+  `wasm-bindgen-cli` rather than `wasm-pack` — wasm-pack fetches its own
+  toolchain mid-build at a version this repository does not pin, and rule 8
+  says every dependency is pinned. The build script checks that the CLI version
+  equals the crate's, because a mismatch produces a module that loads and then
+  fails on the first call.
+- **The three risks, and where each landed.** `std::time::SystemTime` traps on
+  wasm and OpenMLS stamps KeyPackage lifetimes with it — solved upstream, via
+  `fluvio_wasm_timer` behind OpenMLS's own `js` feature. `getrandom` needs a
+  browser backend, and the tree genuinely has two majors of it: `rand 0.8`
+  brings 0.2, which needs a feature, and OpenMLS brings 0.3, which needs a
+  feature *and* a cfg. And `rayon`, which OpenMLS uses for parallel iterators
+  in `treesync` — the one that could not be answered by reading, and the reason
+  this was a spike. `addMember` reaches that code and returns a Welcome.
+- **The wasm dependencies are target-scoped** in
+  `[target.'cfg(target_arch = "wasm32")'.dependencies]`. Cargo unifies features
+  across a workspace build, so writing `getrandom/js` as an ordinary dependency
+  would have switched the JavaScript backend on for `nexo-client` and
+  `nexo-server` too.
+- **A CI job builds it** and runs the conversation against it. The built
+  package is generated and git-ignored.
+
+**Found in passing, fixed in passing.** The auto-updater in `tauri.conf.json`
+pointed at `github.com/YungDice/nexo` — an organisation this project left —
+so a shipped build would have looked for its update manifest at a 404. The
+licence button in Settings pointed at the same dead repository. Both now say
+`deli-develop`. `DEVELOPMENT.md`'s clone command did too, and its layout
+section still described `src/mock` as "the data every surface reads", which has
+not been true since M1.
+
+Checked: `cargo clippy --workspace --all-targets -- -D warnings` clean on the
+host and for `wasm32-unknown-unknown`, six wasm tests passing, and the same
+flow green in a browser.
+
+---
+
+### Since v0.1.23: one domain, and a runbook that got shorter
+
+Wave 4 of [`REWORK.md`](REWORK.md), the half that lives in the repository. The
+other half — a box, DNS records, and `scripts/deploy-server.sh` run on it —
+needs an account rather than a commit.
+
+- **`api.dice.fit` is `api.delidev.net` everywhere**, including the place that
+  actually decides where a shipped build connects: `DEFAULT_BASE_URL` in
+  `crates/client/src/http.rs`, compiled in, with the debug-only override
+  unchanged.
+
+- **Two of the three old hosts were obsolete rather than moved.**
+  `nexo.dice.fit` was a marketing and download page; the app is now a website
+  at `nexo.delidev.net` on Netlify, and the installer comes from the GitHub
+  release. `updates.dice.fit` served the updater — and had not been used for
+  some time: `tauri.conf.json` points at the GitHub release, and
+  `.github/workflows/release.yml` records that a manifest aimed at the old host
+  was a bug that was fixed. `OPS.md`'s Phase 10 was describing a host nothing
+  called.
+
+- **Moving both under one domain did not make CORS optional**, and the runbook
+  now says so in as many words. `nexo.delidev.net` and `api.delidev.net` share
+  a registrable domain but are different hosts, and an origin is scheme, host
+  *and* port. `NEXO_CORS_ORIGINS` is still required and still has to name the
+  origin exactly.
+
+- **A second migration, for what the first could not rename.**
+  `ALTER TABLE meet_invites RENAME TO invites` renames the table and the
+  indexes created explicitly — but not the ones Postgres creates behind a
+  `PRIMARY KEY` or `UNIQUE` constraint. A product with no Meet&Greet still had
+  a `meet_invites_pkey`. `20260920090000_rename_invite_constraints` fixes it,
+  as a separate file rather than an edit to the first: that one had already
+  been applied to a developer's database.
+
+- **Both migration paths were tested rather than assumed.** Every migration
+  applied in order to a brand-new database (seventeen, no `meet*` table left,
+  `invites` and `invite_uses` correct), and the new one applied cleanly to the
+  existing development database on top of the old state.
+
+**Found in passing, fixed in passing.** `scripts/check.ps1` said in its own
+header that it assumed `dev-env.ps1` had already been run, and produced a
+*specific and misleading* failure when it had not: clippy keeps its own build
+cache, so it is usually the one step that has to compile from scratch, and
+without MSVC and Perl on PATH the vendored OpenSSL in SQLCipher fails to
+build. The report read "cargo clippy FAILED", which looks exactly like a lint
+error in code that is clean. It happened twice here before being diagnosed. The
+script now dot-sources `dev-env.ps1` itself, the way `scripts/cargo.ps1`
+already did.

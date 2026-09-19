@@ -233,7 +233,7 @@ says:
 > app.
 
 The last sentence is **not true today**. The button beside it opens
-`https://github.com/YungDice/nexo/blob/main/LICENSE` in the system browser —
+`https://github.com/deli-develop/nexo/blob/main/LICENSE` in the system browser —
 Nexo's own licence, fetched over the network, from a machine that might be
 offline and a repository that might one day move. No dependency list ships with
 the app, because none is generated at build time.
@@ -280,7 +280,7 @@ knowing exactly which part:
   fixable by editing the licence (see §2).
 
 The distinction that actually matters: **MIT licenses the software; it says
-nothing about operating the service.** The moment `api.dice.fit` accepts a
+nothing about operating the service.** The moment `api.delidev.net` accepts a
 registration, that is a separate legal relationship with a user, governed by
 terms of service and a privacy notice that do not exist in this repository yet.
 No licence text will stand in for them, and the disclaimer above protects the
@@ -329,10 +329,11 @@ software:
 > This product includes software developed by the OpenSSL Project for use in the
 > OpenSSL Toolkit.
 
-Read literally that reaches the marketing page at `nexo.dice.fit`, not just the
-About panel. The cheap and complete answer is to carry the acknowledgement in
-the third-party notices **and** in the download page footer, and then stop
-thinking about it. It is one sentence; arguing about whether a download page
+Read literally that reaches wherever the app is offered for download — today
+the GitHub release page, since there is no separate marketing host any more —
+not just the About panel. The cheap and complete answer is to carry the
+acknowledgement in the third-party notices **and** wherever the download is
+offered, and then stop thinking about it. It is one sentence; arguing about whether a download page
 counts as advertising costs more than complying.
 
 Note the contrast, because it is easy to get backwards: `openssl-src 300.6.1`

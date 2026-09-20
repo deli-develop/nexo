@@ -90,7 +90,7 @@ sudo chown nexo:nexo "$KEY_FILE"
 sudo chmod 600 "$KEY_FILE"
 
 say "Object storage"
-# All seven or none: a partly filled block is a startup error, not a silent
+# All eight or none: a partly filled block is a startup error, not a silent
 # fallback to "not configured". Supply them in the environment to turn
 # attachments and feed images on:
 #
@@ -119,7 +119,7 @@ if [ "$have" -eq 0 ]; then
   S3_BLOCK=""
   echo "not configured -- attachments and feed images stay unavailable"
 elif [ "$have" -ne "$want" ]; then
-  die "object storage is $have/$want configured. All seven or none: a partly filled block is a startup error. Pass the missing ones in the environment."
+  die "object storage is $have/$want configured. All eight or none: a partly filled block is a startup error. Pass the missing ones in the environment."
 else
   echo "all $want values present"
 fi

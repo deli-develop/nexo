@@ -10,6 +10,15 @@
 #
 #   bash deploy-server.sh
 #
+# Two things it cannot invent, both optional and both passed in the
+# environment. They are remembered in the env file, so each is passed once:
+#
+#   NEXO_CORS_ORIGINS=https://nexo.delidev.net bash deploy-server.sh
+#   NEXO_S3_ENDPOINT=... NEXO_S3_REGION=... bash deploy-server.sh
+#
+# Without the first, only the desktop app can call this server. Without the
+# second, attachments and feed images are unavailable.
+#
 # Run it from a clone of the repo, as a user with sudo.
 
 set -euo pipefail
@@ -115,12 +124,38 @@ else
   echo "all $want values present"
 fi
 
+say "Browser origins"
+# Unset means no CORS layer at all, which is exactly what a deployment serving
+# only the desktop app wants: that client calls from a Rust process and sends
+# no Origin header. The web client at nexo.delidev.net is a different matter --
+# it is a different host from api.delidev.net, so every call it makes is
+# cross-origin and the layer is what lets it through.
+#
+#   NEXO_CORS_ORIGINS=https://nexo.delidev.net bash deploy-server.sh
+#
+# Reused from the existing env file on a re-run, like the S3 block above, so
+# this only has to be passed once. Exact origins only: the server refuses to
+# start on a wildcard, on anything that is not https:// (loopback excepted), or
+# on a value carrying a path or a trailing slash.
+CORS_BLOCK=""
+CORS_VALUE="${NEXO_CORS_ORIGINS:-}"
+if [ -z "$CORS_VALUE" ] && sudo test -f "$ENV_FILE"; then
+  CORS_VALUE="$(sudo sed -n 's/^NEXO_CORS_ORIGINS=//p' "$ENV_FILE" | head -1)"
+fi
+if [ -n "$CORS_VALUE" ]; then
+  CORS_BLOCK="NEXO_CORS_ORIGINS=$CORS_VALUE"
+  echo "allowing $CORS_VALUE"
+else
+  echo "not configured -- no CORS layer, so only the desktop app can call this server"
+fi
+
 say "Environment file"
 sudo tee "$ENV_FILE" >/dev/null <<ENV
 NEXO_BIND=127.0.0.1:8080
 DATABASE_URL=$DB_URL
 RUST_LOG=nexo_server=info,tower_http=info
 NEXO_JWT_PRIVATE_KEY_PEM=$KEY_FILE
+$CORS_BLOCK
 $S3_BLOCK
 ENV
 sudo chown root:nexo "$ENV_FILE"

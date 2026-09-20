@@ -1091,7 +1091,8 @@ Read cost matters. Sizes are approximate and current.
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | 8 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
 | [`THREAT-MODEL.md`](THREAT-MODEL.md) | 34 KB | Adversaries in and out of scope; what is deliberately not protected. |
 | [`TUTORIAL.md`](TUTORIAL.md) | 19 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
-| [`OPS.md`](OPS.md) | 24 KB | The Hetzner runbook. Deploy, TLS, backups, incidents. |
+| [`DEPLOY.md`](DEPLOY.md) | 10 KB | **The straight line from a fresh server to a live API.** Seven steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
+| [`OPS.md`](OPS.md) | 24 KB | The Hetzner runbook — the reasoning behind every step `DEPLOY.md` takes, plus TLS, backups and incidents. |
 | [`PLAN.md`](PLAN.md) | 23 KB | Milestones M0–M9 and the open risks. |
 | [`BRIEF.md`](BRIEF.md) | 27 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 29 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |

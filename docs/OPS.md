@@ -1,6 +1,12 @@
 # Hetzner runbook
 
-How to stand up the Nexo backend on Hetzner, in order.
+How to stand up the Nexo backend on Hetzner, in order, **and why each step is
+what it is**.
+
+> **Deploying right now?** [`DEPLOY.md`](DEPLOY.md) is the straight line: seven
+> steps, the exact command for each, and the exact thing you should see back.
+> It names the phase here that each step comes from. Use that one at the
+> terminal and this one when something does not do what it should.
 
 **You do not need any of this until M4.** M2 (auth, local encrypted store) and M3
 (MLS in isolation) run entirely on a development machine against a local
@@ -224,6 +230,17 @@ SSH in as root, then:
 adduser --disabled-password --gecos "" deploy
 usermod -aG sudo deploy
 rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy
+
+# And a way for it to use sudo. `--disabled-password` leaves the account with
+# no password, and sudo asks for the user's own -- so membership of the sudo
+# group alone leaves `deploy` unable to authenticate to anything, with nothing
+# to type that would work. Passwordless is right for a key-only box: SSH
+# already requires the key, and a password is only a second secret to keep.
+# `visudo -c` must print "parsed OK" before this window is closed; a malformed
+# file in /etc/sudoers.d/ disables sudo for everyone.
+echo 'deploy ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/deploy
+chmod 440 /etc/sudoers.d/deploy
+visudo -c
 
 # Keys only, no root login
 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config

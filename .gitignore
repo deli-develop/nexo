@@ -22,6 +22,19 @@ apps/desktop/src-tauri/gen/
 *.key
 *.p12
 *.pfx
+
+# SSH keys, by shape rather than by extension. A private key generated in this
+# directory by mistake -- `ssh-keygen` taking a stray "Y" as the filename, say
+# -- has no extension at all, so the patterns above miss it entirely and a
+# `git add -A` would commit it. These catch the conventional names; nothing
+# catches an arbitrary one, so the real rule is that keys do not live here.
+id_ed25519
+id_ed25519.pub
+id_rsa
+id_rsa.pub
+*_ed25519
+*_ed25519.pub
+*.pub
 keyring.bin
 store.db
 store.db-*

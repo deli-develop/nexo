@@ -1,8 +1,9 @@
 # Tutorial — everything you personally have to supply
 
 Every value Nexo needs that is *not* in the repository: what it is, where it
-goes, and when it actually blocks you. [`docs/OPS.md`](OPS.md) is the runbook for
-the Hetzner box; this file is the list of things only you can fill in.
+goes, and when it actually blocks you. This file is the list of things only you
+can fill in; [`DEPLOY.md`](DEPLOY.md) is the step-by-step that uses them, and
+[`OPS.md`](OPS.md) is the reasoning behind it.
 
 Read the status column before you go shopping.
 

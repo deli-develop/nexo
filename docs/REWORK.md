@@ -134,7 +134,7 @@ in a state where stopping is fine.
 | 1 | Meet&Greet out; private accounts and stories kept | The app builds and runs, with four destinations instead of five |
 | 2 | Calls out | One fewer `unsafe` block in the workspace |
 | 3 | **Spike: MLS in WASM** — **done, and it works** | A browser encrypts and decrypts a real MLS message. It does; see below |
-| 4 | The server: cleaned, redeployed, `api.delidev.net` | `curl https://api.delidev.net/v1/health` answers 200 |
+| 4 | The server: cleaned, redeployed, `api.delidev.net` — **done** | It answers 200, with `protocol_version: 5` |
 | 5 | Mobile-first layout | The existing app, correct from 360px to 2560px |
 | 6 | `packages/core` — the TypeScript session layer | Headless tests pass against a real local server |
 | 7 | The React app swapped onto `packages/core` | `invoke()` gone from feature code; the Windows app still works |
@@ -268,8 +268,31 @@ not before, but an origin is scheme, host and port — `nexo.delidev.net` and
 `NEXO_CORS_ORIGINS` is still required, and still has to name the origin
 exactly.
 
-**The half that needs an account, not a commit:** provisioning the box, the DNS
-records, and running `scripts/deploy-server.sh` on it. `OPS.md` Phases 1–7 are
+**The half that needed an account, not a commit — also done.** A CAX21 in
+Falkenstein, `delidev.net` moved to Hetzner's nameservers from Dynadot, and
+`api.delidev.net` answering through Caddy:
+
+```
+HTTP/1.1 200 OK
+Via: 1.1 Caddy
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+
+{"status":"ok","protocol_version":5}
+```
+
+`protocol_version: 5` is the part worth reading: it proves the running binary
+is from after Meet&Greet and calls came out, rather than an older build that
+would answer 3 and quietly fail against this client.
+
+**One thing is configured and not yet in effect.** The CORS layer is off: the
+`NEXO_CORS_ORIGINS` support in `scripts/deploy-server.sh` was written *after*
+the rework was committed, so the box cloned a script that did not know the
+variable existed. Adding the line to `/etc/nexo/nexo.env` and restarting is
+enough — no rebuild — and nothing needs it until wave 8, because
+`nexo.delidev.net` does not exist yet. It is written down here rather than
+discovered then.
+
+The original list of what this half needed, for the next time: `OPS.md` Phases 1–7 are
 the steps, unchanged except for the names; Phase 8 adds object storage when
 attachments are wanted; Phase 8b is gone with calls. Nothing in the repository
 can do this part, and it is the gate on wave 8 — `nexo.delidev.net` cannot go

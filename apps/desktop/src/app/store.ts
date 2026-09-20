@@ -186,8 +186,11 @@ export interface Preferences {
 export const defaultPreferences: Preferences = {
   theme: "system",
   glass: true,
-  // The violet the app shipped with, as a hue.
-  accentHue: 255,
+  // The blue the app is built around, as a hue. `useChrome` writes this to
+  // `--accent-hue` on the root, so this value -- not the token's default --
+  // is what the app actually wears. Somebody who already picked a hue keeps
+  // it: this is the default, not an override.
+  accentHue: 213,
   contrast: 0,
   glassStrength: 1,
   backdrop: "acrylic",
@@ -256,8 +259,6 @@ interface AppState {
   activeConversationId: string;
   /** User intent for the context panel, before the viewport gets a say. */
   contextPanelOpen: boolean;
-  /** The conversation list as an overlay, below the 860px breakpoint. */
-  listDrawerOpen: boolean;
   /** The feed's search box, opened from the Home title row. */
   homeSearchQuery: string;
   /**
@@ -310,8 +311,9 @@ interface AppState {
   /** Opens somebody's profile. `null` opens your own. */
   viewProfile: (handle: string | null) => void;
   openConversation: (id: string) => void;
+  /** Close the open conversation. On a phone this is what Back does. */
+  closeConversation: () => void;
   toggleContextPanel: () => void;
-  setListDrawer: (open: boolean) => void;
   setConversationSearch: (open: boolean) => void;
   setHomeSearchQuery: (query: string) => void;
   setBackdropReport: (report: BackdropReport) => void;
@@ -336,7 +338,6 @@ export const useApp = create<AppState>()(
       conversationSearchOpen: false,
       activeConversationId: "",
       contextPanelOpen: true,
-      listDrawerOpen: false,
       homeSearchQuery: "",
       backdropReport: null,
       conversationOverrides: {},
@@ -353,7 +354,7 @@ export const useApp = create<AppState>()(
         // Clearing the handle is the point: the rail's Profile button means
         // your own profile, and leaving somebody else's there would make it
         // mean "whoever you last looked at".
-        set({ route, listDrawerOpen: false, viewingHandle: null }),
+        set({ route, viewingHandle: null }),
       viewProfile: (handle) =>
         set((s) => ({
           route: "profile",
@@ -364,8 +365,7 @@ export const useApp = create<AppState>()(
             handle && handle.toLowerCase() === s.account?.handle.toLowerCase()
               ? null
               : handle,
-          listDrawerOpen: false,
-        })),
+            })),
       openConversation: (id) =>
         set((s) => {
           // Last visit's line goes. `clearUnread` draws a new one a moment
@@ -373,13 +373,13 @@ export const useApp = create<AppState>()(
           const { [id]: _gone, ...unreadMark } = s.unreadMark;
           return {
             activeConversationId: id,
-            listDrawerOpen: false,
-            conversationSearchOpen: false,
+                  conversationSearchOpen: false,
             unreadMark,
           };
         }),
+      closeConversation: () =>
+        set({ activeConversationId: "", conversationSearchOpen: false }),
       toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
-      setListDrawer: (open) => set({ listDrawerOpen: open }),
       setConversationSearch: (open) => set({ conversationSearchOpen: open }),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),
       toggleConversationFlag: (id, flag) =>

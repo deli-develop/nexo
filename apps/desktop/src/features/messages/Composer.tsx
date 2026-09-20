@@ -255,7 +255,12 @@ export function Composer({
           />
         </div>
       ) : (
-      <div className="flex items-end gap-1.5">
+      // One rounded field holding the controls, rather than a bare textarea
+      // with buttons loose beside it. `rounded-bubble` and not a pill: the
+      // box grows to 148px when somebody writes a paragraph, and a 999px
+      // radius on a tall box bows its sides. Sharing the bubble's radius also
+      // says the right thing — what you are typing becomes one of those.
+      <div className="bg-fill rounded-bubble flex items-end gap-1 px-1.5 py-1">
         <IconButton
           name="paperclip"
           label="Attach a file"

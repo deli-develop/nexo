@@ -1643,3 +1643,67 @@ build. The report read "cargo clippy FAILED", which looks exactly like a lint
 error in code that is clean. It happened twice here before being diagnosed. The
 script now dot-sources `dev-env.ps1` itself, the way `scripts/cargo.ps1`
 already did.
+
+---
+
+### Since v0.1.23: the app is mobile-first
+
+Wave 5 of [`REWORK.md`](REWORK.md). No data path changed; this is layout, and
+it is the part the reference mockups were actually about.
+
+- **Three widths, in one file.** `useLayout` was two booleans at 860 and 1100
+  describing a desktop getting narrower. It is now `phone` / `canShowList` /
+  `canShowContext` at 768 and 1280, and it uses `matchMedia` rather than a
+  resize listener — a resize handler runs on every intermediate pixel while a
+  window is dragged and then compares two booleans that changed once.
+
+- **The list is a screen, not a drawer.** Below 768px, opening a conversation
+  *replaces* the list and the header's back arrow returns. It used to slide the
+  list over the chat as an overlay, which is a desktop pattern made narrow: a
+  phone always had a conversation underneath whether or not one had been
+  chosen, and the "no conversation selected" empty state could never be seen on
+  the device that needed it most. `listDrawerOpen` and `setListDrawer` are gone
+  from the store with it, and `closeConversation` replaces them.
+
+- **Two navigations, one list of destinations.** `IconRail` keeps the 64px rail
+  at 768px and up; `BottomBar` draws the same four across the bottom below it.
+  Both read `chrome/destinations.ts`, so which tab is second cannot drift
+  between them — `IconRail`'s own header promised this would one day be "a
+  layout change rather than a rewrite", and that is now true.
+
+- **Sign-out moved to Settings**, and is still on the rail. It is *not* in the
+  bottom bar: on the rail it is safe because it is red only on hover, a touch
+  screen has no hover, and a red control in the thumb zone beside Profile is
+  one mis-tap from the action that cannot be undone.
+
+- **The bottom bar is labelled**, though the references draw four bare icons.
+  WhatsApp can do that because everybody already knows its icons; here "Home"
+  is a public feed and "Profile" is a page other people visit, and neither
+  reads off a glyph.
+
+- **Escape means back**, where the list is not already beside you. On a desktop
+  it still leaves the conversation open — closing it there would lose your
+  place for a keypress that had no target.
+
+- **The stories strip sits above the conversation list on a phone**, where
+  every reference puts it, and stays on Home at wider widths. One mount at a
+  time, never both. `Stories.tsx` argues that a story's audience is contacts
+  and Home is where other people's things appear; a phone applies the same
+  reasoning to a different shape, because Messages is the landing destination
+  there and Home is secondary.
+
+- **Safe areas are honoured.** `viewport-fit=cover` in `index.html` is what
+  makes `env(safe-area-inset-bottom)` report anything at all, and the bottom
+  bar pads by it with a floor for the devices that report nothing.
+
+**Verified:** `tsc --noEmit` clean, 144 frontend tests passing, production
+build clean, the Impeccable design detector returning no findings, and the
+breakpoints measured in a real browser — `(min-width: 768px)` false at 375px,
+both queries true at 1440px.
+
+**Not yet verified, and worth being plain about:** the shell itself has not
+been *seen* at phone width. `pnpm dev` serves the page without Tauri, so every
+`invoke()` fails and the app renders the sign-in screen rather than the rail,
+the bottom bar, the list or the chat. Seeing those needs `pnpm tauri dev` and a
+signed-in account, which is a person at a keyboard rather than a check that can
+run here.

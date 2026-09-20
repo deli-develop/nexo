@@ -37,7 +37,7 @@ export function MessagesHeader({
   const showPresence = useApp((s) => s.preferences.presence);
   const contextOpen = useApp((s) => s.contextPanelOpen);
   const toggleContext = useApp((s) => s.toggleContextPanel);
-  const setDrawer = useApp((s) => s.setListDrawer);
+  const closeConversation = useApp((s) => s.closeConversation);
   const searchOpen = useApp((s) => s.conversationSearchOpen);
   const setConversationSearch = useApp((s) => s.setConversationSearch);
   const mute = useApp((s) => s.muteConversation);
@@ -98,12 +98,16 @@ export function MessagesHeader({
       ) : null}
 
       <div className="flex min-w-0 flex-1 items-center gap-3 px-4">
-        {!layout.canShowList ? (
+        {/* Back, and only when there is something to go back from. This used
+            to open a drawer over the conversation at every narrow width,
+            including when no conversation was open — a button that slid a
+            panel over nothing. */}
+        {layout.phone && conversation ? (
           <div className="no-drag">
             <IconButton
               name="chevronLeft"
-              label="Show conversations"
-              onClick={() => setDrawer(true)}
+              label="Back to conversations"
+              onClick={closeConversation}
             />
           </div>
         ) : null}

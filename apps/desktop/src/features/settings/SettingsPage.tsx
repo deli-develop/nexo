@@ -23,6 +23,7 @@ import { Icon, type IconName } from "../../components/ui/Icon";
 import { Divider, Panel, SectionHeader } from "../../components/ui/Surface";
 import { ChangePassword } from "./ChangePassword";
 import { DeleteAccount } from "./DeleteAccount";
+import { useSignOut } from "../auth/useSignOut";
 import { UnlockPin } from "./UnlockPin";
 import { BlockedList } from "./BlockedList";
 import { PrivacyTable } from "./PrivacyTable";
@@ -598,6 +599,19 @@ function Security() {
         </div>
       </Group>
 
+      {/* Sign out sits above Delete account, in that order, because the two
+          read alike and mean opposite things: one ends a session on this
+          machine, the other ends the account everywhere. Ordered least to most
+          final, and the copy on each says which is which.
+
+          On a desktop this button is also on the rail. On a phone it is only
+          here — a bottom tab bar has no hover, and a red control in the thumb
+          zone beside Profile is a mis-tap away from the one action that cannot
+          be taken back. */}
+      <Group title="Sign out">
+        <SignOutRow />
+      </Group>
+
       {/* Last, and it belongs last. The section above explains why nothing
           here can be undone; this is the button that spends that. */}
       <Group title="Delete account" bare>
@@ -759,5 +773,35 @@ function About() {
         </div>
       </Group>
     </>
+  );
+}
+
+/**
+ * Signing out, from Settings.
+ *
+ * The same `useSignOut` the rail uses — one path, one confirmation, one busy
+ * flag around the *question* rather than only the answer. Two entry points to
+ * one behaviour, not two behaviours.
+ */
+function SignOutRow() {
+  const { signOut, busy } = useSignOut();
+
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <p className="text-text-mid text-meta">
+        Ends this session on this device. Your messages stay in the encrypted
+        store, and the unlock PIN is removed — signing back in needs your
+        password.
+      </p>
+      <Button
+        variant="secondary"
+        icon="logout"
+        onClick={() => void signOut()}
+        disabled={busy}
+        className="shrink-0"
+      >
+        Sign out
+      </Button>
+    </div>
   );
 }

@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isMuted, useApp } from "../../app/store";
+import { useLayout } from "../../app/useLayout";
+import { Stories } from "../home/Stories";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
 import {
@@ -145,6 +147,7 @@ export function ConversationList({
   const mute = useApp((s) => s.muteConversation);
   const forget = useApp((s) => s.forgetConversation);
   const [query, setQuery] = useState("");
+  const layout = useLayout();
 
   // Folders, read from the local store. They never reach the server -- how
   // somebody files their own conversations is a reading of who matters to them.
@@ -387,7 +390,15 @@ export function ConversationList({
     <Panel
       tone="list"
       edge={false}
-      className="flex w-[300px] shrink-0 flex-col border-r border-[var(--hairline)]"
+      // A fixed 300px column beside the conversation; the whole screen without
+      // one. The right border divides two panes and has nothing to divide when
+      // this is the only pane there is.
+      className={cn(
+        "flex min-w-0 flex-col",
+        layout.canShowList
+          ? "w-[300px] shrink-0 border-r border-[var(--hairline)]"
+          : "flex-1",
+      )}
     >
       <div className="flex items-end gap-2 px-3 py-3">
         <div className="min-w-0 flex-1">
@@ -398,7 +409,7 @@ export function ConversationList({
             placeholder="People and messages"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="[&]:h-9"
+            className="[&]:h-10 [&]:rounded-full"
           />
         </div>
         <IconButton
@@ -408,6 +419,21 @@ export function ConversationList({
           onClick={onStart}
         />
       </div>
+
+      {/* The stories strip, on the phone only.
+          
+          On a desktop it belongs to Home, and `Stories.tsx` argues why: a
+          story's audience is contacts, and Home is where other people's things
+          appear. A phone applies that same reasoning to a different shape —
+          Messages is the landing destination there and Home is the secondary
+          surface, so the row of contacts sits above the row of conversations,
+          which is also where every reference puts it. One mount at a time,
+          never both. */}
+      {layout.phone && term === "" ? (
+        <div className="border-b border-[var(--hairline)] px-3 pt-3">
+          <Stories />
+        </div>
+      ) : null}
 
       {/* Always here, whether or not it has been used yet, because a place to
           keep things is only useful if you can find it before you need it.
@@ -877,7 +903,7 @@ export function ConversationRow({
       aria-selected={selected}
       style={{ "--stagger": `${Math.min(index, 8) * 30}ms` } as CSSProperties}
       className={cn(
-        "rise-in flex w-full items-center gap-3 rounded-panel px-2.5 py-2.5 text-left transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
+        "rise-in flex w-full items-center gap-3.5 rounded-panel px-3 py-3 text-left transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
         // Selected outranks active: while a selection is live it is the thing
         // the next action will happen to, and which conversation is open is
         // the less urgent fact.
@@ -893,7 +919,7 @@ export function ConversationRow({
         kind={conversation.kind}
         title={conversation.title}
         hasAvatar={conversation.hasAvatar ?? false}
-        size={40}
+        size={46}
       />
 
       <span className="min-w-0 flex-1">
@@ -910,12 +936,16 @@ export function ConversationRow({
         </span>
         <span className="flex items-center gap-1.5">
           {fromMe && !last?.undecryptable ? (
-            <span className="text-text-lo text-meta shrink-0">You:</span>
+            <span className="text-text-lo text-body shrink-0">You:</span>
           ) : null}
           <span
             className={cn(
-              "truncate text-meta",
-              last?.undecryptable ? "text-danger" : "text-text-mid",
+              // Same size as the title above it. Rank is weight and colour:
+              // the name is medium on --text-hi, this is regular on
+              // --text-lo. Shrinking it as well would be a third mechanism
+              // saying what two already say.
+              "truncate text-body",
+              last?.undecryptable ? "text-danger" : "text-text-lo",
             )}
           >
             {preview}

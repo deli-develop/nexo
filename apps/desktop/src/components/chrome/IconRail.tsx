@@ -4,15 +4,10 @@ import { useApp, type Route } from "../../app/store";
 import { useSignOut } from "../../features/auth/useSignOut";
 import { Icon, type IconName } from "../ui/Icon";
 import { Panel } from "../ui/Surface";
-
-const destinations: { route: Route; icon: IconName; label: string }[] = [
-  { route: "home", icon: "home", label: "Home" },
-  { route: "messages", icon: "messages", label: "Messages" },
-  { route: "profile", icon: "user", label: "Profile" },
-];
+import { DESTINATIONS } from "./destinations";
 
 /**
- * The 64px rail (§7.3).
+ * The 64px rail, at 768px and up (§7.3).
  *
  * Deliberately the quietest thing in the window. The references keep it to
  * plain icons at one weight — the active one is simply brighter, with a short
@@ -20,8 +15,15 @@ const destinations: { route: Route; icon: IconName; label: string }[] = [
  * counter badge on top of it turns four destinations into the loudest element
  * on screen, which is backwards.
  *
- * On Android this becomes a bottom tab bar (§12). Keeping the destinations in
- * one array is what makes that a layout change rather than a rewrite.
+ * Below 768px `BottomBar` draws the same list across the bottom instead. That
+ * this is a layout change rather than a rewrite is what the shared
+ * `destinations.ts` buys — and it is the promise this header used to make
+ * about Android, now kept for the web.
+ *
+ * Settings is the last destination and sits at the foot of the rail rather
+ * than in the run of three, because it is where you go to change the app
+ * rather than to look at something. The bottom bar has no foot to put it at,
+ * so there it is simply the fourth tab.
  */
 export function IconRail({ unread }: { unread: number }) {
   const route = useApp((s) => s.route);
@@ -34,7 +36,7 @@ export function IconRail({ unread }: { unread: number }) {
       className="flex w-16 shrink-0 flex-col items-center gap-2 border-r border-[var(--hairline)] py-4"
     >
       <nav aria-label="Primary" className="flex flex-col items-center gap-2">
-        {destinations.map((destination) => (
+        {DESTINATIONS.slice(0, -1).map((destination) => (
           <RailButton
             key={destination.route}
             {...destination}
@@ -48,15 +50,16 @@ export function IconRail({ unread }: { unread: number }) {
 
       <div className="flex-1" />
 
-      <RailButton
-        route="settings"
-        icon="settings"
-        label="Settings"
-        active={route === "settings"}
-        dot={false}
-        unread={0}
-        onClick={() => go("settings")}
-      />
+      {DESTINATIONS.slice(-1).map((destination) => (
+        <RailButton
+          key={destination.route}
+          {...destination}
+          active={route === destination.route}
+          dot={false}
+          unread={0}
+          onClick={() => go(destination.route)}
+        />
+      ))}
 
       <SignOutButton />
     </Panel>

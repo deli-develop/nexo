@@ -105,10 +105,24 @@ export function useChrome(): void {
   }, [glass, glassStrength, backdrop, setReport]);
 
   // N14: only the hue moves. Saturation and lightness stay where the palette
-  // put them, which is what keeps any chosen accent at §7.4's 4.5:1 instead of
-  // leaving legibility to whoever picks the colour.
+  // put them -- but that alone does *not* keep a chosen accent legible, and
+  // the palette claimed for a long time that it did.
+  //
+  // Hue is not contrast-neutral. At one fixed HSL lightness, white on the
+  // accent measures 4.69:1 at blue, 8.52:1 at violet, 3.31:1 at orange and
+  // **1.67:1 at green** -- so anybody who picked green got their own message
+  // bubbles at a ratio where the text is effectively not there. Measured in a
+  // browser across the picker's range, not estimated.
+  //
+  // So the ink on the accent is computed from the accent rather than assumed
+  // to be white: whichever of white or near-black has more contrast against
+  // the fill wins. `--color-on-accent` is the one token every accent-filled
+  // surface reads for its text -- the outgoing bubble, the primary button,
+  // the unread badge -- so one value fixes all of them.
   useEffect(() => {
-    document.documentElement.style.setProperty("--accent-hue", String(accentHue));
+    const root = document.documentElement;
+    root.style.setProperty("--accent-hue", String(accentHue));
+    root.style.setProperty("--color-on-accent", inkFor(accentHue));
   }, [accentHue]);
 
   // N15: the surface scale slides toward black in dark mode and toward white
@@ -157,4 +171,37 @@ export function useChrome(): void {
     else root.dataset["theme"] = theme;
   }, [theme]);
 
+}
+
+/**
+ * White or near-black, whichever is readable on the accent at this hue.
+ *
+ * The saturation and lightness are read from the stylesheet rather than
+ * repeated here, so the palette stays the one place they are decided: a copy
+ * in this file would drift the first time the ramp moved.
+ */
+function inkFor(hue: number): string {
+  const probe = document.createElement("span");
+  probe.style.color = `hsl(${hue} var(--accent-s, 88%) var(--accent-l, 48%))`;
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const resolved = getComputedStyle(probe).color;
+  probe.remove();
+
+  const parts = resolved.match(/\d+(\.\d+)?/g);
+  // A browser that cannot resolve the probe keeps the palette's own value.
+  if (!parts || parts.length < 3) return "#ffffff";
+
+  const channel = (value: number) => {
+    const v = value / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const [r = 0, g = 0, b = 0] = parts.slice(0, 3).map(Number);
+  const luminance =
+    0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+
+  // Against white (1.0) versus against the app's darkest ink.
+  const againstWhite = 1.05 / (luminance + 0.05);
+  const againstInk = (luminance + 0.05) / (0.0114 + 0.05);
+  return againstWhite >= againstInk ? "#ffffff" : "#0b1220";
 }

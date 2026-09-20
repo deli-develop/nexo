@@ -39,20 +39,50 @@
 
   /* Surfaces, darkest to lightest. --void is the field the window card sits
      on; the rest stack from the rail outwards. */
-  --color-void: #08080a;
-  --color-surface-0: #0e0e10;
-  --color-surface-1: #131315;
-  --color-surface-2: #171719;
-  --color-surface-3: #212124;
+  --color-void: #05070c;
+  --color-surface-0: #090d15;
+  --color-surface-1: #0f141f;
+  --color-surface-2: #151b28;
+  --color-surface-3: #1e2637;
 
-  /* The one accent. §7.1's violet, unchanged: outgoing bubble, active
-     destination, primary action, focus ring, links. */
+  /* The one accent, and the only colour on a screen where nothing is
+     happening: outgoing bubble, active destination, primary action, focus
+     ring, links.
+
+     Blue at hue 213, from the pinned reference. It is deliberately close to
+     the hue in the surfaces above — the ground is the same colour dropped to
+     a few percent saturation — so the accent reads as the ground lit up
+     rather than as a sticker on top of it.
+
+     **Accent means state, never decoration.** A row is not accented because
+     it is a row; it is accented because it is the active one, or unread, or
+     yours. */
   /* N14: the hue is a variable so it can be chosen; the saturation and
-     lightness are not, because they are what keep the contrast at 4.5:1
-     whatever hue is picked (§7.4). The default is the violet as designed. */
-  --accent-hue: 255;
-  --color-accent: hsl(var(--accent-hue) 93% 67%);
-  --color-accent-soft: hsl(var(--accent-hue) 100% 78%);
+     lightness are not, because they are what hold the contrast whatever hue
+     is picked (§7.4).
+
+     **That claim used to be false, and this is the correction.** The old pair
+     was 93% 67%, tuned by eye against the violet it shipped with, where white
+     on the accent measured 4.27:1 -- already under the 4.5:1 it promised. Hue
+     is not contrast-neutral: blue and green are far more luminous than violet
+     at the same HSL lightness, so the same numbers at hue 213 measured
+     2.6:1, and the outgoing bubble's own text would have been unreadable.
+
+     48% is chosen so `--color-on-accent` (white) clears 4.5:1 on the fill at
+     the hues the picker offers. `--color-accent-soft` stays bright because it
+     is the *text* colour -- links, the active destination -- where the
+     relationship is reversed and it needs to be light against a dark ground. */
+  --accent-hue: 213;
+  /* Named, so `useChrome`'s ink calculation can read the ramp instead of
+     carrying a second copy of these numbers that drifts the first time they
+     move. */
+  --accent-s: 88%;
+  /* 44 and not 48. At 48 the magenta end of the picker sat at 4.26:1 against
+     both inks at once -- the crossover, where neither white nor dark clears
+     4.5 -- and four points of lightness moves every hue off it. */
+  --accent-l: 44%;
+  --color-accent: hsl(var(--accent-hue) var(--accent-s) var(--accent-l));
+  --color-accent-soft: hsl(var(--accent-hue) 100% 76%);
   /* The primary button's glow.
      Derived from --accent-hue rather than written as a fixed rgba, so it
      follows a changed accent. A hardcoded violet stayed violet while the
@@ -102,23 +132,30 @@
   --color-warning: #f5a524;
   --color-danger: #f0426b;
 
-  --color-text-hi: #f2f2f4;
-  --color-text-mid: #a1a1a8;
-  --color-text-lo: #7d7d86;
+  /* Tinted from the ground's own hue rather than grey, which is what keeps
+     secondary text from reading as dirt on a coloured surface.
+
+     `--color-text-lo` is #7d89a0 and not darker on purpose: it carries
+     timestamps and placeholders, and at #737e94 it measured 4.3:1 on
+     `--color-surface-1`, under the 4.5:1 that placeholder text has to hold.
+     It is 4.8:1 here. */
+  --color-text-hi: #eef1f7;
+  --color-text-mid: #9aa4b8;
+  --color-text-lo: #7d89a0;
 
   /* Lines and fills, so no component writes a raw white/black alpha and
      breaks the moment the theme flips. */
-  --color-line: rgba(255, 255, 255, 0.07);
-  --color-line-strong: rgba(255, 255, 255, 0.13);
-  --color-fill: rgba(255, 255, 255, 0.04);
-  --color-fill-hover: rgba(255, 255, 255, 0.07);
-  --color-fill-active: rgba(255, 255, 255, 0.11);
-  --color-scrim: rgba(0, 0, 0, 0.55);
+  --color-line: rgba(160, 190, 255, 0.10);
+  --color-line-strong: rgba(160, 190, 255, 0.18);
+  --color-fill: rgba(160, 190, 255, 0.05);
+  --color-fill-hover: rgba(160, 190, 255, 0.09);
+  --color-fill-active: rgba(160, 190, 255, 0.14);
+  --color-scrim: rgba(3, 6, 12, 0.66);
 
   --radius-window: 12px;
-  --radius-panel: 14px;
-  --radius-bubble: 18px;
-  --radius-control: 10px;
+  --radius-panel: 16px;
+  --radius-bubble: 20px;
+  --radius-control: 12px;
 
   --font-ui: "Inter Variable", Inter, system-ui, "Segoe UI", sans-serif;
   --font-display: "Inter Variable", Inter, system-ui, "Segoe UI", sans-serif;
@@ -138,11 +175,11 @@
      They are declared here rather than in `@theme` because Tailwind prunes
      `@theme` variables that no utility uses, and these have no utility — see
      the note at the top of that block. */
-  --color-void-base: #08080a;
-  --color-surface-0-base: #0e0e10;
-  --color-surface-1-base: #131315;
-  --color-surface-2-base: #171719;
-  --color-surface-3-base: #212124;
+  --color-void-base: #05070c;
+  --color-surface-0-base: #090d15;
+  --color-surface-1-base: #0f141f;
+  --color-surface-2-base: #151b28;
+  --color-surface-3-base: #1e2637;
 
   --hairline: var(--color-line);
   --glass-edge: rgba(255, 255, 255, 0.12);
@@ -229,46 +266,48 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --color-void: #dcdce0;
-    --color-surface-0: #f2f2f4;
+    --color-surface-0: #eaeef5;
     --color-surface-1: #ffffff;
-    --color-surface-2: #fbfbfc;
-    --color-surface-3: #f0f0f3;
+    --color-surface-2: #f7f9fc;
+    --color-surface-3: #eaeff7;
 
     /* All five, not just surface-0. Only that one was redeclared here,
        so a light theme with the depth slider up would have mixed the
        other four from the *dark* palette toward white. */
     --color-void-base: #dcdce0;
-    --color-surface-0-base: #f2f2f4;
+    --color-surface-0-base: #eaeef5;
     --color-surface-1-base: #ffffff;
-    --color-surface-2-base: #fbfbfc;
-    --color-surface-3-base: #f0f0f3;
+    --color-surface-2-base: #f7f9fc;
+    --color-surface-3-base: #eaeff7;
 
-    --color-accent: hsl(var(--accent-hue) 78% 60%);
-    --color-accent-soft: hsl(var(--accent-hue) 65% 53%);
+    --accent-s: 85%;
+    --accent-l: 44%;
+    --color-accent: hsl(var(--accent-hue) var(--accent-s) var(--accent-l));
+    --color-accent-soft: hsl(var(--accent-hue) 80% 38%);
 
     --color-success: #14915a;
     --color-warning: #a06a05;
     --color-danger: #cf1a45;
 
-    --color-text-hi: #16161a;
-    --color-text-mid: #55555e;
-    --color-text-lo: #6e6e78;
+    --color-text-hi: #0b1220;
+    --color-text-mid: #4a5568;
+    --color-text-lo: #5f6b80;
 
     /* Lighter than --text-lo, not darker: on a white surface a disabled label
        recedes by losing contrast, where on a dark one it recedes by losing
        brightness. The same hex in both themes would read as emphasis here. */
     --color-text-disabled: #a2a2ac;
-    --color-fill-disabled: rgba(18, 18, 24, 0.025);
+    --color-fill-disabled: rgba(11, 18, 32, 0.025);
 
-    --color-line: rgba(18, 18, 24, 0.1);
-    --color-line-strong: rgba(18, 18, 24, 0.16);
-    --color-fill: rgba(18, 18, 24, 0.035);
-    --color-fill-hover: rgba(18, 18, 24, 0.06);
-    --color-fill-active: rgba(18, 18, 24, 0.1);
-    --color-scrim: rgba(18, 18, 24, 0.35);
+    --color-line: rgba(11, 18, 32, 0.1);
+    --color-line-strong: rgba(11, 18, 32, 0.16);
+    --color-fill: rgba(11, 18, 32, 0.035);
+    --color-fill-hover: rgba(11, 18, 32, 0.06);
+    --color-fill-active: rgba(11, 18, 32, 0.1);
+    --color-scrim: rgba(11, 18, 32, 0.35);
 
     --glass-edge: rgba(255, 255, 255, 0.75);
-    --shadow-knob: 0 1px 2px rgba(18, 18, 24, 0.18), 0 2px 5px -2px rgba(18, 18, 24, 0.14);
+    --shadow-knob: 0 1px 2px rgba(11, 18, 32, 0.18), 0 2px 5px -2px rgba(11, 18, 32, 0.14);
     --field-base: #cfcfd6;
     --field-shade: rgba(18, 18, 30, 0.18);
     /* Higher than dark: dark text over a bright wallpaper loses contrast
@@ -296,8 +335,10 @@
   --color-surface-2-base: #fbfbfc;
   --color-surface-3-base: #f0f0f3;
 
-  --color-accent: hsl(var(--accent-hue) 78% 60%);
-  --color-accent-soft: hsl(var(--accent-hue) 65% 53%);
+  --accent-s: 85%;
+  --accent-l: 44%;
+  --color-accent: hsl(var(--accent-hue) var(--accent-s) var(--accent-l));
+  --color-accent-soft: hsl(var(--accent-hue) 80% 38%);
 
   --color-success: #14915a;
   --color-warning: #a06a05;
@@ -309,14 +350,14 @@
 
   /* See the note in the media-query block above. */
   --color-text-disabled: #a2a2ac;
-  --color-fill-disabled: rgba(18, 18, 24, 0.025);
+  --color-fill-disabled: rgba(11, 18, 32, 0.025);
 
-  --color-line: rgba(18, 18, 24, 0.1);
-  --color-line-strong: rgba(18, 18, 24, 0.16);
-  --color-fill: rgba(18, 18, 24, 0.035);
-  --color-fill-hover: rgba(18, 18, 24, 0.06);
-  --color-fill-active: rgba(18, 18, 24, 0.1);
-  --color-scrim: rgba(18, 18, 24, 0.35);
+  --color-line: rgba(11, 18, 32, 0.1);
+  --color-line-strong: rgba(11, 18, 32, 0.16);
+  --color-fill: rgba(11, 18, 32, 0.035);
+  --color-fill-hover: rgba(11, 18, 32, 0.06);
+  --color-fill-active: rgba(11, 18, 32, 0.1);
+  --color-scrim: rgba(11, 18, 32, 0.35);
 
   --glass-edge: rgba(255, 255, 255, 0.75);
   --field-base: #cfcfd6;
@@ -326,7 +367,7 @@
 
   /* Softer and shorter than the dark one: on a white track a shadow this size
      at dark-mode strength reads as dirt rather than as lift. */
-  --shadow-knob: 0 1px 2px rgba(18, 18, 24, 0.18), 0 2px 5px -2px rgba(18, 18, 24, 0.14);
+  --shadow-knob: 0 1px 2px rgba(11, 18, 32, 0.18), 0 2px 5px -2px rgba(11, 18, 32, 0.14);
 
   color-scheme: light;
 }

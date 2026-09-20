@@ -30,11 +30,19 @@ import { ConversationList } from "./ConversationList";
 import { MessageList } from "./MessageList";
 
 /**
- * Messages (§7.3): rail, list, chat, context panel.
+ * Messages (§7.3): list, chat, context panel.
  *
- * The two width rules live here and nowhere else. Below 1100px the context
- * panel collapses and its content is reachable from the header button; below
- * 860px the conversation list becomes an overlay drawer over the chat.
+ * Three layouts, one per width in `useLayout`:
+ *
+ * - **Phone.** One pane at a time. The list is the screen; opening a
+ *   conversation replaces it, and the header's back arrow returns. This is the
+ *   part that is not a narrow desktop: the list used to slide *over* the chat
+ *   as a drawer, which meant a phone always had a conversation underneath
+ *   whether or not anyone had chosen one, and the empty state below could
+ *   never be seen on the device that needed it most.
+ * - **Tablet, 768px and up.** List and chat side by side.
+ * - **Desktop, 1280px and up.** And the 280px context panel as well, which
+ *   collapses below that and stays reachable from the header button.
  */
 export function MessagesPage({
   now,
@@ -46,8 +54,6 @@ export function MessagesPage({
 }) {
   const activeId = useApp((s) => s.activeConversationId);
   const contextOpen = useApp((s) => s.contextPanelOpen);
-  const drawerOpen = useApp((s) => s.listDrawerOpen);
-  const setDrawer = useApp((s) => s.setListDrawer);
   const toggleContext = useApp((s) => s.toggleContextPanel);
   // Open, not toggle: the banner's button means "show me the safety number",
   // and toggling would hide it for anyone who already had the panel open.
@@ -88,29 +94,17 @@ export function MessagesPage({
     />
   );
 
+  // On a phone the list and the conversation are two screens, and which one is
+  // showing is simply whether a conversation is open. No drawer, no scrim, and
+  // no third piece of state to fall out of step with `activeConversationId`.
+  const showList = layout.canShowList || (!conversation && !starting);
+  const showChat = layout.canShowList || !showList;
+
   return (
     <div className="relative flex min-h-0 flex-1">
-      {layout.canShowList ? (
-        list
-      ) : drawerOpen ? (
-        <>
-          {/* z-index contract, §7.3: overlays sit at 200. */}
-          <div
-            className="absolute inset-0 bg-scrim"
-            style={{ zIndex: 200 }}
-            onClick={() => setDrawer(false)}
-            aria-hidden="true"
-          />
-          <div
-            className="absolute inset-y-0 left-0 flex"
-            style={{ zIndex: 200 }}
-          >
-            {list}
-          </div>
-        </>
-      ) : null}
+      {showList ? list : null}
 
-      {starting ? (
+      {!showChat ? null : starting ? (
         <StartConversation
           onCancel={() => setStarting(false)}
           onStarted={(id) => {
@@ -150,7 +144,9 @@ export function MessagesPage({
             body={
               live.loading
                 ? "Reading your local history."
-                : "Pick a conversation on the left, or start a new one."
+                : layout.canShowList
+                  ? "Pick a conversation on the left, or start a new one."
+                  : "Pick a conversation, or start a new one."
             }
           />
         </Panel>

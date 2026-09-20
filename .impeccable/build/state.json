@@ -1,0 +1,99 @@
+{
+  "tool": "build-phase",
+  "version": 2,
+  "startedAt": "2026-09-20T13:10:15.071Z",
+  "comp": null,
+  "direction": "8341d9bd",
+  "breakpoint": null,
+  "artifact": null,
+  "phase": "comps",
+  "phases": {
+    "comps": {
+      "status": "open",
+      "openedAt": "2026-09-20T13:10:15.071Z",
+      "closedAt": null,
+      "attempts": 1,
+      "notes": [
+        {
+          "at": "2026-09-20T13:12:38.063Z",
+          "text": "PARKED by the user at the comp gate. This session has no image-generation tool, so the three compositional comps could not be produced; the user chose to wait rather than downgrade to code-led. What is already built and staying: the token world (navy ground, accent hue 213), the accent-contrast fix, and the conversation-row/search/composer shapes. No further restyling until three comps of the chosen direction (seed 8341d9bd) exist under .impeccable/mocks with sidecars and one is approved. Direction contract: apps/desktop/.impeccable/surfaces/apps-desktop-src.md"
+        }
+      ],
+      "gate": {
+        "ok": false,
+        "reasons": [
+          "0 comps under .impeccable\\mocks; the comp round puts three compositional options of the chosen direction in front of the user (reference/visualize.md). Generate the missing ones (harness image tool or generate-image.mjs), each with a .json sidecar holding its prompt.",
+          "no comp is approved: put the three comps in front of the user (decision page via serve-question.mjs, or the structured question tool), then set \"approved\": true in the chosen comp's sidecar. A delegated pick is recorded the same way and disclosed."
+        ],
+        "summary": "0 comps, 0 approved",
+        "approved": null,
+        "at": "2026-09-20T13:10:34.259Z"
+      },
+      "forced": null
+    },
+    "spec": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "plates": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "hero": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "sections": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "motion": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "responsive": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "review": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    }
+  },
+  "finish": null
+}

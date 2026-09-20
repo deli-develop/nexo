@@ -530,6 +530,12 @@ React 19, TypeScript, Tailwind, Zustand. **There is no router**: four
 destinations and no deep links do not need one, and §7.4 asks for no page
 transitions anyway.
 
+**Mobile-first since wave 5.** Below 768px the app is one pane at a time with a
+bottom tab bar; the conversation list *is* a screen, and opening a conversation
+replaces it rather than sliding a drawer over it. It used to be a desktop that
+shrank, which meant a narrow window always had a conversation underneath
+whether or not one had been chosen.
+
 ```
 App.tsx      331 ln  The session gate and the shell. Draws exactly one of
                      AuthPage / LockScreen / OfferPin / AppShell.
@@ -555,14 +561,22 @@ package, and `main.tsx` imports them.
 | `useTyping.ts` | 83 | Who is typing, right now. |
 | `useLinkPreview.ts` | 73 | The first https link in a body, when previews are on. |
 | `useAutoLock.ts` | 63 | The idle timer. It lives in the WebView because idleness is only observable where the input events are; Rust does the locking. |
-| `useLayout.ts` | 47 | The §7.3 breakpoints, in one place. |
+| `useLayout.ts` | 91 | The three widths, in one place: phone below 768, list beside chat at 768, context panel at 1280. `matchMedia`, not a resize listener. Exports `layoutNow()` for `useShortcuts`, which is not in a render pass. |
 | `useWindow.ts` | 46 | The frameless window's own state and controls. |
 | `useAutoUpdate.ts` | 45 | Looks for a new version at launch and installs it — held back until the session gate has answered, so an install cannot discard a half-typed password. |
 
 #### `components/`
 
-`chrome/`: `TopBar.tsx` (100 ln — one top row across the whole app) and
-`IconRail.tsx` (132 ln — the 64px rail, and where sign-out lives).
+`chrome/`: `TopBar.tsx` (100 ln — one top row across the whole app),
+`IconRail.tsx` (134 ln — the 64px rail, at 768px and up), `BottomBar.tsx`
+(92 ln — the same destinations across the bottom, below 768px) and
+`destinations.ts` (27 ln — **the four destinations, shared by both**, so which
+tab is second does not change when a window is resized).
+
+Sign-out is in `features/settings/SettingsPage.tsx`, and on the rail as well.
+Not in the bottom bar: it is safe on the rail because it is red only on hover,
+a touch screen has no hover, and a red control in the thumb zone beside Profile
+is one mis-tap from the action that cannot be undone.
 
 `ui/` — the component library. [`COMPONENTS.md`](COMPONENTS.md) is the reference;
 this is the index.
@@ -753,6 +767,7 @@ it is expensive.
 | The **live socket** | `apps/server/src/stream/` → `crates/client/src/stream.rs` → `apps/desktop/src-tauri/src/stream.rs` → `apps/desktop/src/lib/stream.ts` | — |
 | **Feed, posts, comments** | `apps/server/src/posts.rs` → `apps/desktop/src-tauri/src/feed.rs` → `app/useFeed.ts` → `features/home/` | — |
 | **Keyboard shortcuts** | `app/useShortcuts.ts` — all of them, in one listener | Anywhere else |
+| **Anything about width** | `app/useLayout.ts` — the three breakpoints and nothing else has any | A media query in a component |
 | **Colours, spacing, motion** | `packages/design-tokens/tokens.css`, then regenerate the JSON | Never hardcode a value in a component |
 | **Tray, notifications, window chrome, autostart** | `apps/desktop/src-tauri/src/windows.rs` → `apps/desktop/src-tauri/src/commands.rs` → `app/useWindow.ts`, `app/useChrome.ts` | — |
 | **Link previews** | `apps/desktop/src-tauri/src/preview.rs` → `app/useLinkPreview.ts`. Read `THREAT-MODEL.md` §2.3 first — the refusals are the feature | — |

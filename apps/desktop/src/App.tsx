@@ -5,6 +5,7 @@ import { useAutoLock } from "./app/useAutoLock";
 import { useShortcuts } from "./app/useShortcuts";
 import { useLayout } from "./app/useLayout";
 import { useMaximized } from "./app/useWindow";
+import { BottomBar } from "./components/chrome/BottomBar";
 import { IconRail } from "./components/chrome/IconRail";
 import { PageTitleCell, TopBar } from "./components/chrome/TopBar";
 import { IconButton } from "./components/ui/Button";
@@ -131,8 +132,11 @@ function AppShell({ account }: { account: Account }) {
           {route === "settings" ? <PageTitleCell title="Settings" /> : null}
         </TopBar>
 
+        {/* The rail runs down the side of the content; the bottom bar runs
+            under it. Same four destinations either way — see
+            `chrome/destinations.ts`. */}
         <div className="flex min-h-0 flex-1">
-          <IconRail unread={unread} />
+          {layout.phone ? null : <IconRail unread={unread} />}
           {route === "home" ? <HomePage now={now} /> : null}
           {route === "messages" ? <MessagesPage now={now} live={live} /> : null}
           {route === "profile" ? (
@@ -144,6 +148,7 @@ function AppShell({ account }: { account: Account }) {
           ) : null}
           {route === "settings" ? <SettingsPage now={now} /> : null}
         </div>
+        {layout.phone ? <BottomBar unread={unread} /> : null}
       </div>
     </div>
   );

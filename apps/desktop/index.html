@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the page reach under a notch and a home
+         indicator, which is what makes env(safe-area-inset-*) report anything
+         other than zero. BottomBar reads the bottom one. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Nexo</title>
   </head>
   <body>

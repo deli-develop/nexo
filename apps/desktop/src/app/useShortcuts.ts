@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { layoutNow } from "./useLayout";
 import { useApp } from "./store";
 
 /**
@@ -76,9 +77,12 @@ export function useShortcuts(conversationIds: string[]): void {
           state.setConversationSearch(false);
           return;
         }
-        if (state.listDrawerOpen) {
+        // Back to the list, where the list is not already beside you. On a
+        // desktop the conversation stays open, because Escape closing it would
+        // mean losing your place for a keypress that had no target.
+        if (state.activeConversationId && !layoutNow().canShowList) {
           event.preventDefault();
-          state.setListDrawer(false);
+          state.closeConversation();
         }
         return;
       }

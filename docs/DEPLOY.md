@@ -454,15 +454,55 @@ two builds will publish over each other.
 1. **Connect the repository** in Netlify. *Add new site → Import an existing
    project*, and pick this repo. The build command and the publish directory
    come from `netlify.toml`; there is nothing to type.
-2. **Point the DNS.** At Dynadot, on `delidev.net`:
+2. **Point the DNS — in the Hetzner DNS Console, not at the registrar.**
 
-   | Type | Host | Value |
+   Dynadot holds the registration for `delidev.net` and nothing else: its
+   nameservers are delegated to Hetzner (`hydrogen.ns.hetzner.com` and its
+   two siblings), so every record lives at <https://dns.hetzner.com>. Step 3
+   is where that was set up, and `api.delidev.net` is already an `A` record
+   in that zone. Editing DNS at Dynadot does nothing at all — the records
+   are simply never consulted, which looks exactly like propagation being
+   slow.
+
+   > **Do not accept Netlify's offer to host your DNS.** The screen is headed
+   > *Set up domain with Netlify DNS* and lists four nameservers
+   > (`dns1.p08.nsone.net` and siblings) under "Update your subdomain's name
+   > servers" — but the instruction underneath says to change them *at your
+   > registrar*, which moves the **whole zone**, not the subdomain. Every
+   > record Hetzner currently serves, `api.delidev.net` above all, stops
+   > resolving as soon as that takes effect: the API goes down, the desktop
+   > app goes with it, and Caddy stops being able to renew its certificate.
+   >
+   > The offer is tempting because it promises automatic SSL. A CNAME gets
+   > the same certificate, so there is nothing to buy with that risk.
+   >
+   > Delegating *only* `nexo.delidev.net` is possible and safe — four `NS`
+   > records for host `nexo` in the Hetzner zone, never a nameserver change
+   > at Dynadot — but it means two DNS providers for one domain, which is
+   > one more thing to remember during an incident. Use the CNAME.
+
+   Netlify asks for two records, in this order.
+
+   **First, proof that the domain is yours.** Netlify shows this when the
+   apex is registered outside your account:
+
+   | Type | Name | Value |
+   |---|---|---|
+   | TXT | `subdomain-owner-verification` | the hex string Netlify shows you |
+
+   Add it at Hetzner, wait a minute, then press *Add subdomain*. The value is
+   per-site and regenerates, so use the one on screen rather than one written
+   down here.
+
+   **Then the subdomain itself:**
+
+   | Type | Name | Value |
    |---|---|---|
    | CNAME | `nexo` | `<your-site>.netlify.app` |
 
-   Then in Netlify, *Domain management → Add a domain* → `nexo.delidev.net`,
-   and let it issue the certificate. That takes a few minutes and sometimes
-   an hour; it is DNS.
+   Netlify issues the certificate once that resolves. Minutes usually, an
+   hour sometimes; it is DNS. The TXT record can be deleted afterwards, and
+   there is no harm in leaving it.
 
 3. **Let the API accept it.** The browser will refuse every request until the
    server says the origin is allowed. On the server, in `/etc/nexo/nexo.env`:
@@ -471,7 +511,7 @@ two builds will publish over each other.
    NEXO_CORS_ORIGINS=https://nexo.delidev.net
    ```
 
-   then `sudo systemctl restart nexo`. Without this the site loads, looks
+   then `sudo systemctl restart nexo-server`. Without this the site loads, looks
    perfect, and cannot sign anybody in — the failure shows up only in the
    browser's console, as CORS.
 

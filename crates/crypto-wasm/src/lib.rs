@@ -47,6 +47,27 @@ use openmls_traits::OpenMlsProvider;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
+/// Derives the account verifier with the same Argon2id parameters as the
+/// native client. The password never goes to the server; the caller sends only
+/// this output. Parameters come from `/v1/auth/salt` so they can be raised.
+#[wasm_bindgen(js_name = "deriveVerifier")]
+pub fn derive_verifier(
+    password: &str,
+    salt: &[u8],
+    memory_kib: u32,
+    iterations: u32,
+    parallelism: u32,
+) -> Result<Vec<u8>, JsError> {
+    use argon2::{Algorithm, Argon2, Params, Version};
+
+    let params = Params::new(memory_kib, iterations, parallelism, Some(32)).map_err(js_err)?;
+    let mut verifier = vec![0; 32];
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_into(password.as_bytes(), salt, &mut verifier)
+        .map_err(js_err)?;
+    Ok(verifier)
+}
+
 /// Turns a wasm panic into a message rather than `unreachable executed`.
 ///
 /// Called once, by the page, before anything else. Safe to call twice.
@@ -100,9 +121,8 @@ pub fn peek(ciphertext: &[u8]) -> Result<String, JsError> {
 /// ratchet state. A page makes one of these per signed-in account and keeps it
 /// for the session.
 ///
-/// The identity secret never crosses back into JavaScript. It is generated
-/// here or imported here, and what a caller can read is the public key and a
-/// safety number.
+/// On a browser target the identity secret is exported once into IndexedDB;
+/// there is no process or OS keystore below the page to hold it instead.
 #[wasm_bindgen]
 pub struct Device {
     provider: OpenMlsRustCrypto,
@@ -155,6 +175,14 @@ impl Device {
     #[must_use]
     pub fn public_key(&self) -> Vec<u8> {
         self.identity.public_bytes().to_vec()
+    }
+
+    /// The fingerprint of this device's public identity key.
+    #[wasm_bindgen(js_name = "fingerprint")]
+    pub fn fingerprint(&self) -> Result<String, JsError> {
+        Ok(SafetyNumber::for_identity(&self.identity.public_bytes())
+            .map_err(js_err)?
+            .to_display_string())
     }
 
     /// The identity secret, for the page to put somewhere it trusts.

@@ -22,14 +22,17 @@ export interface SessionTokens {
   device_id: string;
 }
 
-/**
- * The per-account salt, fetched before a password is ever hashed.
- *
- * The field is `salt`, not `pw_salt` — the request body uses `pw_salt` and the
- * response does not, which is the sort of asymmetry only a real call finds.
- */
+/** Client-side Argon2id cost supplied by the server. */
+export interface Argon2Params {
+  memory_kib: number;
+  iterations: number;
+  parallelism: number;
+}
+
+/** The per-account salt and the Argon2id cost for this request. */
 export interface SaltResponse {
   salt: string;
+  argon2: Argon2Params;
 }
 
 /**
@@ -133,8 +136,6 @@ export interface InviteSummary {
 export interface StorySummary {
   id: number;
   author_handle: string;
-  s3_key: string;
-  size: number;
   created_at_ms: number;
   expires_at_ms: number;
 }

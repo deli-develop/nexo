@@ -21,9 +21,8 @@ import type { SaltResponse, SessionTokens } from "./types";
  * somebody has one. The server mints a stable decoy from the handle, so the
  * two cases are indistinguishable from outside.
  */
-export async function salt(transport: Transport, handle: string): Promise<string> {
-  const answer = await transport.post<SaltResponse>("/v1/auth/salt", { handle });
-  return answer.salt;
+export function salt(transport: Transport, handle: string): Promise<SaltResponse> {
+  return transport.post<SaltResponse>("/v1/auth/salt", { handle });
 }
 
 export interface RegisterInput {
@@ -48,7 +47,6 @@ export async function register(
     pw_verifier: input.pwVerifier,
     identity_pubkey: input.identityPubkey,
   });
-  transport.adopt(tokens);
   return tokens;
 }
 
@@ -63,7 +61,6 @@ export async function login(
     pw_verifier: pwVerifier,
     identity_pubkey: identityPubkey,
   });
-  transport.adopt(tokens);
   return tokens;
 }
 

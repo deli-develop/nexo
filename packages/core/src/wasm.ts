@@ -1,4 +1,5 @@
 import type { CryptoModule, Device, Group, Peeked } from "./crypto";
+import type { PasswordCrypto } from "./session";
 
 /**
  * Binds `@nexo/crypto-wasm` to the [`CryptoModule`] seam.
@@ -44,5 +45,22 @@ export function bindWasm(module: WasmModule): CryptoModule {
     joinGroup: (device, welcome, nowMs) => module.Group.join(device, welcome, nowMs),
     loadGroup: (device, conversationId, nowMs) =>
       module.Group.load(device, conversationId, nowMs) ?? undefined,
+  };
+}
+
+/** The password path stays in the same pinned Rust/WASM build as MLS. */
+export function bindPasswordWasm(module: {
+  deriveVerifier(
+    password: string,
+    salt: Uint8Array,
+    memoryKiB: number,
+    iterations: number,
+    parallelism: number,
+  ): Uint8Array;
+}): PasswordCrypto {
+  return {
+    deriveVerifier: (password, salt, params) => module.deriveVerifier(
+      password, salt, params.memory_kib, params.iterations, params.parallelism,
+    ),
   };
 }

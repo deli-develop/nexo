@@ -114,6 +114,20 @@ export interface GroupAvatarPayload {
   size: number;
 }
 
+/** An encrypted story key sent down an existing MLS conversation. No bubble. */
+export interface StoryPayload {
+  kind: "story";
+  /** Absent only in older envelopes; they cannot be opened by server id. */
+  story_id?: number;
+  s3_key: string;
+  key: string;
+  nonce: string;
+  sha256: string;
+  mime: string;
+  size: number;
+  expires_at_ms: number;
+}
+
 /**
  * A payload this build cannot read.
  *
@@ -140,6 +154,7 @@ export type Payload =
   | StickerPayload
   | ViewOncePayload
   | GroupAvatarPayload
+  | StoryPayload
   | UnsupportedPayload;
 
 /**
@@ -162,6 +177,7 @@ const KNOWN = new Set([
   "sticker",
   "view_once",
   "group_avatar",
+  "story",
 ]);
 
 const encoder = new TextEncoder();

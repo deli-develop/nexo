@@ -44,6 +44,7 @@ class FakeGroup implements Group {
   confirmCommit(): bigint {
     this.confirmed += 1;
     this.epoch += 1n;
+    this.memberCount += 1;
     return this.epoch;
   }
   abandonCommit(): void {
@@ -180,6 +181,16 @@ beforeEach(() => {
 // ----------------------------------------------------------------- the tests
 
 describe("starting a conversation", () => {
+  it("refuses a malformed claimed KeyPackage before creating a server row", async () => {
+    const { ctx, calls } = await context([
+      { status: 200, body: { device_id: "d2", key_package: "0g" } },
+    ]);
+    await expect(conversations.startWith(ctx, "ada")).rejects.toMatchObject({
+      kind: "rejected",
+    });
+    expect(calls.map((call) => call.path)).toEqual(["/v1/keypackages/ada"]);
+  });
+
   it("sends the Welcome after the commit, as an ordinary envelope", async () => {
     const { ctx, calls } = await context([
       { status: 200, body: { device_id: "d2", key_package: "beef" } },
@@ -228,6 +239,165 @@ describe("starting a conversation", () => {
     // Welcome is *in* that history and skipping to the end would skip it.
     expect((await store.conversation("theirs"))?.syncedTo).toBe(0);
   });
+
+  it("reuses saved messages locally and adopts the server's one self conversation", async () => {
+    const { ctx, store, calls } = await context([
+      { status: 200, body: {
+        conversation_id: "id-1", kind: "self", epoch: 1,
+        latest_envelope_id: null, members: [],
+      } },
+    ]);
+
+    expect(await conversations.startSelf(ctx)).toBe("id-1");
+    expect(await conversations.startSelf(ctx)).toBe("id-1");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toEqual({ conversation_id: "id-1", members: [] });
+    expect(await store.conversation("id-1")).toMatchObject({
+      kind: "self", title: conversations.SELF_TITLE, syncedTo: 0,
+    });
+    expect(await store.mlsState()).not.toBeNull();
+  });
+
+  it("claims everyone before group creation, commits each member, then sends the title", async () => {
+    const { ctx, store, crypto, calls } = await context([
+      { status: 200, body: { device_id: "d2", key_package: "beef" } },
+      { status: 200, body: { device_id: "d3", key_package: "cafe" } },
+      { status: 201, body: {
+        conversation_id: "id-1", kind: "group", epoch: 1,
+        latest_envelope_id: null, members: ["me", "ada", "bob"],
+      } },
+      { status: 200, body: { envelope_id: 1, epoch: 2 } },
+      { status: 200, body: { envelope_id: 2, epoch: 2 } },
+      { status: 200, body: { envelope_id: 3, epoch: 3 } },
+      { status: 200, body: { envelope_id: 4, epoch: 3 } },
+      { status: 200, body: { envelope_id: 5, epoch: 3 } },
+    ]);
+
+    expect(await conversations.startGroup(ctx, ["ada", "bob"], "Weekend plans"))
+      .toBe("id-1");
+
+    expect(calls.slice(0, 3).map((call) => call.path)).toEqual([
+      "/v1/keypackages/ada", "/v1/keypackages/bob", "/v1/conversations",
+    ]);
+    expect(calls.filter((call) => call.path.endsWith("/send"))
+      .map((call) => (call.body as { is_commit: boolean }).is_commit))
+      .toEqual([true, false, true, false, false]);
+    expect(JSON.parse(new TextDecoder().decode(crypto.group!.encrypted[0]))).toEqual({
+      kind: "rename", title: "Weekend plans",
+    });
+    expect(crypto.group!.confirmed).toBe(2);
+    expect(await store.conversation("id-1")).toMatchObject({
+      kind: "group", title: "Weekend plans", epoch: 3,
+    });
+  });
+
+  it("keeps an accepted group commit even when its Welcome fails", async () => {
+    const { ctx, store, crypto } = await context([
+      { status: 200, body: { device_id: "d2", key_package: "beef" } },
+      { status: 201, body: {
+        conversation_id: "id-1", kind: "dm", epoch: 1,
+        latest_envelope_id: null, members: ["me", "ada"],
+      } },
+      { status: 200, body: { envelope_id: 1, epoch: 2 } },
+      { status: 503, body: { error: "offline", message: "No reply" } },
+    ]);
+
+    await expect(conversations.startGroup(ctx, ["ada"], "Plans")).rejects.toThrow();
+    expect(crypto.group!.confirmed).toBe(1);
+    expect(crypto.group!.abandoned).toBe(0);
+    expect(await store.mlsState()).not.toBeNull();
+    expect((await store.conversation("id-1"))?.epoch).toBe(2);
+  });
+});
+
+describe("adding a member", () => {
+  it("creates the routing row before committing and sends Welcome last", async () => {
+    const { ctx, crypto, calls, store } = await context([
+      { status: 200, body: { device_id: "d3", key_package: "cafe" } },
+      { status: 204, body: undefined },
+      { status: 200, body: { envelope_id: 2, epoch: 2 } },
+      { status: 200, body: { envelope_id: 3, epoch: 2 } },
+    ]);
+    crypto.createGroup();
+    crypto.group!.memberCount = 2;
+    await store.putConversation({
+      id: "c1", title: "Ada", kind: "dm", epoch: 1, syncedTo: 1,
+      lastMessage: null, updatedAtMs: 0,
+    });
+
+    await conversations.addTo(ctx, "c1", "bob");
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/v1/keypackages/bob", "/v1/conversations/c1/members",
+      "/v1/conversations/c1/send", "/v1/conversations/c1/send",
+    ]);
+    expect((calls[2]!.body as { is_commit: boolean }).is_commit).toBe(true);
+    expect((calls[3]!.body as { is_commit: boolean }).is_commit).toBe(false);
+    expect(crypto.group!.confirmed).toBe(1);
+    expect(await store.conversation("c1")).toMatchObject({ kind: "group", epoch: 2 });
+  });
+
+  it("abandons a refused add commit and keeps the original MLS epoch", async () => {
+    const { ctx, crypto, store } = await context([
+      { status: 200, body: { device_id: "d3", key_package: "cafe" } },
+      { status: 204, body: undefined },
+      { status: 409, body: { message: "stale", current_epoch: 3 } },
+    ]);
+    crypto.createGroup();
+    await expect(conversations.addTo(ctx, "c1", "bob")).rejects.toThrow();
+    expect(crypto.group!.confirmed).toBe(0);
+    expect(crypto.group!.abandoned).toBe(1);
+    expect(crypto.group!.epoch).toBe(1n);
+    expect(await store.mlsState()).not.toBeNull();
+  });
+});
+
+describe("opening a direct conversation", () => {
+  it("syncs a pending Welcome before returning a usable conversation", async () => {
+    const { ctx, crypto, store, calls } = await context([
+      { status: 200, body: [{
+        conversation_id: "c1", kind: "dm", epoch: 2,
+        latest_envelope_id: 2, members: ["me", "ada"],
+      }] },
+      { status: 200, body: [envelope({ envelope_id: 2, ciphertext: "1100" })] },
+    ]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    crypto.peeks.set(0x11, "welcome");
+
+    expect(await conversations.openWith(ctx, " ADA ")).toBe("c1");
+    expect(crypto.joins).toBe(1);
+    expect((await store.conversation("c1"))?.syncedTo).toBe(2);
+    expect(calls.map((call) => call.path)).toEqual([
+      "/v1/conversations", "/v1/conversations/c1/sync?since_id=0",
+    ]);
+  });
+
+  it("leaves a DM with no Welcome so the server can create a usable one", async () => {
+    const { ctx, store, calls } = await context([
+      { status: 200, body: [{
+        conversation_id: "dead", kind: "dm", epoch: 2,
+        latest_envelope_id: 1, members: ["me", "ada"],
+      }] },
+      { status: 200, body: [envelope({ envelope_id: 1, conversation_id: "dead" })] },
+      { status: 204, body: undefined },
+      { status: 200, body: { device_id: "d2", key_package: "beef" } },
+      { status: 201, body: {
+        conversation_id: "id-1", kind: "dm", epoch: 1,
+        latest_envelope_id: null, members: ["me", "ada"],
+      } },
+      { status: 200, body: { envelope_id: 2, epoch: 2 } },
+      { status: 200, body: { envelope_id: 3, epoch: 2 } },
+    ]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+
+    expect(await conversations.openWith(ctx, "ada")).toBe("id-1");
+    expect(calls[2]).toMatchObject({
+      path: "/v1/conversations/dead/members/remove", body: { handle: "me" },
+    });
+    expect(calls[3]!.path).toBe("/v1/keypackages/ada");
+    expect(await store.conversation("dead")).toBeNull();
+  });
 });
 
 describe("sending", () => {
@@ -269,6 +439,79 @@ describe("sending", () => {
 });
 
 describe("syncing", () => {
+  it("keeps a removed conversation hidden until a newer envelope appears", async () => {
+    const listed = (latest: number) => [{
+      conversation_id: "c1", kind: "dm", epoch: 1,
+      latest_envelope_id: latest, members: ["me", "ada"],
+    }];
+    const { ctx, store } = await context([
+      { status: 200, body: listed(5) },
+      { status: 200, body: listed(6) },
+    ]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    await store.putConversation({
+      id: "c1", title: "ada", kind: "dm", epoch: 1, syncedTo: 5,
+      lastMessage: null, updatedAtMs: 0,
+    });
+    await store.forgetConversation("c1");
+
+    expect(await conversations.discover(ctx)).toEqual([]);
+    expect(await store.conversation("c1")).toBeNull();
+    expect(await conversations.discover(ctx)).toEqual(["c1"]);
+    expect((await store.conversation("c1"))?.syncedTo).toBe(5);
+    expect((await store.forgottenConversations()).has("c1")).toBe(false);
+  });
+
+  it("an explicit open lifts a removal without replaying deleted history", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [{
+      conversation_id: "c1", kind: "dm", epoch: 1,
+      latest_envelope_id: 5, members: ["me", "ada"],
+    }] }]);
+    crypto.createGroup();
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    await store.putConversation({
+      id: "c1", title: "ada", kind: "dm", epoch: 1, syncedTo: 5,
+      lastMessage: null, updatedAtMs: 0,
+    });
+    await store.forgetConversation("c1");
+
+    expect(await conversations.openWith(ctx, "ada")).toBe("c1");
+    expect((await store.conversation("c1"))?.syncedTo).toBe(5);
+    expect((await store.forgottenConversations()).has("c1")).toBe(false);
+  });
+
+  it("stores a story key without a chat bubble, and never stores an expired key", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [
+      envelope({ envelope_id: 7 }), envelope({ envelope_id: 8, server_timestamp_ms: 1_000_001 }),
+    ] }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0,
+      lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    const story = {
+      kind: "story", story_id: 42, s3_key: "story/x", key: "aa", nonce: "bb",
+      sha256: "cc", mime: "image/png", size: 3, expires_at_ms: 1_000_010,
+    };
+    crypto.answers.push(
+      { kind: "message", sender: "them", plaintext: new TextEncoder().encode(JSON.stringify(story)), epoch: 1n },
+      { kind: "message", sender: "them", plaintext: new TextEncoder().encode(JSON.stringify({
+        ...story, story_id: 43, expires_at_ms: 1_000_000,
+      })), epoch: 1n },
+    );
+
+    const outcome = await conversations.sync(ctx, "c1");
+
+    expect(outcome.messages).toBe(0);
+    expect((await store.conversation("c1"))?.syncedTo).toBe(8);
+    expect(await store.messages("c1")).toEqual([]);
+    expect(await store.liveStories(1_000_000)).toMatchObject([{
+      id: 42, authorHandle: "", authorDeviceId: "them", s3Key: "story/x",
+      encKey: "aa", expiresAtMs: 1_000_010,
+    }]);
+  });
+
   it("joins from a Welcome and skips everything at or before it", async () => {
     const { ctx, store, crypto } = await context([
       {

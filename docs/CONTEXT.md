@@ -186,8 +186,9 @@ Three consequences worth knowing before reading anything else:
 
 - **`apps/server` has a CORS layer.** `NEXO_CORS_ORIGINS` names the browser
   origins allowed to call the API, and unset means no layer at all. The
-  desktop app sends no `Origin` header, so this is invisible to it. Never
-  `*` — `parse_origins` refuses one at startup.
+  packaged desktop app uses `http://tauri.localhost`, which the deployment
+  helper adds whenever the layer is configured. Never `*` — `parse_origins`
+  refuses one at startup.
 - **Nothing is encrypted at rest.** `crates/store` was SQLCipher with a key
   from the OS keystore; a browser has no such place, so `packages/core`'s
   IndexedDB holds the session and the history in the clear. That is the price
@@ -884,9 +885,10 @@ failed silently.
   search is the standing example) is a threat-model decision before it is a
   frontend one. Stickers are drawn in the repo for exactly this reason.
 - **CORS is off unless `NEXO_CORS_ORIGINS` names an origin, and `*` is refused
-  at startup.** The desktop app makes its HTTP calls from a Rust process, which
-  sends no `Origin` header, so the API had no CORS layer at all until the web
-  client (`nexo-web`) existed. `parse_origins` in `apps/server/src/lib.rs`
+  at startup.** Both the web client and packaged desktop app make HTTP calls
+  from browser contexts; the latter uses `http://tauri.localhost`. The
+  deployment helper adds that exact loopback origin when CORS is configured.
+  `parse_origins` in `apps/server/src/lib.rs`
   panics on a wildcard, on anything that is not `https://` (loopback excepted),
   and on an origin carrying a path or trailing slash — the last because an
   `Origin` header is scheme, host and port, so a value with more in it never

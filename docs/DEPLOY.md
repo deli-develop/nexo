@@ -352,7 +352,7 @@ the env file so you pass each only once:
 
 | Variable | What happens without it |
 |---|---|
-| `NEXO_CORS_ORIGINS` | No CORS layer, so only the desktop app can call this server. The website cannot. |
+| `NEXO_CORS_ORIGINS` | No CORS layer, so neither the website nor the packaged desktop app can call this server. |
 | The eight `NEXO_S3_*` values | Attachments and feed images are unavailable. Everything else works. All eight or none — a partly filled block is a startup error, on purpose. |
 
 *(OPS.md Phase 7. Object storage is Phase 8, and you do not need it today.)*
@@ -508,7 +508,7 @@ two builds will publish over each other.
    server says the origin is allowed. On the server, in `/etc/nexo/nexo.env`:
 
    ```
-   NEXO_CORS_ORIGINS=https://nexo.delidev.net
+  NEXO_CORS_ORIGINS=https://nexo.delidev.net,http://tauri.localhost
    ```
 
    then `sudo systemctl restart nexo-server`. Without this the site loads, looks

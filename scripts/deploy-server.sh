@@ -16,7 +16,7 @@
 #   NEXO_CORS_ORIGINS=https://nexo.delidev.net bash deploy-server.sh
 #   NEXO_S3_ENDPOINT=... NEXO_S3_REGION=... bash deploy-server.sh
 #
-# Without the first, only the desktop app can call this server. Without the
+# Without the first, neither browser client can call this server. Without the
 # second, attachments and feed images are unavailable.
 #
 # Run it from a clone of the repo, as a user with sudo.
@@ -125,11 +125,10 @@ else
 fi
 
 say "Browser origins"
-# Unset means no CORS layer at all, which is exactly what a deployment serving
-# only the desktop app wants: that client calls from a Rust process and sends
-# no Origin header. The web client at nexo.delidev.net is a different matter --
-# it is a different host from api.delidev.net, so every call it makes is
-# cross-origin and the layer is what lets it through.
+# The packaged desktop app is served from http://tauri.localhost and makes its
+# requests from the WebView now, so it needs the same CORS layer as the web
+# client. The origin is added below rather than left to each operator to
+# remember.
 #
 #   NEXO_CORS_ORIGINS=https://nexo.delidev.net bash deploy-server.sh
 #
@@ -143,6 +142,10 @@ if [ -z "$CORS_VALUE" ] && sudo test -f "$ENV_FILE"; then
   CORS_VALUE="$(sudo sed -n 's/^NEXO_CORS_ORIGINS=//p' "$ENV_FILE" | head -1)"
 fi
 if [ -n "$CORS_VALUE" ]; then
+  case ",$CORS_VALUE," in
+    *,http://tauri.localhost,*) ;;
+    *) CORS_VALUE="$CORS_VALUE,http://tauri.localhost" ;;
+  esac
   CORS_BLOCK="NEXO_CORS_ORIGINS=$CORS_VALUE"
   echo "allowing $CORS_VALUE"
 else

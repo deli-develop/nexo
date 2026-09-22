@@ -430,10 +430,8 @@ RUST_LOG=nexo_server=info
 # "NEXO_JWT_PRIVATE_KEY_PEM is not set; refusing to start".
 NEXO_JWT_PRIVATE_KEY_PEM=/etc/nexo/jwt-ed25519.pem
 
-# Only for the web client (github.com/deli-develop/nexo-web). Leave it out
-# entirely on a deployment that serves only the desktop app: unset means no
-# CORS layer at all, which is what the desktop app wants -- it calls from a
-# Rust process and sends no Origin header.
+# The web client and the packaged desktop app both make requests from a
+# browser context. The desktop WebView origin is http://tauri.localhost.
 #
 # Comma-separated, and exact origins only. The server refuses to start on a
 # wildcard, on anything that is not https:// (loopback excepted), and on a
@@ -442,7 +440,7 @@ NEXO_JWT_PRIVATE_KEY_PEM=/etc/nexo/jwt-ed25519.pem
 # Do NOT add Netlify's deploy-preview URLs here. A preview is one pull request
 # away from anyone who can open one, and this list is what stands between that
 # and production data. Previews point at a staging API or at nothing.
-NEXO_CORS_ORIGINS=https://nexo.delidev.net
+NEXO_CORS_ORIGINS=https://nexo.delidev.net,http://tauri.localhost
 ```
 
 `ProtectSystem=strict` leaves `/etc` readable, so the unit can read the key

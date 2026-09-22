@@ -56,7 +56,9 @@ pub const CORS_ORIGINS_ENV: &str = "NEXO_CORS_ORIGINS";
 ///   internet make authenticated requests on a visitor's behalf the moment it
 ///   obtained a token, and "just to get it working" is exactly how it would
 ///   arrive. There is no configuration in which it is right here.
-/// - anything that is not `https://`, except loopback for local development.
+/// - anything that is not `https://`, except loopback — which covers local
+///   development and the packaged desktop app, whose page is served from
+///   `http://tauri.localhost`.
 /// - anything carrying a path, query or trailing slash: an `Origin` header is
 ///   scheme, host and port, and a value with more in it never matches, which
 ///   would fail as a confusing CORS error rather than a configuration one.
@@ -106,7 +108,15 @@ fn url_parts(candidate: &str) -> UrlParts {
     let host = rest.split(':').next().unwrap_or_default();
     UrlParts {
         https: scheme == "https",
-        loopback: scheme == "http" && (host == "localhost" || host == "127.0.0.1"),
+        // `.localhost` is reserved by RFC 6761 and always resolves to the
+        // loopback interface, which is what makes this safe to widen: no
+        // amount of DNS can point `tauri.localhost` at somebody else's
+        // machine. The Tauri build needs it — a packaged desktop app serves
+        // its page from `http://tauri.localhost`, so once the page started
+        // making its own requests (REWORK wave 7) it began sending that as an
+        // `Origin` where the old Rust client sent none at all.
+        loopback: scheme == "http"
+            && (host == "localhost" || host == "127.0.0.1" || host.ends_with(".localhost")),
         has_extra: rest.contains('/')
             || rest.contains('?')
             || rest.contains('#')
@@ -249,6 +259,29 @@ mod tests {
     fn loopback_may_be_plaintext_for_local_development() {
         assert_eq!(parse_origins("http://localhost:5173").len(), 1);
         assert_eq!(parse_origins("http://127.0.0.1:5173").len(), 1);
+    }
+
+    /// The desktop app is a browser now, and it has an origin.
+    ///
+    /// Before the page made its own requests, the Windows client called this
+    /// API from Rust and sent no `Origin` at all, so CORS never applied to it.
+    /// A packaged Tauri app serves its page from `http://tauri.localhost`, and
+    /// refusing that is the whole desktop app failing with "Failed to fetch"
+    /// while the website works perfectly.
+    #[test]
+    fn the_packaged_desktop_origin_is_accepted() {
+        assert_eq!(parse_origins("http://tauri.localhost").len(), 1);
+    }
+
+    /// Reserved-TLD loopback only, and still only over `http`.
+    ///
+    /// `.localhost` cannot be pointed anywhere by DNS (RFC 6761). A host that
+    /// merely *contains* the word is an ordinary internet name and gets no
+    /// exemption — `http://localhost.example.com` is somebody else's server.
+    #[test]
+    #[should_panic(expected = "not https")]
+    fn a_hostname_that_merely_mentions_localhost_is_refused() {
+        parse_origins("http://localhost.example.com");
     }
 
     #[test]

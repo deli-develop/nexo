@@ -49,7 +49,10 @@ export class Transport {
   #accessToken: string | null = null;
   #refreshToken: string | null = null;
   #refreshing: Promise<boolean> | null = null;
-  readonly #onRotated: TransportOptions["onTokensRotated"];
+  #expiresAt = 0;
+  #pendingRotation: SessionTokens | null = null;
+  #persisting: Promise<void> | null = null;
+  #onRotated: TransportOptions["onTokensRotated"];
   readonly #fetch: typeof globalThis.fetch;
 
   constructor(options: TransportOptions) {
@@ -58,20 +61,40 @@ export class Transport {
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
+  /** The session layer installs its durable refresh-token hand-off here. */
+  setRotationHandler(handler: NonNullable<TransportOptions["onTokensRotated"]>): void {
+    this.#onRotated = handler;
+  }
+
   /** Adopt a session, after signing in or restoring one from the store. */
-  adopt(tokens: Pick<SessionTokens, "access_token" | "refresh_token">): void {
+  adopt(tokens: Pick<SessionTokens, "access_token" | "refresh_token"> & Partial<SessionTokens>): void {
     this.#accessToken = tokens.access_token;
     this.#refreshToken = tokens.refresh_token;
+    this.#expiresAt = tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : 0;
+    this.#pendingRotation = null;
   }
 
   /** Forget it. Sign-out, and any refusal that cannot be recovered from. */
   clear(): void {
     this.#accessToken = null;
     this.#refreshToken = null;
+    this.#expiresAt = 0;
+    this.#pendingRotation = null;
   }
 
   get signedIn(): boolean {
     return this.#accessToken !== null;
+  }
+
+  /** A current bearer for the browser WebSocket, which cannot set headers. */
+  async accessToken(): Promise<string> {
+    await this.#persistRotation();
+    if (this.#expiresAt !== 0 && this.#expiresAt <= Date.now() + 30_000) {
+      if (!(await this.#refresh())) {
+        throw new TransportError("invalid_credentials", "You are not signed in.");
+      }
+    }
+    return this.#bearer();
   }
 
   // ------------------------------------------------------------ unauthenticated
@@ -92,6 +115,12 @@ export class Transport {
     );
   }
 
+  async patchAuth<R>(path: string, body: unknown): Promise<R> {
+    return this.#withRefresh((token) =>
+      this.#send<R>(path, { method: "PATCH", body, token }),
+    );
+  }
+
   async deleteAuth(path: string): Promise<void> {
     await this.#withRefresh((token) => this.#send<void>(path, { method: "DELETE", token }));
   }
@@ -105,13 +134,16 @@ export class Transport {
    * genuinely gone, and retrying further would spend tokens for nothing.
    */
   async #withRefresh<R>(send: (token: string) => Promise<R>): Promise<R> {
-    const token = this.#bearer();
+    const token = await this.accessToken();
     try {
       return await send(token);
     } catch (error) {
       if (!(error instanceof TransportError) || error.kind !== "invalid_credentials") throw error;
+      // Another caller may have refreshed while this request was in flight.
+      // Retrying with its token avoids spending another rotating refresh token.
+      if (this.#accessToken !== token) return send(await this.accessToken());
       if (!(await this.#refresh())) throw error;
-      return send(this.#bearer());
+      return send(await this.accessToken());
     }
   }
 
@@ -136,19 +168,39 @@ export class Transport {
         });
         this.#accessToken = tokens.access_token;
         this.#refreshToken = tokens.refresh_token;
-        // Awaited, not fired and forgotten. If persisting the rotation fails,
-        // the caller should find out here rather than on the next start, when
-        // the only symptom is being signed out of every device at once.
-        await this.#onRotated?.(tokens);
+        this.#expiresAt = Date.now() + tokens.expires_in * 1000;
+        this.#pendingRotation = tokens;
+        await this.#persistRotation();
         return true;
-      } catch {
-        return false;
+      } catch (error) {
+        if (error instanceof TransportError && error.kind === "invalid_credentials") {
+          this.clear();
+          return false;
+        }
+        // In particular, a failed persistence callback is not an expired
+        // session. Keep the newly rotated token for a later persistence retry.
+        throw error;
       } finally {
         this.#refreshing = null;
       }
     })();
 
     return this.#refreshing;
+  }
+
+  async #persistRotation(): Promise<void> {
+    if (this.#persisting) return this.#persisting;
+    const pending = this.#pendingRotation;
+    if (!pending) return;
+    this.#persisting = Promise.resolve()
+      .then(() => this.#onRotated?.(pending))
+      .then(() => {
+        if (this.#pendingRotation === pending) this.#pendingRotation = null;
+      })
+      .finally(() => {
+        this.#persisting = null;
+      });
+    return this.#persisting;
   }
 
   #bearer(): string {

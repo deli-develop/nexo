@@ -14,13 +14,15 @@
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
+use axum::http::header::{AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL};
+use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::{Router, routing::get};
 use futures_util::{SinkExt, StreamExt};
 use nexo_protocol::{ClientEvent, ConversationId, ServerEvent};
 use tokio::sync::mpsc;
 
-use crate::auth::bearer::Caller;
+use crate::auth::bearer::{Caller, Unauthorized};
 use crate::state::AppState;
 
 pub mod hub;
@@ -38,16 +40,102 @@ pub fn router() -> Router<AppState> {
 
 /// Authenticates, then upgrades.
 ///
-/// The [`Caller`] extractor runs **before** the upgrade, so an unauthenticated
-/// connection is refused with an ordinary 401 rather than being accepted and
-/// then closed. A client that got a socket and then lost it cannot tell a bad
-/// token from a flaky network.
+/// Both native clients' bearer header and browsers' subprotocol credential are
+/// verified **before** the upgrade, so an unauthenticated connection gets an
+/// ordinary 401. Browsers cannot set an Authorization header on a WebSocket;
+/// putting the credential in the URL would leak it into proxy access logs.
+/// Only the fixed `nexo` protocol is negotiated back, never the credential.
 async fn upgrade(
     State(state): State<AppState>,
-    caller: Caller,
+    headers: HeaderMap,
     upgrade: WebSocketUpgrade,
-) -> Response {
-    upgrade.on_upgrade(move |socket| run(socket, state, caller))
+) -> Result<Response, Unauthorized> {
+    let token = stream_token(&headers)?;
+    let caller = Caller::from_access_token(&state.auth, token)?;
+    Ok(upgrade
+        .protocols(["nexo"])
+        .on_upgrade(move |socket| run(socket, state, caller)))
+}
+
+/// Accept exactly one credential source. The browser sends two offered
+/// subprotocols: `nexo` and `nexo.auth.<JWT>`. The latter is never echoed.
+fn stream_token(headers: &HeaderMap) -> Result<&str, Unauthorized> {
+    let bearer = match headers.get(AUTHORIZATION) {
+        Some(value) => {
+            let value = value.to_str().map_err(|_| Unauthorized)?;
+            let (scheme, token) = value.split_once(' ').ok_or(Unauthorized)?;
+            if !scheme.eq_ignore_ascii_case("bearer") || token.trim().is_empty() {
+                return Err(Unauthorized);
+            }
+            Some(token.trim())
+        }
+        None => None,
+    };
+
+    let protocol = match headers.get(SEC_WEBSOCKET_PROTOCOL) {
+        Some(value) => {
+            let value = value.to_str().map_err(|_| Unauthorized)?;
+            let offered: Vec<_> = value.split(',').map(str::trim).collect();
+            let credentials: Vec<_> = offered
+                .iter()
+                .filter_map(|candidate| candidate.strip_prefix("nexo.auth."))
+                .collect();
+            if credentials.is_empty() {
+                None
+            } else if credentials.len() == 1
+                && offered.contains(&"nexo")
+                && !credentials[0].is_empty()
+            {
+                Some(credentials[0])
+            } else {
+                return Err(Unauthorized);
+            }
+        }
+        None => None,
+    };
+
+    match (bearer, protocol) {
+        (Some(token), None) | (None, Some(token)) => Ok(token),
+        _ => Err(Unauthorized),
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+
+    #[test]
+    fn browser_token_is_read_without_echoing_it() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            "nexo, nexo.auth.abc.def.ghi".parse().unwrap(),
+        );
+        assert_eq!(stream_token(&headers).unwrap(), "abc.def.ghi");
+    }
+
+    #[test]
+    fn rejects_ambiguous_and_unnegotiable_tokens() {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, "Bearer native".parse().unwrap());
+        headers.insert(SEC_WEBSOCKET_PROTOCOL, "nexo, nexo.auth.web".parse().unwrap());
+        assert!(stream_token(&headers).is_err());
+        headers.remove(AUTHORIZATION);
+        headers.insert(SEC_WEBSOCKET_PROTOCOL, "nexo.auth.web".parse().unwrap());
+        assert!(stream_token(&headers).is_err());
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            "nexo, nexo.auth.first, nexo.auth.second".parse().unwrap(),
+        );
+        assert!(stream_token(&headers).is_err());
+    }
+
+    #[test]
+    fn native_bearer_keeps_working() {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, "Bearer native".parse().unwrap());
+        assert_eq!(stream_token(&headers).unwrap(), "native");
+    }
 }
 
 /// One connection, for as long as it lasts.

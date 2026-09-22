@@ -87,6 +87,31 @@ describe("Transport", () => {
     expect(rotated).toEqual(["refresh-2"]);
   });
 
+  it("does not hide a failed rotated-token write and retries it before another call", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, {}))
+      .mockResolvedValueOnce(jsonResponse(200, tokens(2)))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+    let attempts = 0;
+    const transport = new Transport({
+      baseUrl: "https://api.example",
+      fetch,
+      onTokensRotated: () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("disk full");
+      },
+    });
+    transport.adopt(tokens(1));
+
+    await expect(transport.getAuth("/v1/feed")).rejects.toThrow("disk full");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await expect(transport.getAuth("/v1/feed")).resolves.toEqual({ ok: true });
+    expect(attempts).toBe(2);
+    expect((fetch.mock.calls[2]![1].headers as Record<string, string>).authorization)
+      .toBe("Bearer access-2");
+  });
+
   it("refreshes once for concurrent calls, never twice", async () => {
     // Two requests meeting a 401 together must not both spend the refresh
     // token: the second would present one the first had already replaced,

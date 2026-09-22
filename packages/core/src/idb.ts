@@ -27,7 +27,7 @@
  * rewritten once anybody has climbed it, because a database created before the
  * edit took the old path and the two would disagree. Add a rung instead.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Every object store, and what makes a row unique in it. */
 export const STORES = {
@@ -59,9 +59,44 @@ export const STORES = {
   /** Unsent messages, in the order they were written. */
   outbox: { keyPath: "id", autoIncrement: true },
   drafts: { keyPath: "conversationId" },
+  /** A story and the key that must be destroyed when it expires. */
+  stories: { keyPath: "id" },
+  /** Its key is nulled after the first successful opening; the row remains. */
+  viewOnce: { keyPath: "clientId", indexes: { byConversation: "conversationId" } },
+  folders: { keyPath: "id", autoIncrement: true },
+  folderMembers: {
+    keyPath: "id",
+    indexes: { byFolder: "folderId", byConversation: "conversationId" },
+  },
+  pinnedMessages: { keyPath: "id", indexes: { byConversation: "conversationId" } },
+  forgottenConversations: { keyPath: "id" },
+  conversationPeers: { keyPath: "id", indexes: { byConversation: "conversationId" } },
+  /** An inverted index kept in the same transaction as the message body. */
+  searchTerms: {
+    keyPath: "id",
+    indexes: { byTerm: "term", byMessage: "messageId" },
+  },
+  /** The local unlock verifier and failed-attempt counter. */
+  pin: { keyPath: "id" },
 } as const;
 
 export type StoreName = keyof typeof STORES;
+
+/** The same word boundaries used when indexing and querying local messages. */
+export function searchWords(body: string): string[] {
+  return [...new Set(body.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])];
+}
+
+const V1_STORES: StoreName[] = [
+  "account", "identity", "session", "mlsState", "conversations", "messages",
+  "reactions", "outbox", "drafts",
+];
+
+const V2_STORES: StoreName[] = [
+  "stories", "viewOnce", "folders", "folderMembers", "pinnedMessages",
+  "forgottenConversations", "conversationPeers", "searchTerms",
+  "pin",
+];
 
 /**
  * Opens the database, running the ladder if the version moved.
@@ -80,17 +115,12 @@ export function openDatabase(
     }
     const request = factory.open(name, SCHEMA_VERSION);
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
-      // Rung 1. Everything, because there was nothing before it.
-      //
-      // Per-store rather than one `contains("account")` gate: the gate meant
-      // that adding a store to this rung created it on a fresh database and
-      // silently not on any other, which is the kind of difference that only
-      // shows up as a missing-store error on somebody else's machine.
-      {
-        for (const [storeName, spec] of Object.entries(STORES)) {
+      const create = (names: StoreName[]) => {
+        for (const storeName of names) {
           if (db.objectStoreNames.contains(storeName)) continue;
+          const spec = STORES[storeName];
           const options: IDBObjectStoreParameters = { keyPath: spec.keyPath };
           if ("autoIncrement" in spec && spec.autoIncrement) options.autoIncrement = true;
           const store = db.createObjectStore(storeName, options);
@@ -103,6 +133,28 @@ export function openDatabase(
               store.createIndex(indexName, path as string | string[]);
             }
           }
+        }
+      };
+
+      // Existing databases took rung 1 before the domains below existed.
+      // Its definition is never changed after a released version has used it.
+      if (event.oldVersion < 1) create(V1_STORES);
+      if (event.oldVersion < 2) {
+        create(V2_STORES);
+        // A device upgrading from v1 already has messages. Search must find
+        // them too, not only messages received after the new index exists.
+        if (event.oldVersion >= 1) {
+          const upgrade = request.transaction!;
+          const existing = upgrade.objectStore("messages").getAll();
+          existing.onsuccess = () => {
+            const index = upgrade.objectStore("searchTerms");
+            for (const row of existing.result as Array<{ id: number; body: string }>) {
+              if (row.id < 0 || row.body.trim() === "") continue;
+              for (const term of searchWords(row.body)) {
+                index.put({ id: `${row.id}|${term}`, term, messageId: row.id });
+              }
+            }
+          };
         }
       }
     };
@@ -144,7 +196,17 @@ export async function transact<T>(
     tx.onabort = () => reject(tx.error ?? new Error("The write was abandoned."));
   });
 
-  const result = await work(tx);
+  let result: T;
+  try {
+    result = await work(tx);
+  } catch (error) {
+    // A domain check may fail after earlier requests succeeded. Without an
+    // explicit abort those writes could still commit despite the rejected
+    // promise, defeating every caller's all-or-nothing assumption.
+    try { tx.abort(); } catch { /* a failed request may already have aborted it */ }
+    await done.catch(() => undefined);
+    throw error;
+  }
   await done;
   return result;
 }
@@ -160,7 +222,7 @@ export const idb = {
     tx: IDBTransaction,
     store: StoreName,
     index: string,
-    value: IDBValidKey,
+    value: IDBValidKey | IDBKeyRange,
   ): Promise<T[]> =>
     wrap(tx.objectStore(store).index(index).getAll(value) as IDBRequest<T[]>),
 

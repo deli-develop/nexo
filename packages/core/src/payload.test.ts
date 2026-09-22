@@ -67,6 +67,21 @@ describe("payload", () => {
     // become the conversation list's preview.
     expect(preview({ kind: "reaction", target: "m1", emoji: "👍", on: true })).toBe("");
     expect(preview({ kind: "rename", title: "Weekend" })).toBe("");
+    expect(preview({
+      kind: "story", story_id: 42, s3_key: "story/x", key: "aa", nonce: "bb",
+      sha256: "cc", mime: "image/png", size: 1, expires_at_ms: 1_000,
+    })).toBe("");
     expect(preview({ kind: "unsupported", unsupportedKind: "hologram" })).toBe("");
+  });
+
+  it("recognises a story with and without the later server id", () => {
+    const story = {
+      kind: "story" as const, story_id: 42, s3_key: "story/x", key: "aa",
+      nonce: "bb", sha256: "cc", mime: "image/png", size: 3,
+      expires_at_ms: 9_000,
+    };
+    expect(decodePayload(encodePayload(story))).toEqual(story);
+    const { story_id: _newField, ...legacy } = story;
+    expect(decodePayload(JSON.stringify(legacy))).toEqual(legacy);
   });
 });

@@ -78,6 +78,14 @@ where
         let token = bearer_token(header).ok_or(Unauthorized)?;
 
         let keys = Arc::<TokenKeys>::from_ref(state);
+        Self::from_access_token(&keys, token)
+    }
+}
+
+impl Caller {
+    /// Authenticates a token carried by a bearer header or the browser stream
+    /// subprotocol. Both transports must make the same authorization decision.
+    pub(crate) fn from_access_token(keys: &TokenKeys, token: &str) -> Result<Self, Unauthorized> {
         let claims = keys.verify_access_token(token).map_err(|error| {
             // At debug only: a token is a credential, and even a rejected one
             // should not sit in a production log.
@@ -85,7 +93,7 @@ where
             Unauthorized
         })?;
 
-        Ok(Caller {
+        Ok(Self {
             user_id: claims.sub.parse().map_err(|_| Unauthorized)?,
             device_id: claims.did.parse().map_err(|_| Unauthorized)?,
         })

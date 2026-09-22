@@ -208,29 +208,203 @@ export async function startWith(ctx: Context, handle: string): Promise<string> {
  * conversation it never created and must not duplicate.
  */
 export async function openWith(ctx: Context, handle: string): Promise<string> {
+  const wanted = handle.trim().toLowerCase();
   const listed = await ctx.transport.getAuth<ConversationSummary[]>("/v1/conversations");
-  const me = (await ctx.store.account())?.handle;
+  const me = (await ctx.store.account())?.handle.toLowerCase();
+  const forgotten = await ctx.store.forgottenConversations();
+  let dead: string | undefined;
 
   for (const summary of listed) {
     if (summary.kind !== "dm") continue;
-    const others = summary.members.filter((member) => member !== me);
-    if (others.length !== 1 || others[0] !== handle) continue;
+    const others = summary.members.map((member) => member.toLowerCase())
+      .filter((member) => member !== me);
+    if (others.length !== 1 || others[0] !== wanted) continue;
 
-    // Not every match is worth reusing. `startWith` registers a conversation
-    // before it knows the add commit will be accepted, so a failed start
-    // leaves a server row that nobody holds MLS state for. Nothing can ever be
-    // sent in it, and because the list comes back newest first, that corpse
-    // would be found *before* a conversation that works.
-    const alive =
-      summary.latest_envelope_id !== null ||
-      ctx.crypto.loadGroup(ctx.device, summary.conversation_id, clock(ctx)) !== undefined;
-    if (!alive) continue;
+    const id = summary.conversation_id;
+    const hasEnvelopes = summary.latest_envelope_id !== null;
+    let joined = ctx.crypto.loadGroup(ctx.device, id, clock(ctx)) !== undefined;
+    let syncedBeforeOpen = false;
 
-    await remember(ctx, summary, handle);
-    return summary.conversation_id;
+    // An envelope is not proof of a usable chat: it may be a commit whose
+    // Welcome never arrived. Sync once before deciding which it is.
+    if (hasEnvelopes && !joined) {
+      const resume = forgotten.get(id) ?? 0;
+      await ctx.store.rememberConversation(id);
+      await remember(ctx, summary, wanted);
+      if (resume > 0) {
+        const local = await ctx.store.conversation(id);
+        if (local) await ctx.store.putConversation({ ...local, syncedTo: resume });
+      }
+      await sync(ctx, id);
+      syncedBeforeOpen = true;
+      joined = ctx.crypto.loadGroup(ctx.device, id, clock(ctx)) !== undefined;
+      if (!joined) {
+        // The server's routing membership cannot grant an MLS group. Leaving
+        // it is the only way out of a DM whose Welcome will never arrive.
+        if (me) {
+          try {
+            await ctx.transport.postAuth<void>(`/v1/conversations/${id}/members/remove`, {
+              handle: me,
+            });
+          } catch {
+            // A failed leave will surface when creation is handed this same
+            // dead DM back; it must not hide a usable later candidate here.
+          }
+        }
+        await ctx.store.forgetConversation(id);
+        continue;
+      }
+    }
+
+    // An empty registration with no local group is a half-created leftover.
+    // Keep looking: an older usable DM may be behind it in the server list.
+    if (!hasEnvelopes && !joined) {
+      dead ??= id;
+      continue;
+    }
+
+    // A deliberate open lifts a local removal and resumes after its old
+    // cursor. Replaying the deleted history would undo "remove for me".
+    const resume = forgotten.get(id) ?? 0;
+    if (forgotten.has(id) && !syncedBeforeOpen) {
+      await ctx.store.rememberConversation(id);
+    }
+    await remember(ctx, summary, wanted);
+    if (resume > 0 && !syncedBeforeOpen) {
+      const local = await ctx.store.conversation(id);
+      if (local) await ctx.store.putConversation({ ...local, syncedTo: resume });
+    }
+    return id;
   }
 
-  return startWith(ctx, handle);
+  if (dead) {
+    if (await ctx.store.conversation(dead)) await ctx.store.forgetConversation(dead);
+    try {
+      await ctx.transport.deleteAuth(`/v1/conversations/${dead}`);
+    } catch {
+      // Only a conversation without envelopes can be discarded. A race that
+      // added one will be resolved when `startWith` gets the settled id back.
+    }
+  }
+  return startWith(ctx, wanted);
+}
+
+export const SELF_TITLE = "Saved messages";
+
+/** A one-member MLS group for notes kept on this device. */
+export async function startSelf(ctx: Context): Promise<string> {
+  const existing = (await ctx.store.conversations()).find((row) => row.kind === "self");
+  if (existing) return existing.id;
+
+  const id = uuid(ctx);
+  ctx.crypto.createGroup(ctx.device, id, clock(ctx));
+  const created = await ctx.transport.postAuth<ConversationSummary>("/v1/conversations", {
+    conversation_id: id,
+    members: [],
+  });
+  // The server keeps one self conversation per account, including two starts
+  // that raced. Adopt its id rather than persisting a second local row.
+  await persist(ctx);
+  await remember(ctx, created, SELF_TITLE);
+  return created.conversation_id;
+}
+
+/**
+ * Claims every one-use KeyPackage before creating a group. Each member gets a
+ * separate commit and Welcome, and every accepted commit is persisted before
+ * the next network call can fail.
+ */
+export async function startGroup(
+  ctx: Context,
+  handles: string[],
+  title: string,
+): Promise<string> {
+  if (handles.length === 0) {
+    throw new TransportError("rejected", "Choose at least one person for the group.");
+  }
+  const packages: Uint8Array[] = [];
+  for (const handle of handles) {
+    const claimed = await ctx.transport.getAuth<ClaimedKeyPackage>(
+      `/v1/keypackages/${encodeURIComponent(handle)}`,
+    );
+    packages.push(fromHex(claimed.key_package));
+  }
+
+  const id = uuid(ctx);
+  const group = ctx.crypto.createGroup(ctx.device, id, clock(ctx));
+  const created = await ctx.transport.postAuth<ConversationSummary>("/v1/conversations", {
+    conversation_id: id,
+    members: handles,
+  });
+  if (created.conversation_id !== id) {
+    throw new TransportError("rejected", "The server returned a different group id.");
+  }
+
+  for (const keyPackage of packages) {
+    const staged = group.addMember(ctx.device, keyPackage);
+    try {
+      await sendEnvelope(ctx, id, staged.message, Number(group.epoch), true);
+    } catch (error) {
+      group.abandonCommit(ctx.device);
+      await persist(ctx);
+      throw error;
+    }
+    const epoch = Number(group.confirmCommit(ctx.device, clock(ctx)));
+    await persist(ctx);
+    await remember(ctx, { ...created, epoch });
+    if (staged.welcome) await sendEnvelope(ctx, id, staged.welcome, epoch, false);
+  }
+
+  // A name is content: the server does not know it. Send only after the last
+  // member joined, because earlier ciphertext cannot be read by a later one.
+  const ciphertext = group.encrypt(ctx.device, encodePayload({ kind: "rename", title }));
+  await persist(ctx); // encrypt advanced the ratchet, even if send fails
+  await sendEnvelope(ctx, id, ciphertext, Number(group.epoch), false);
+  await remember(ctx, { ...created, epoch: Number(group.epoch) }, title);
+  return id;
+}
+
+/** Routing membership first, then the MLS commit, then the Welcome. */
+export async function addTo(ctx: Context, conversationId: string, handle: string): Promise<void> {
+  const group = requireGroup(ctx, conversationId);
+  const claimed = await ctx.transport.getAuth<ClaimedKeyPackage>(
+    `/v1/keypackages/${encodeURIComponent(handle)}`,
+  );
+  await ctx.transport.postAuth<void>(`/v1/conversations/${conversationId}/members`, { handle });
+  const staged = group.addMember(ctx.device, fromHex(claimed.key_package));
+  try {
+    await sendEnvelope(ctx, conversationId, staged.message, Number(group.epoch), true);
+  } catch (error) {
+    group.abandonCommit(ctx.device);
+    await persist(ctx);
+    throw error;
+  }
+  const epoch = Number(group.confirmCommit(ctx.device, clock(ctx)));
+  await persist(ctx);
+  const local = await ctx.store.conversation(conversationId);
+  if (local) {
+    await ctx.store.putConversation({
+      ...local,
+      kind: group.memberCount > 2 ? "group" : local.kind,
+      epoch,
+    });
+  }
+  if (staged.welcome) await sendEnvelope(ctx, conversationId, staged.welcome, epoch, false);
+}
+
+async function sendEnvelope(
+  ctx: Context,
+  conversationId: string,
+  ciphertext: Uint8Array,
+  epoch: number,
+  isCommit: boolean,
+): Promise<Accepted> {
+  return ctx.transport.postAuth<Accepted>(`/v1/conversations/${conversationId}/send`, {
+    ciphertext: toHex(ciphertext),
+    epoch,
+    is_commit: isCommit,
+    client_msg_id: uuid(ctx),
+  });
 }
 
 // ------------------------------------------------------------------- sending
@@ -565,18 +739,47 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
  */
 export async function discover(ctx: Context): Promise<string[]> {
   const listed = await ctx.transport.getAuth<ConversationSummary[]>("/v1/conversations");
-  const known = new Set((await ctx.store.conversations()).map((conversation) => conversation.id));
+  const known = new Map((await ctx.store.conversations())
+    .map((conversation) => [conversation.id, conversation.title] as const));
+  const forgotten = await ctx.store.forgottenConversations();
   const me = (await ctx.store.account())?.handle;
 
   const fresh: string[] = [];
   for (const summary of listed) {
-    if (known.has(summary.conversation_id)) continue;
+    const id = summary.conversation_id;
+    const through = forgotten.get(id);
+    // A local removal holds until something newer appears. When it does,
+    // resume after the removed history rather than replaying it from zero.
+    if (through !== undefined && (summary.latest_envelope_id ?? 0) <= through) continue;
+    if (through !== undefined) await ctx.store.rememberConversation(id);
+
+    // A registration with no commit and no local MLS group is a leftover,
+    // not an invitation. A real invitation has a Welcome envelope waiting.
+    if (summary.latest_envelope_id === null &&
+        !ctx.crypto.loadGroup(ctx.device, id, clock(ctx))) {
+      if (known.has(id)) {
+        await ctx.store.forgetConversation(id);
+        try { await ctx.transport.deleteAuth(`/v1/conversations/${id}`); } catch {
+          // The server refuses deletion once an envelope lands; the next
+          // listing will then let this conversation through normally.
+        }
+      }
+      continue;
+    }
+
     // The only moment this device can name the conversation: MLS credentials
     // name devices, and an invitee learns of a conversation only through this
     // list. Without the handle there is nothing to call it but "Unnamed".
     const others = summary.members.filter((member) => member !== me);
-    await remember(ctx, summary, others.length === 1 ? others[0] : undefined);
-    fresh.push(summary.conversation_id);
+    const title = summary.kind === "self" ? SELF_TITLE
+      : others.length === 1 ? others[0]
+      : others.length > 1 ? others.join(", ") : undefined;
+    await remember(ctx, summary, title);
+    if (through !== undefined && through > 0) {
+      const local = await ctx.store.conversation(id);
+      if (local) await ctx.store.putConversation({ ...local, syncedTo: through });
+    }
+    if (!known.has(id)) fresh.push(id);
   }
   return fresh;
 }
@@ -647,6 +850,27 @@ async function applyIncoming(
       return false;
     }
 
+    case "story":
+      // The key must disappear at expiry, including when an old envelope is
+      // synced for the first time after that deadline. No chat bubble is made.
+      if (payload.expires_at_ms > at && payload.expires_at_ms > clock(ctx)) {
+        await ctx.store.putStory({
+          id: payload.story_id && payload.story_id > 0
+            ? payload.story_id : legacyStoryId(payload.s3_key),
+          authorHandle: "",
+          authorDeviceId: envelope.sender_device_id,
+          s3Key: payload.s3_key,
+          encKey: payload.key,
+          nonce: payload.nonce,
+          sha256: payload.sha256,
+          mime: payload.mime,
+          size: payload.size,
+          createdAtMs: at,
+          expiresAtMs: payload.expires_at_ms,
+        });
+      }
+      return false;
+
     case "retract":
     case "edit":
       await applyRevision(ctx, conversationId, payload, from, at);
@@ -712,6 +936,11 @@ async function applyOwn(
         },
         payload.on,
       );
+      return;
+
+    case "story":
+      // `stories.postStory` saved the author's copy before the fan-out. A
+      // second row in message history would draw an empty, misleading bubble.
       return;
 
     case "retract":
@@ -828,6 +1057,16 @@ function requireGroup(ctx: Context, conversationId: string): Group {
   return group;
 }
 
+/** Stable local stand-in for a pre-story-id payload. It cannot be downloaded. */
+function legacyStoryId(s3Key: string): number {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(s3Key)) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  }
+  // IndexedDB numeric keys are JavaScript numbers: stay within the safe range.
+  return Number((hash & 0x1fffffffffffffn) || 1n);
+}
+
 /**
  * Writes down a conversation the server told us about.
  *
@@ -894,11 +1133,12 @@ export function toHex(bytes: Uint8Array): string {
 }
 
 export function fromHex(hex: string): Uint8Array {
-  if (hex.length % 2 !== 0) throw new TransportError("rejected", "Malformed hex.");
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) {
+    throw new TransportError("rejected", "Malformed hex.");
+  }
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i += 1) {
     const byte = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    if (Number.isNaN(byte)) throw new TransportError("rejected", "Malformed hex.");
     out[i] = byte;
   }
   return out;

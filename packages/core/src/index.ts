@@ -17,12 +17,21 @@ export type {
   Account,
   Identity,
   OutboxEntry,
+  PinRecord,
   StoredConversation,
+  StoredFolder,
   StoredMessage,
+  StoredPeer,
   StoredReaction,
+  StoredStory,
+  StoredViewOnce,
+  SearchHit,
 } from "./store";
 export { SCHEMA_VERSION } from "./idb";
 export * as conversations from "./conversations";
+export * as people from "./people";
+export * as stories from "./stories";
+export * as pin from "./pin";
 export type { Context, SyncOutcome } from "./conversations";
 export {
   decodePayload,
@@ -45,5 +54,8 @@ export type {
 } from "./payload";
 export type { CryptoModule, Decrypted, Device, Group, Peeked, StagedCommit } from "./crypto";
 export { bindWasm } from "./wasm";
+export { bindPasswordWasm } from "./wasm";
 export type { WasmModule } from "./wasm";
 export * from "./types";
+export { Session } from "./session";
+export type { PasswordCrypto, SessionOptions } from "./session";

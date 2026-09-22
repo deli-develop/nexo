@@ -1,4 +1,5 @@
 import type { CryptoModule, Device, Group, Peeked } from "./crypto";
+import type { ObjectCrypto } from "./attachments";
 import type { PasswordCrypto } from "./session";
 
 /**
@@ -62,5 +63,51 @@ export function bindPasswordWasm(module: {
     deriveVerifier: (password, salt, params) => module.deriveVerifier(
       password, salt, params.memory_kib, params.iterations, params.parallelism,
     ),
+  };
+}
+
+/**
+ * Binds the object-sealing half of the same module.
+ *
+ * Separate from [`bindWasm`] because they are wanted in different places: the
+ * MLS seam goes to `conversations`, and this goes to `attachments` and
+ * `stories`, neither of which has any business holding a `Device`.
+ */
+export function bindObjectWasm(module: {
+  sealObject(plaintext: Uint8Array): {
+    ciphertext: Uint8Array;
+    key: Uint8Array;
+    nonce: Uint8Array;
+    sha256: Uint8Array;
+    size: bigint | number;
+  };
+  openObject(
+    ciphertext: Uint8Array,
+    key: Uint8Array,
+    nonce: Uint8Array,
+    sha256: Uint8Array,
+  ): Uint8Array;
+}): ObjectCrypto {
+  return {
+    seal: (plaintext) => {
+      const sealed = module.sealObject(plaintext);
+      // Read field by field, never spread. What comes back is a wasm-bindgen
+      // class whose fields are **getters on the prototype**, and a spread
+      // copies own enumerable properties only — so `{ ...sealed }` is an empty
+      // object, silently, and the first thing to touch `.ciphertext` throws
+      // somewhere far away from here.
+      return {
+        ciphertext: sealed.ciphertext,
+        key: sealed.key,
+        nonce: sealed.nonce,
+        sha256: sealed.sha256,
+        // `size` crosses as a BigInt, because it is a `u64` in Rust.
+        // Everything above this line counts bytes in Numbers, and a BigInt
+        // that reached a JSON payload would serialise as a throw.
+        size: Number(sealed.size),
+      };
+    },
+    open: (ciphertext, key, nonce, sha256) =>
+      module.openObject(ciphertext, key, nonce, sha256),
   };
 }

@@ -10,6 +10,7 @@ dist/
 # Built by packages/crypto-wasm/scripts/build.mjs from crates/crypto-wasm.
 # Generated, so it is not committed -- CI builds it, and so does a clone.
 packages/crypto-wasm/pkg/
+packages/crypto-wasm/web/
 
 # Tauri
 apps/desktop/src-tauri/gen/

@@ -84,6 +84,10 @@ export interface AttachmentPayload {
   body?: string;
   segmented?: boolean;
   id?: string;
+  /** Present on a voice note: the waveform and the length, for the player. */
+  voice?: { duration_ms: number; peaks: number[] };
+  forwarded_from?: string;
+  forwarded?: boolean;
 }
 
 export interface StickerPayload {

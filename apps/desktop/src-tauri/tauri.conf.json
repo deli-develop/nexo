@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob:; font-src 'self' data:; media-src 'self' data: blob: http://nexo-media.localhost; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost; object-src 'none'; frame-ancestors 'none'",
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost https://api.delidev.net wss://api.delidev.net https://fsn1.your-objectstorage.com; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
       "freezePrototype": true
     }
   },

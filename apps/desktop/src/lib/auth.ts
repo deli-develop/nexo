@@ -1,12 +1,25 @@
-import { invoke } from "@tauri-apps/api/core";
+import { TransportError, pin as corePin } from "@nexo/core";
+
+import { forgetAccount } from "./native";
+import { resetRuntime, runtime } from "./runtime";
+import { closeStream } from "./stream";
 
 /**
- * The auth surface, as the WebView sees it.
+ * The auth surface, as the page sees it.
  *
- * Rule 2: nothing secret crosses this boundary. A password goes *in* once and
- * is never held here; what comes back is an account and nothing else. There is
- * deliberately no token in any of these types — tokens live in the Rust
- * process, out of reach of anything that ever manages to run script here.
+ * # What changed in wave 7, and it is not small
+ *
+ * This file used to be a set of `invoke()` calls into a Rust process that held
+ * the tokens and the MLS state where no script in this WebView could reach
+ * them. There is no such other side in a browser, so the session now lives
+ * here — see `runtime.ts`, where the trade is written down, and
+ * `docs/REWORK.md`, where it is the recorded price of one client across three
+ * targets.
+ *
+ * What did **not** change: a password still goes *in* once and is never held.
+ * It is turned into a verifier by Argon2id in the Rust/WASM crate and the
+ * verifier is what travels; the server never sees the password, which was
+ * always the part that mattered to somebody who is not holding this device.
  */
 export interface Account {
   user_id: number;
@@ -39,137 +52,166 @@ export interface AuthError {
 
 /** Narrows an unknown rejection to something renderable. */
 export function asAuthError(error: unknown): AuthError {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "kind" in error &&
-    "message" in error
-  ) {
+  if (error instanceof TransportError) {
+    return { kind: mapKind(error.kind, error.message), message: error.message };
+  }
+  if (error instanceof corePin.PinError) {
+    return {
+      kind: error.kind === "locked" ? "pin_locked" : "rejected",
+      message: error.message,
+    };
+  }
+  if (typeof error === "object" && error !== null && "kind" in error && "message" in error) {
     return error as AuthError;
   }
-  // A command that rejects with something else is a bug in the Rust side, not
-  // a state the user can act on.
+  // Anything else is a bug in this build, not a state the person can act on.
   return { kind: "internal", message: "Something went wrong. Try again." };
 }
 
-export function register(
+/**
+ * The transport has five kinds and the sign-in screen needs eight.
+ *
+ * The extra three are distinctions only this screen makes — a taken handle and
+ * a wrong password are both `rejected` on the wire, because the server is not
+ * in the business of confirming which half of a credential was right. Reading
+ * the prose to tell them apart is exactly what the UI is forbidden to do, so
+ * it is done here, once, where a copy edit that breaks it breaks one test.
+ */
+function mapKind(kind: TransportError["kind"], message: string): AuthError["kind"] {
+  if (kind === "unreachable") return "unreachable";
+  if (kind === "invalid_credentials") return "invalid_credentials";
+  if (kind === "not_found") return "invalid_credentials";
+  if (/handle/i.test(message) && /taken|already/i.test(message)) return "handle_taken";
+  return "rejected";
+}
+
+export async function register(
   handle: string,
   displayName: string,
   password: string,
 ): Promise<Account> {
-  return invoke<Account>("register", {
-    handle,
-    displayName,
-    password,
-  });
+  const { session } = await runtime();
+  return toAccount(await session.register(handle, displayName, password));
 }
 
-export function login(handle: string, password: string): Promise<Account> {
-  return invoke<Account>("login", { handle, password });
-}
-
-/** The account this installation is signed in as, if any. */
-export function restoreSession(): Promise<Account | null> {
-  return invoke<Account | null>("restore_session");
+export async function login(handle: string, password: string): Promise<Account> {
+  const { session } = await runtime();
+  return toAccount(await session.login(handle, password));
 }
 
 /**
- * This device's identity fingerprint, already grouped (brief 4.1).
+ * Picks up where the last run left off, or answers `null`.
  *
- * `null` when there is no identity key to fingerprint. The Security screen
- * shows that as "no key yet" rather than inventing digits: it is the one
- * screen that asks people to compare a value in person, so a placeholder there
- * would teach exactly the wrong habit.
+ * `resume` rather than `restore`: the stored refresh token is single-use and
+ * has to be spent for a live session. Restoring without spending it leaves an
+ * app that looks signed in and cannot reach anything.
  */
-export function deviceFingerprint(): Promise<string | null> {
-  return invoke<string | null>("device_fingerprint");
+export async function restoreSession(): Promise<Account | null> {
+  const { session } = await runtime();
+  const account = await session.resume();
+  return account ? toAccount(account) : null;
 }
 
-/** Whether an unlock PIN is set, and how many tries remain. */
+/** This device's public key, short, for showing next to a safety number. */
+export async function deviceFingerprint(): Promise<string | null> {
+  try {
+    const device = await (await runtime()).session.device();
+    const key = device.publicKey();
+    return Array.from(key.slice(0, 8), (byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+      .replace(/(.{4})(?=.)/g, "$1 ");
+  } catch {
+    // Not signed in. A fingerprint is decoration on a screen that has other
+    // things to say, so it is absent rather than an error.
+    return null;
+  }
+}
+
 export interface PinStatus {
   set: boolean;
   attempts_left: number;
 }
 
-export function pinStatus(): Promise<PinStatus> {
-  return invoke<PinStatus>("pin_status");
+export async function pinStatus(): Promise<PinStatus> {
+  return corePin.status((await runtime()).pin);
+}
+
+export async function setPin(value: string): Promise<void> {
+  return corePin.set((await runtime()).pin, value);
+}
+
+export async function clearPin(): Promise<void> {
+  return corePin.clear((await runtime()).pin);
 }
 
 /**
- * Sets or replaces the unlock PIN.
+ * Unlocks with a PIN, or answers `null`.
  *
- * The digits go in and are gone when this resolves. What is written down is a
- * salted Argon2id verifier wrapped by the OS keystore, so it is bound to this
- * Windows account as well as to the PIN — neither alone opens anything.
+ * The PIN does not decrypt anything — it gates a session that is already on
+ * this device. That is the honest description, and the settings screen says it
+ * too: on a browser it protects the screen, not the disk.
  */
-export function setPin(pin: string): Promise<void> {
-  return invoke<void>("set_pin", { pin });
-}
-
-export function clearPin(): Promise<void> {
-  return invoke<void>("clear_pin");
+export async function unlockWithPin(value: string): Promise<Account | null> {
+  const it = await runtime();
+  if (!(await corePin.verify(it.pin, value))) return null;
+  const account = await it.session.resume();
+  return account ? toAccount(account) : null;
 }
 
 /**
- * Unlocks with the PIN. `null` means it was wrong — and nothing else does.
+ * Locks the app.
  *
- * Only ever reopens what is already on this machine: locking dropped the store
- * connection and the MLS state, and the tokens stayed in the Rust process, so
- * this needs no server. The server has never heard of the PIN.
+ * # What this does, and what it cannot do
  *
- * The one path that does reach the network — an app that opened offline and
- * so never installed a session — reports its failures as errors (`unreachable`,
- * `signed_out`) rather than as `null`. Reading either of those as a wrong PIN
- * is what made the correct one show "That PIN is wrong."
+ * It drops the MLS device and the tokens from memory, so nothing in the page
+ * can read or send until a PIN or a password rebuilds them. It does **not**
+ * make the messages unreadable: they are in IndexedDB, in the clear, and they
+ * stay there. The lock screen guards the screen.
+ *
+ * That used to be different, and the difference is worth stating rather than
+ * quietly losing. The Windows build kept its store in SQLCipher and locking
+ * closed it, so the data on disk genuinely became ciphertext. A browser has
+ * no keystore to hold that key, so there is no such thing to close — see
+ * `docs/REWORK.md`. The settings screen says so where the lock is offered,
+ * because a feature called "lock" invites a stronger reading than it can bear.
  */
-export function unlockWithPin(pin: string): Promise<Account | null> {
-  return invoke<Account | null>("unlock_with_pin", { pin });
+export async function lockSession(): Promise<void> {
+  closeStream();
+  const { transport } = await runtime();
+  transport.clear();
+  // The device is built from the identity secret, which is still stored. What
+  // this drops is the in-memory MLS provider, so a locked page holds no
+  // ratchet — and `resume` rebuilds it from the store on unlock.
+  resetRuntime();
 }
 
-export function logout(): Promise<void> {
-  return invoke<void>("logout");
+export async function logout(): Promise<void> {
+  const { session } = await runtime();
+  closeStream();
+  await session.logout();
+  // The tray tooltip and the startup entry, neither of which the page owns.
+  // Nothing on the web, where there is neither.
+  await forgetAccount();
+  // The runtime holds an MLS device built from a secret that has just been
+  // wiped. Keeping it would mean the next sign-in on this page inherits the
+  // last account's ratchet.
+  resetRuntime();
 }
 
-/**
- * Deletes the account, on the server and then on this machine.
- *
- * The password goes to Rust and no further: it becomes a verifier there and is
- * never sent, stored or logged — the same path `changePassword` takes. The
- * handle goes with it because the verifier has to be derived against that
- * account's salt.
- *
- * Rejects without having deleted anything local if the server refuses, which
- * is the whole reason the order is server-first: an account that still exists
- * but that this machine can no longer reach would have no way back, because
- * there is no account recovery.
- */
-export function deleteAccount(handle: string, password: string): Promise<void> {
-  return invoke<void>("delete_account", { handle, password });
+export async function deleteAccount(_handle: string, password: string): Promise<void> {
+  const { session } = await runtime();
+  await session.deleteAccount(password);
+  resetRuntime();
 }
 
-/**
- * Changes the account password (§6.4).
- *
- * Both passwords go in once and are gone when this resolves. Rust derives the
- * two verifiers — the current one proves knowledge of the password, because a
- * signed-in session alone is only possession of an unlocked machine — and
- * neither password is ever sent.
- *
- * Nothing local is re-encrypted: the store's key comes from the OS keystore,
- * not from the password, so no history can be lost to this.
- */
-export function changePassword(
+export async function changePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<void> {
-  return invoke<void>("change_password", { currentPassword, newPassword });
+  const { session } = await runtime();
+  await session.changePassword(currentPassword, newPassword);
 }
 
-/**
- * The handle rules from §4.1, checked here so the message arrives as you type
- * rather than after a round trip. The server and the database both enforce
- * them again — this is a courtesy, not the control.
- */
 export function handleProblem(handle: string): string | null {
   if (handle.length === 0) return null;
   if (handle.length < 3) return "At least 3 characters.";
@@ -178,4 +220,19 @@ export function handleProblem(handle: string): string | null {
     return "Lowercase letters, digits and underscores only.";
   }
   return null;
+}
+
+/** The store's account plus the device it is signed in on. */
+async function toAccount(account: {
+  userId: number;
+  handle: string;
+  displayName: string;
+}): Promise<Account> {
+  const identity = await (await runtime()).store.identity();
+  return {
+    user_id: account.userId,
+    handle: account.handle,
+    display_name: account.displayName,
+    device_id: identity?.deviceId ?? "",
+  };
 }

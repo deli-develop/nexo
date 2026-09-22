@@ -14,34 +14,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend:
-    name: Frontend (typecheck, test, build)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.20.0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
-      - name: npm audit
-        run: pnpm audit --audit-level=moderate
-      - uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: apps/desktop/dist
-          retention-days: 7
-
-  crypto-wasm:
-    name: Crypto (wasm32, in a browser engine)
-    # Linux: this job builds no Windows or Tauri anything, and the wasm target
-    # is the same artifact whoever builds it.
+  web:
+    name: Web (wasm, typecheck, test, build)
+    # One job rather than two, because the page genuinely cannot be typechecked
+    # or built without the wasm: `lib/runtime.ts` imports `@nexo/crypto-wasm/web`,
+    # and that directory is generated. Splitting them meant the frontend job
+    # checked a tree that could not run.
+    #
+    # Linux: nothing here is Windows- or Tauri-specific, and the wasm is the
+    # same artifact whoever builds it.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -64,19 +45,51 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Builds the wasm and runs the MLS conversation against it. This is the
-      # job that would go red if OpenMLS ever stopped compiling for wasm32 --
-      # which the whole client plan depends on. See docs/REWORK.md wave 3.
+      # Builds the wasm (both layouts) and drives a real MLS conversation
+      # through it, plus `packages/core` over the real module. This is the job
+      # that would go red if OpenMLS ever stopped compiling for wasm32 -- which
+      # the whole client plan depends on. See docs/REWORK.md wave 3.
       - run: pnpm test:wasm
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: npm audit
+        run: pnpm audit --audit-level=moderate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/desktop/dist
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: nexo-crypto-wasm
           path: packages/crypto-wasm/pkg
           retention-days: 7
 
+      # Deployed from here rather than from Netlify's own builder. Netlify has
+      # no Rust toolchain and no wasm-bindgen, and installing them on every
+      # deploy would both cost minutes and pin the version in a second place.
+      # `netlify.toml` says the same thing from the other side.
+      - name: Deploy to Netlify
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "::notice::Netlify secrets are not set; skipping the deploy."
+            exit 0
+          fi
+          npx --yes netlify-cli@17.38.1 deploy --dir=apps/desktop/dist --prod --message "${GITHUB_SHA::7}"
+
   client:
     name: Client (Windows x86_64)
     runs-on: windows-latest
+    # The page is built once, by `web`, and downloaded here. Building it again
+    # would mean a Rust toolchain, the wasm32 target and wasm-bindgen on a
+    # Windows runner solely to reproduce a directory that already exists --
+    # and two builds that could differ.
+    needs: web
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -91,10 +104,13 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # tauri::generate_context! reads tauri.conf.json and needs frontendDist
-      # to exist, so the frontend is built before the Rust client compiles.
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      # tauri::generate_context! reads tauri.conf.json and needs frontendDist
+      # to exist, so the page has to be in place before the shell compiles.
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/desktop/dist
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -141,10 +157,10 @@ jobs:
           # drift apart; rule 8 applies to tools too.
           tool: sqlx-cli@0.8.6
       - run: sqlx migrate run --source apps/server/migrations
-      # Only the server and the shared crates: the desktop client does not
+      # Only the server and the shared crates: the desktop shell does not
       # build for Linux and is explicitly out of scope (brief section 11).
-      - run: cargo clippy -p nexo-server -p nexo-protocol -p nexo-crypto -p nexo-platform --all-targets -- -D warnings
-      - run: cargo test -p nexo-server -p nexo-protocol -p nexo-crypto -p nexo-platform
+      - run: cargo clippy -p nexo-server -p nexo-protocol -p nexo-crypto --all-targets -- -D warnings
+      - run: cargo test -p nexo-server -p nexo-protocol -p nexo-crypto
       - run: cargo build --release -p nexo-server
       - uses: actions/upload-artifact@v4
         with:

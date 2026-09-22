@@ -4,9 +4,6 @@ members = [
     "crates/protocol",
     "crates/crypto",
     "crates/crypto-wasm",
-    "crates/platform",
-    "crates/store",
-    "crates/client",
     "apps/server",
     "apps/desktop/src-tauri",
 ]
@@ -172,9 +169,6 @@ tauri-build = "=2.6.3"
 # cargo-deny correctly rejects as a wildcard.
 nexo-protocol = { path = "crates/protocol", version = "0.1.0" }
 nexo-crypto = { path = "crates/crypto", version = "0.1.0" }
-nexo-platform = { path = "crates/platform", version = "0.1.0" }
-nexo-store = { path = "crates/store", version = "0.1.0" }
-nexo-client = { path = "crates/client", version = "0.1.0" }
 
 [profile.release]
 # Rule 8 / Â§4.5: keep release builds lean and strip symbols that could

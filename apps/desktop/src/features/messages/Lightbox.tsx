@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 
 import { cn } from "../../lib/cn";
 import { fileSize, relativeTime } from "../../lib/format";
-import { notify, pickSavePath } from "../../lib/native";
+import { notify } from "../../lib/native";
 import { fieldFor } from "../../lib/palette";
 import {
   asConversationError,
-  attachmentDataUrl,
-  saveAttachmentTo,
+  attachmentUrl,
+  saveAttachment,
   type AttachmentEntry,
 } from "../../lib/conversations";
 import { IconButton } from "../../components/ui/Button";
@@ -164,7 +164,7 @@ export function Lightbox({
     setZoom(1);
     setPan(CENTRED);
     setProblem(null);
-    void attachmentDataUrl(current.envelope_id)
+    void attachmentUrl(current.envelope_id)
       .then((next) => {
         if (!cancelled) setUrl(next);
       })
@@ -209,10 +209,8 @@ export function Lightbox({
 
   async function save() {
     if (!current) return;
-    const path = await pickSavePath(current.name);
-    if (!path) return;
     try {
-      await saveAttachmentTo(current.envelope_id, path);
+      if (!(await saveAttachment(current.envelope_id))) return;
       await notify("Saved", `${current.name} was saved.`);
     } catch (error) {
       await notify("Couldn't save that", asConversationError(error).message);
@@ -434,7 +432,7 @@ function Thumbnail({
 
   useEffect(() => {
     let cancelled = false;
-    void attachmentDataUrl(item.envelope_id)
+    void attachmentUrl(item.envelope_id)
       .then((next) => {
         if (!cancelled) setUrl(next);
       })

@@ -21,7 +21,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const pkgDir = resolve(here, "..", "pkg");
 const repoRoot = resolve(here, "..", "..", "..");
 
-if (process.argv.includes("--if-missing") && existsSync(join(pkgDir, "nexo_crypto_wasm.js"))) {
+const webDir = resolve(here, "..", "web");
+
+if (
+  process.argv.includes("--if-missing") &&
+  existsSync(join(pkgDir, "nexo_crypto_wasm.js")) &&
+  existsSync(join(webDir, "nexo_crypto_wasm.js"))
+) {
   console.log("crypto-wasm: pkg/ is already built");
   process.exit(0);
 }
@@ -65,15 +71,18 @@ run("cargo", [
 rmSync(pkgDir, { recursive: true, force: true });
 mkdirSync(pkgDir, { recursive: true });
 
-// `nodejs` rather than `bundler`: the tests run in Node, and the target only
-// decides the shape of the generated glue. Wave 8 adds a `web` build beside
-// this one when there is a page to load it from.
-run("wasm-bindgen", [
-  join(repoRoot, "target", "wasm32-unknown-unknown", "release", "nexo_crypto_wasm.wasm"),
-  "--out-dir",
-  pkgDir,
-  "--target",
-  "nodejs",
-]);
+// Two layouts from one `.wasm`, because the glue differs and the module does
+// not. `nodejs` emits CommonJS that loads synchronously at require time, which
+// is what the test runner needs; `web` emits an ES module with an async `init`
+// that fetches the binary, which is what a page needs and what Vite can see
+// through. Neither can stand in for the other, and building only one is how
+// `packages/core` ends up runnable in exactly one place.
+const wasmFile = join(repoRoot, "target", "wasm32-unknown-unknown", "release", "nexo_crypto_wasm.wasm");
 
-console.log(`crypto-wasm: built into ${pkgDir}`);
+run("wasm-bindgen", [wasmFile, "--out-dir", pkgDir, "--target", "nodejs"]);
+
+rmSync(webDir, { recursive: true, force: true });
+mkdirSync(webDir, { recursive: true });
+run("wasm-bindgen", [wasmFile, "--out-dir", webDir, "--target", "web"]);
+
+console.log(`crypto-wasm: built into ${pkgDir} and ${webDir}`);

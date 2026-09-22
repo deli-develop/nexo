@@ -260,6 +260,23 @@ export class Session {
     }
   }
 
+  /**
+   * The signed-in context, for the operations that are not methods here.
+   *
+   * `attachments`, `stories`, `pin` and the rest take a context rather than a
+   * session, because none of them has any business calling `logout`. This is
+   * the one door to it, so "am I signed in" is still asked in exactly one
+   * place and still answers the same way.
+   */
+  context(): Promise<conversations.Context> {
+    return this.#context();
+  }
+
+  /** The MLS device, for a safety number or a fingerprint. */
+  async device(): Promise<Device> {
+    return (await this.#context()).device;
+  }
+
   async #context(): Promise<conversations.Context> {
     if (!await this.#store.account() || !this.#device) {
       throw new TransportError("invalid_credentials", "You are not signed in.");

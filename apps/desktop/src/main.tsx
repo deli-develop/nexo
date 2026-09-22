@@ -2,10 +2,27 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { TextContextMenu } from "./components/ui/TextContextMenu";
+import { inTauri } from "./lib/runtime";
 import "@nexo/design-tokens/tokens.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("missing #root");
+
+// The service worker is a web-only thing, and deliberately so: the Tauri
+// build ships its own assets, so a worker caching them would be a second copy
+// of files that are already on the disk — and one the installer cannot clear.
+//
+// Registered after `load` rather than immediately: it competes with the wasm
+// module and the first render for the same connection, and none of what it
+// does matters on a first visit.
+if (!inTauri() && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register("/sw.js").catch(() => {
+      // A page that will not cache still works. Nothing here is load-bearing,
+      // and a console error on a private window nobody can act on is noise.
+    });
+  });
+}
 
 // D12: the browser's own context menu never appears. Anywhere.
 //

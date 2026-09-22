@@ -1087,6 +1087,7 @@ async function remember(
     epoch: summary.epoch,
     syncedTo: existing?.syncedTo ?? 0,
     lastMessage: existing?.lastMessage ?? null,
+    members: summary.members,
     // Not zero for one we have never seen: the list sorts by this, and a fresh
     // invitation sorted to the bottom is an invitation nobody finds.
     updatedAtMs: existing?.updatedAtMs ?? clock(ctx),

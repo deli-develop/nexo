@@ -1,4 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { blocks as core } from "@nexo/core";
+
+import { runtime } from "./runtime";
 
 /**
  * Blocking (§6.1).
@@ -20,16 +22,16 @@ export interface Block {
 }
 
 /** Everyone you are blocking, newest first. */
-export function listBlocks(): Promise<Block[]> {
-  return invoke<Block[]>("blocks");
+export async function listBlocks(): Promise<Block[]> {
+  return core.blocks((await runtime()).transport);
 }
 
 /** Blocks somebody. Doing it twice is not an error. */
-export function block(handle: string): Promise<void> {
-  return invoke<void>("block", { handle });
+export async function block(handle: string): Promise<void> {
+  return core.block((await runtime()).transport, handle);
 }
 
 /** Unblocks somebody. Doing it twice is not an error. */
-export function unblock(handle: string): Promise<void> {
-  return invoke<void>("unblock", { handle });
+export async function unblock(handle: string): Promise<void> {
+  return core.unblock((await runtime()).transport, handle);
 }

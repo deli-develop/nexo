@@ -1,8 +1,21 @@
-//! The Nexo desktop core.
+//! The Nexo desktop shell.
 //!
-//! Everything security-relevant lives on this side of the IPC boundary: MLS
-//! state, the identity keypair, the SQLCipher key, and every message plaintext.
-//! The WebView receives already-decrypted strings and nothing else (rule 2).
+//! **What this is not, any more.** Until wave 7 it was the application: MLS,
+//! the identity keypair, the SQLCipher key and every message plaintext lived
+//! on this side of the IPC boundary, and the WebView received already-
+//! decrypted strings and nothing else. That arrangement could not be carried
+//! to a browser, which has no other side, so all of it moved into
+//! `packages/core` and the page — see `docs/REWORK.md`.
+//!
+//! What is left is a shell, and it is what the name always said: a window, a
+//! tray icon, toasts, autostart, a link preview and the updater. Twelve
+//! commands, each a deliberate hole in an otherwise closed wall, each needing
+//! a matching entry in `capabilities/default.json`.
+//!
+//! The things that used to justify this crate's existence are gone with the
+//! code that did them. That is the trade `REWORK.md` records: one app that
+//! runs in three places, at the cost of a session that is as reachable as the
+//! page it lives in.
 
 // `forbid`, not `deny`, and it is worth saying why it is back.
 //
@@ -15,44 +28,43 @@
 // place in the workspace that reaches for `unsafe`, for DPAPI.
 #![forbid(unsafe_code)]
 
-mod auth;
-mod client;
 mod commands;
-mod conversations;
-mod feed;
-mod media;
-mod people;
 mod preview;
-mod stories;
-mod stream;
 mod windows;
 
 /// Start the app.
 pub fn run() {
     init_tracing();
 
-    let builder = tauri::Builder::default();
-    // Before the plugins, so the scheme exists by the time any window does.
-    let builder = media::register(builder);
-    builder
-        // First, before anything else can take the port or the lock: a second
-        // launch hands its arguments to the running instance and exits (§8).
-        // Two instances would mean two SQLCipher connections to one file and
-        // two MLS providers ratcheting the same group forward independently --
-        // the second is the one that corrupts state.
+    let builder = tauri::Builder::default()
+        .manage(windows::WindowPrefs::default())
+        .plugin(tauri_plugin_dialog::init())
+        // Writing one file, where the Save dialog just put it. Opening is an
+        // ordinary <input type="file"> and needs no plugin at all -- which is
+        // what lets the picker be the same code on every host.
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init());
+
+    // Everything a phone does not have.
+    //
+    // A tray, a startup entry, a second-instance guard and a sideloaded
+    // updater are all desktop ideas, and on Android they are worse than
+    // absent: the platform owns app lifecycle, launching and updates, and a
+    // plugin that tried to take any of them either fails to build or fights
+    // the OS. `cfg(desktop)` is Tauri's own switch for exactly this, set by
+    // the build script.
+    #[cfg(desktop)]
+    let builder = builder
+        // Before anything else can take the lock: a second launch hands its
+        // arguments to the running instance and exits (§8). Two instances
+        // would mean two WebViews over one IndexedDB and two MLS providers
+        // ratcheting the same group forward independently -- the second is
+        // the one that corrupts state.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             windows::show_main_window(app);
         }))
-        // The session lives here, in the Rust process. Tokens never cross the
-        // IPC boundary (rule 2).
-        .manage(auth::SessionState::default())
-        .manage(windows::WindowPrefs::default())
-        .manage(client::ClientState::default())
-        .manage(stream::StreamState::default())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
         // HKCU, never HKLM (§8). A per-machine Run key needs admin, affects
         // every account on the computer, and is not this app's to write.
         .plugin(tauri_plugin_autostart::init(
@@ -72,7 +84,9 @@ pub fn run() {
             // stored preference across at startup.
             windows::install_close_to_tray(app.handle());
             Ok(())
-        })
+        });
+
+    builder
         // Commands are added one at a time, and each one needs a matching
         // entry in capabilities/default.json. The capability set starts empty
         // and only ever grows deliberately (§4.5).
@@ -80,106 +94,15 @@ pub fn run() {
             commands::app_version,
             commands::notify_message,
             commands::set_unread,
-            commands::lock,
-            commands::is_unlocked,
             commands::focus_window,
             commands::set_close_to_tray,
             commands::set_window_backdrop,
-            commands::storage_info,
-            commands::clear_media_cache,
+            commands::forget_account,
             commands::preview_link,
             commands::get_autostart,
             commands::set_autostart,
             commands::check_update,
             commands::install_update,
-            auth::register,
-            auth::login,
-            auth::restore_session,
-            auth::change_password,
-            auth::device_fingerprint,
-            auth::pin_status,
-            auth::set_pin,
-            auth::clear_pin,
-            auth::unlock_with_pin,
-            auth::logout,
-            auth::delete_account,
-            conversations::list_conversations,
-            conversations::delete_conversation,
-            conversations::start_conversation,
-            conversations::start_group,
-            conversations::add_to_conversation,
-            conversations::rename_conversation,
-            conversations::mark_verified,
-            conversations::search_messages,
-            conversations::forward_message,
-            conversations::open_self_conversation,
-            conversations::acknowledge_key_change,
-            conversations::set_conversation_avatar,
-            conversations::conversation_avatar,
-            conversations::attachment_data_url,
-            conversations::conversation_attachments,
-            conversations::send_message,
-            conversations::sync_conversation,
-            conversations::sync_all,
-            conversations::conversation_messages,
-            conversations::send_attachment,
-            conversations::send_voice_message,
-            conversations::send_reply,
-            conversations::send_view_once,
-            conversations::open_view_once,
-            conversations::attachment_stream_info,
-            conversations::send_sticker,
-            stream::drain_stream,
-            stream::typing,
-            conversations::draft,
-            conversations::set_draft,
-            conversations::conversations_with_drafts,
-            conversations::list_folders,
-            conversations::create_folder,
-            conversations::rename_folder,
-            conversations::delete_folder,
-            conversations::set_folder_member,
-            conversations::save_attachment,
-            conversations::flush_outbox,
-            conversations::outbox_count,
-            conversations::safety_number,
-            conversations::react_to_message,
-            conversations::revise_message,
-            conversations::set_message_pinned,
-            conversations::delete_message_for_me,
-            people::search_users,
-            people::report,
-            people::create_invite,
-            people::invites,
-            people::revoke_invite,
-            stories::story_post,
-            stories::story_list,
-            stories::story_open,
-            feed::feed,
-            feed::posts_by,
-            feed::set_following,
-            feed::follow_state,
-            feed::create_post,
-            feed::delete_post,
-            feed::react,
-            feed::pin_post,
-            feed::unpin_post,
-            feed::blocks,
-            feed::block,
-            feed::unblock,
-            feed::profile,
-            feed::my_profile,
-            feed::update_profile,
-            feed::update_visibility,
-            feed::upload_image,
-            feed::vote,
-            feed::comments,
-            feed::add_comment,
-            feed::delete_comment,
-            feed::image_url,
-            feed::image_data_url,
-            feed::read_image_for_crop,
-            feed::upload_image_bytes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nexo");
@@ -190,15 +113,13 @@ fn init_tracing() {
     // compiled out of release builds. `debug_assertions` is the switch, and
     // the release profile in the workspace manifest turns it off.
     //
-    // `nexo_client` is named as well as this crate, and that is the point:
-    // conversations, joins and the reasons a send was refused all happen in
-    // that crate, and a filter that named only this one discarded every line
-    // explaining them. What reached the console was the summary the user saw
-    // anyway -- "You are not in that conversation." -- and nothing about why.
+    // Only this crate now. `nexo_client` used to be named here as well,
+    // because conversations, joins and refused sends all happened in it; they
+    // happen in the page now, and the browser console is where they go.
     let default = if cfg!(debug_assertions) {
-        "nexo_desktop_lib=debug,nexo_client=debug"
+        "nexo_desktop_lib=debug"
     } else {
-        "nexo_desktop_lib=info,nexo_client=info"
+        "nexo_desktop_lib=info"
     };
     tracing_subscriber::fmt()
         .with_env_filter(

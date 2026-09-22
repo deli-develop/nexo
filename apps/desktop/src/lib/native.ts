@@ -1,104 +1,144 @@
 /**
- * The native seam: file pickers, save dialogs, clipboard, and the "not built
- * yet" notice, all in one place so components never touch a Tauri plugin
- * directly.
+ * The native seam: file pickers, saving, clipboard, and the "not built yet"
+ * notice, all in one place so components never touch a Tauri plugin directly.
  *
- * Every call is wrapped the same way `windowAction` is (`useWindow.ts`):
- * `vite dev` in a browser has no Tauri runtime, so a missing plugin degrades
- * to a no-op instead of throwing.
+ * # One page, three hosts
+ *
+ * Everything here is wrapped the same way: a browser tab has no Tauri runtime,
+ * so a missing plugin degrades to a no-op or to the web equivalent rather than
+ * throwing. That was already true for the tray and the toasts — `vite dev` has
+ * run in a plain browser all along — and wave 7 makes it true for the parts
+ * that used to be genuinely native.
+ *
+ * The file picker is the one that could not be papered over. It used to answer
+ * with a **path**, and a browser never learns one: the page is handed bytes by
+ * the picker and that is all it will ever have. So `PickedFile` carries the
+ * bytes, `path` is present only in the Tauri build, and nothing downstream may
+ * require it.
  */
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 
 import { requestDialog } from "./dialogs";
+import { inTauri } from "./runtime";
 
 export interface PickedFile {
-  path: string;
+  /** In the Tauri build only. A browser never learns a path, by design. */
+  path?: string;
   name: string;
-  /** A `asset://` URL this WebView can render directly — images, mostly. */
+  /** What the picker said it is. Still sniffed again before it is trusted. */
+  mime: string;
+  bytes: Uint8Array;
+  /**
+   * An object URL this page can render.
+   *
+   * The caller revokes it. Not doing so keeps the whole file alive in memory
+   * for as long as the tab is open, which for a video is exactly the sort of
+   * leak nobody notices until an hour in.
+   */
   url: string;
 }
 
-function fileName(path: string): string {
-  return path.split(/[\\/]/).pop() ?? path;
-}
+const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
+const MEDIA_ACCEPT = `${IMAGE_ACCEPT},video/mp4,video/quicktime,video/webm`;
 
-/** Opens the native Open File dialog (Explorer) and returns what was picked. */
-export async function pickFile(options?: {
+/**
+ * Asks for a file.
+ *
+ * One implementation for both hosts: a hidden `<input type="file">`, which the
+ * Tauri WebView answers with the same OS dialog the plugin would have opened.
+ * Two implementations would be two sets of filters to keep in step, and the
+ * filters are exactly what drifted before — `media` rather than `images`,
+ * because a story can be a video and a second call site that forgot would
+ * refuse them for no reason anybody could see.
+ */
+export function pickFile(options?: {
   title?: string;
   images?: boolean;
-  /**
-   * Offer video as well as pictures.
-   *
-   * Separate from `images` because most callers genuinely mean pictures — an
-   * avatar or a banner cannot be a film. A story can, and `sniff_mime` has
-   * understood MP4 and WebM all along; only this dialog was refusing them.
-   */
   media?: boolean;
 }): Promise<PickedFile | null> {
-  try {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const path = await open({
-      multiple: false,
-      directory: false,
-      title: options?.title ?? "Choose a file",
-      ...(options?.media
-        ? {
-            filters: [
-              {
-                name: "Pictures and video",
-                extensions: [
-                  "png",
-                  "jpg",
-                  "jpeg",
-                  "gif",
-                  "webp",
-                  "mp4",
-                  "m4v",
-                  "mov",
-                  "webm",
-                ],
-              },
-            ],
-          }
-        : options?.images
-          ? {
-              filters: [
-                {
-                  name: "Images",
-                  extensions: ["png", "jpg", "jpeg", "gif", "webp"],
-                },
-              ],
-            }
-          : {}),
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    if (options?.media) input.accept = MEDIA_ACCEPT;
+    else if (options?.images) input.accept = IMAGE_ACCEPT;
+    input.style.display = "none";
+    document.body.append(input);
+
+    // Cancelling is `null`, not an error. Nothing went wrong; the person
+    // changed their mind, and an error message for a decision is noise.
+    const finish = (picked: PickedFile | null) => {
+      input.remove();
+      resolve(picked);
+    };
+
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (!file) {
+        finish(null);
+        return;
+      }
+      void file.arrayBuffer().then((buffer) => {
+        const bytes = new Uint8Array(buffer);
+        finish({
+          name: file.name,
+          mime: file.type || "application/octet-stream",
+          bytes,
+          url: URL.createObjectURL(file),
+        });
+      });
     });
-    if (!path || Array.isArray(path)) return null;
-    return { path, name: fileName(path), url: convertFileSrc(path) };
-  } catch {
-    return null;
-  }
+    input.addEventListener("cancel", () => finish(null));
+    input.click();
+  });
 }
 
 /**
- * Opens the native Save As dialog and returns the chosen path.
+ * Writes bytes somewhere the person chose.
  *
- * Only the path: writing is Rust's job, because the bytes have to be
- * downloaded and decrypted first and neither belongs in the WebView. The
- * suggested name comes from the sender and has already been sanitised on the
- * Rust side — but the user picks the real destination, so a hostile name
- * cannot decide where a file lands.
+ * The two hosts genuinely differ and neither can imitate the other: Tauri asks
+ * where and writes the file; a browser hands the file to the download
+ * mechanism and the person's own settings decide where it lands. Both end with
+ * the file saved, which is the promise this makes — so it answers `true` or
+ * `false` rather than a path nobody on the web would be given.
  */
-export async function pickSavePath(
-  suggestedName: string,
-): Promise<string | null> {
+export async function saveFile(name: string, bytes: Uint8Array): Promise<boolean> {
+  if (inTauri()) {
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({ title: "Save attachment", defaultPath: name });
+      if (!path) return false;
+      const { writeFile } = await import("@tauri-apps/plugin-fs");
+      await writeFile(path, bytes);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const url = URL.createObjectURL(new Blob([bytes as unknown as BlobPart]));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  // Revoked on the next turn rather than immediately: the click is handled
+  // asynchronously, and revoking first is a download of nothing.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return true;
+}
+
+/**
+ * What version this is.
+ *
+ * The shell's, in the Tauri build; the bundle's, on the web, where there is no
+ * shell to ask. `import.meta.env` is inlined at build time, so the web answer
+ * is a literal rather than a call that could fail.
+ */
+export async function appVersion(): Promise<string> {
+  if (!inTauri()) return import.meta.env["VITE_APP_VERSION"] ?? "web";
   try {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const path = await save({
-      title: "Save attachment",
-      defaultPath: suggestedName,
-    });
-    return path ?? null;
+    return await invoke<string>("app_version");
   } catch {
-    return null;
+    return "unknown";
   }
 }
 
@@ -156,17 +196,20 @@ export async function setTrayUnread(unread: number): Promise<void> {
 }
 
 /**
- * Locks the app: Rust closes the encrypted store and drops the MLS state.
+ * Forgets what the shell knows about the account that just signed out.
  *
- * Infallible by design — see the `lock` command. If this could fail and the
- * UI treated that as "stay unlocked", the failure mode would be an app that
- * looks locked and is not.
+ * The tray tooltip and the startup entry, neither of which is the page's to
+ * change. Nothing on the web, where there is neither.
+ *
+ * Infallible from here. The store is already wiped by the time this runs, so
+ * a tray that will not update must not turn into a sign-out that appears to
+ * have failed.
  */
-export async function lockCore(): Promise<void> {
+export async function forgetAccount(): Promise<void> {
   try {
-    await invoke("lock");
+    await invoke("forget_account");
   } catch {
-    // Nothing to lock in a browser preview.
+    // No tray and no startup entry to forget.
   }
 }
 
@@ -273,40 +316,69 @@ export async function previewLink(
 
 /** What Nexo is keeping on this machine (§6.4). */
 export interface StorageInfo {
+  /**
+   * Where it is kept, in words rather than as a path.
+   *
+   * There is no path to show any more: the store is IndexedDB, and the
+   * browser decides where that lives. Printing an invented one would be worse
+   * than saying which browser profile it belongs to.
+   */
   storePath: string;
-  /** The encrypted database and its WAL sidecars. The only copy of your messages. */
+  /** Everything the app is holding — messages, keys, drafts, cached objects. */
   storeBytes: number;
-  /** Downloaded media the WebView is holding. Re-fetchable, safe to clear. */
+  /** What the page cached: the shell, which is re-fetchable and safe to clear. */
   cacheBytes: number;
 }
 
 /**
- * Measures the local store and the media cache.
+ * Measures what this origin is using.
  *
- * `null` when there is no runtime to ask, so the panel can say "unavailable"
- * rather than print an invented number.
+ * `navigator.storage.estimate()` rather than a Rust directory walk, which is
+ * what this used to be. It reports one number for the whole origin, so the
+ * split between the store and the cache is measured rather than guessed: the
+ * cache is the one thing here that can be counted on its own.
+ *
+ * `null` when the browser will not say — Firefox in a private window, for
+ * one — so the panel can say "unavailable" rather than print a zero that
+ * reads as "nothing is stored".
  */
 export async function storageInfo(): Promise<StorageInfo | null> {
+  if (!navigator.storage?.estimate) return null;
   try {
-    const raw = await invoke<{
-      store_path: string;
-      store_bytes: number;
-      cache_bytes: number;
-    }>("storage_info");
+    const estimate = await navigator.storage.estimate();
+    if (estimate.usage === undefined) return null;
+    let cacheBytes = 0;
+    if ("caches" in globalThis) {
+      for (const name of await caches.keys()) {
+        const cache = await caches.open(name);
+        for (const request of await cache.keys()) {
+          const response = await cache.match(request);
+          const length = response?.headers.get("content-length");
+          if (length) cacheBytes += Number(length);
+        }
+      }
+    }
     return {
-      storePath: raw.store_path,
-      storeBytes: raw.store_bytes,
-      cacheBytes: raw.cache_bytes,
+      storePath: inTauri() ? "This app's data folder" : "This browser profile",
+      storeBytes: Math.max(0, estimate.usage - cacheBytes),
+      cacheBytes,
     };
   } catch {
     return null;
   }
 }
 
-/** Clears downloaded media. The encrypted store is untouched. */
+/**
+ * Clears the cached shell. Messages are untouched.
+ *
+ * The one thing here that is safe to delete: the shell re-downloads, and
+ * everything else in this origin *is* the only copy — the server deletes
+ * ciphertext on acknowledgement, so there is nothing to re-fetch it from.
+ */
 export async function clearMediaCache(): Promise<boolean> {
+  if (!("caches" in globalThis)) return false;
   try {
-    await invoke("clear_media_cache");
+    for (const name of await caches.keys()) await caches.delete(name);
     return true;
   } catch {
     return false;

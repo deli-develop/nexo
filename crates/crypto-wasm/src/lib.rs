@@ -68,6 +68,95 @@ pub fn derive_verifier(
     Ok(verifier)
 }
 
+/// One object, sealed: an attachment, a story, a group picture.
+///
+/// The key is returned to the caller and never leaves the device except inside
+/// an MLS message. The object store holds ciphertext it has no key for, which
+/// is the whole arrangement — brief §4.4 — and the reason the same bucket can
+/// be a third party's.
+#[wasm_bindgen]
+pub struct Sealed {
+    ciphertext: Vec<u8>,
+    key: Vec<u8>,
+    nonce: Vec<u8>,
+    sha256: Vec<u8>,
+    size: u64,
+}
+
+#[wasm_bindgen]
+impl Sealed {
+    /// What goes to the object store, and all it ever holds.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn ciphertext(&self) -> Vec<u8> {
+        self.ciphertext.clone()
+    }
+
+    /// The key that opens it. Goes in the payload; never to the object store.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn key(&self) -> Vec<u8> {
+        self.key.clone()
+    }
+
+    /// Fresh per object, like the key.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn nonce(&self) -> Vec<u8> {
+        self.nonce.clone()
+    }
+
+    /// SHA-256 of the **plaintext**, so a receiver can tell a corrupted or
+    /// substituted object from a decryptable one.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn sha256(&self) -> Vec<u8> {
+        self.sha256.clone()
+    }
+
+    /// The plaintext length, which the ciphertext's is not.
+    #[wasm_bindgen(getter)]
+    #[must_use]
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+}
+
+/// Seals bytes for the object store.
+///
+/// A fresh key per object, not a per-conversation one: the key travels in the
+/// message that references it, so an object shared twice is sealed twice, and
+/// revoking one cannot be confused with revoking the other.
+#[wasm_bindgen(js_name = "sealObject")]
+pub fn seal_object(plaintext: &[u8]) -> Result<Sealed, JsError> {
+    let sealed = nexo_crypto::attachment::encrypt(plaintext).map_err(js_err)?;
+    Ok(Sealed {
+        ciphertext: sealed.ciphertext,
+        key: sealed.key.to_vec(),
+        nonce: sealed.nonce.to_vec(),
+        sha256: sealed.sha256.to_vec(),
+        size: sealed.size,
+    })
+}
+
+/// Opens one, **and checks the hash**.
+///
+/// The check is not belt-and-braces. AES-GCM authenticates the ciphertext
+/// against the key it was sealed with, which proves the object store did not
+/// alter it — it does not prove this is the object the message named. The
+/// hash, which travelled inside the encrypted payload, is what does.
+#[wasm_bindgen(js_name = "openObject")]
+pub fn open_object(
+    ciphertext: &[u8],
+    key: &[u8],
+    nonce: &[u8],
+    sha256: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    let plaintext =
+        nexo_crypto::attachment::decrypt(ciphertext, key, nonce, sha256).map_err(js_err)?;
+    Ok(plaintext.to_vec())
+}
+
 /// Turns a wasm panic into a message rather than `unreachable executed`.
 ///
 /// Called once, by the page, before anything else. Safe to call twice.

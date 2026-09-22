@@ -135,13 +135,13 @@ in a state where stopping is fine.
 | 2 | Calls out | One fewer `unsafe` block in the workspace |
 | 3 | **Spike: MLS in WASM** — **done, and it works** | A browser encrypts and decrypts a real MLS message. It does; see below |
 | 4 | The server: cleaned, redeployed, `api.delidev.net` — **done** | It answers 200, with `protocol_version: 5` |
-| 5 | Mobile-first layout — **built, not yet seen running** | The existing app, correct from 360px to 2560px |
-| 6 | `packages/core` — the TypeScript session layer — **started** | Headless tests pass against a real local server |
-| 7 | The React app swapped onto `packages/core` | `invoke()` gone from feature code; the Windows app still works |
-| 8 | The web build | `nexo.delidev.net` is live |
-| 9 | The Tauri shell, thinned | Windows `.msi`, ~12 commands |
-| 10 | Android | A signed `.apk` |
-| 11 | The dead crates retired, the docs redrawn | `crates/client`, `crates/store`, `crates/platform` gone; `CONTEXT.md` true again |
+| 5 | Mobile-first layout — **done** | The existing app, correct from 360px to 2560px |
+| 6 | `packages/core` — the TypeScript session layer — **done** | 96 tests, plus 11 driving the real MLS module |
+| 7 | The React app swapped onto `packages/core` — **done** | 99 `invoke()` calls became 12, all in `lib/native.ts` |
+| 8 | The web build — **done; needs two secrets and a CNAME** | CI builds and deploys; see `DEPLOY.md` step 8 |
+| 9 | The Tauri shell, thinned — **done** | 103 commands became 12; 6 968 ln became 1 421 |
+| 10 | Android — **shell ready; APK needs an SDK and a keystore** | `cfg(mobile)` in place, `DEVELOPMENT.md` §3c has the rest |
+| 11 | The dead crates retired, the docs redrawn — **done** | `crates/client`, `crates/store`, `crates/platform` gone; `CONTEXT.md` redrawn |
 
 ### Wave 1 — Meet&Greet out
 

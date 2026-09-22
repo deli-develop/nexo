@@ -3,7 +3,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../app/store";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
-import { confirm, notify, openUrl, pickFile } from "../../lib/native";
+import {
+  confirm,
+  notify,
+  openUrl,
+  pickFile,
+  type PickedFile,
+} from "../../lib/native";
 import { useFeed, type NewPostInput } from "../../app/useFeed";
 import { RemoteImage } from "../../components/ui/RemoteImage";
 import { Stories } from "./Stories";
@@ -356,9 +362,7 @@ function PostComposer({
   // cannot be hidden by a stray click and silently posted.
   const [linking, setLinking] = useState(false);
   const [body, setBody] = useState("");
-  const [images, setImages] = useState<
-    { path: string; name: string; url: string }[]
-  >([]);
+  const [images, setImages] = useState<PickedFile[]>([]);
   const [busy, setBusy] = useState(false);
   const remaining = MAX_POST - body.length;
 
@@ -376,11 +380,11 @@ function PostComposer({
     setBusy(true);
     try {
       // Uploaded first, so a post never references an object that failed to
-      // arrive. Rust reads each file and PUTs it; the bytes never come through
-      // here.
+      // arrive. The bytes go straight from here to the object store, signed —
+      // they do not pass through `apps/server`.
       const keys: string[] = [];
       for (const image of images) {
-        keys.push(await uploadImage(image.path));
+        keys.push(await uploadImage(image));
       }
       await onPost({
         body: body.trim(),
@@ -456,7 +460,7 @@ function PostComposer({
       {images.length > 0 ? (
         <ul className="ml-[50px] mt-2 flex flex-col gap-1.5">
           {images.map((image, index) => (
-            <li key={image.path} className="flex items-center gap-2">
+            <li key={image.url} className="flex items-center gap-2">
               <div
                 className="size-14 shrink-0 rounded-control bg-cover bg-center ring-1 ring-line-strong"
                 style={{ backgroundImage: `url(${image.url})` }}

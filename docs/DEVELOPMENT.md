@@ -117,6 +117,80 @@ somewhere other than `127.0.0.1:8080`.
 
 Both of these prepare their own build environment, so they work in any shell.
 
+### 3b. The three builds
+
+One page, three hosts. They share every line of `apps/desktop/src` and
+`packages/core`; what differs is the shell around them.
+
+| Build | Command | Notes |
+|---|---|---|
+| Windows | `pnpm tauri dev` / `pnpm tauri build` | The twelve-command shell |
+| Web | `pnpm build` | `apps/desktop/dist`, deployed by CI |
+| Android | `pnpm tauri android dev` | Needs the SDK/NDK below |
+
+All three need `packages/crypto-wasm` built first, because the page imports it
+and cannot start without it:
+
+```powershell
+pnpm --filter @nexo/crypto-wasm build
+```
+
+That produces **two** layouts from one `.wasm`: `pkg/` for Node's test runner,
+`web/` for anything that runs in a browser engine. Neither substitutes for the
+other — the glue differs and the module does not.
+
+### 3c. Android
+
+The shell is ready for it: wave 9 removed everything that made it
+Windows-shaped, and the plugins a phone has no use for — tray, autostart,
+single-instance, the sideloaded updater — are now behind
+`cfg(not(target_os = "android"))` in `src-tauri/Cargo.toml`, with `cfg(mobile)`
+commands that answer honestly instead of failing.
+
+What is **not** done, and cannot be done from a machine without the toolchain:
+
+1. **The Android SDK and NDK.** Install Android Studio, then set:
+
+   ```powershell
+   $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+   $env:NDK_HOME = "$env:ANDROID_HOME\ndk\<version>"
+   ```
+
+2. **The Rust targets:**
+
+   ```powershell
+   rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+   ```
+
+3. **Initialise the project.** This writes `src-tauri/gen/android`, which is
+   git-ignored and regenerated:
+
+   ```powershell
+   pnpm tauri android init
+   ```
+
+4. **A signing key**, which is yours and must not be in this repository:
+
+   ```powershell
+   keytool -genkey -v -keystore nexo.jks -keyalg RSA -keysize 2048 -validity 10000 -alias nexo
+   ```
+
+   Keep it somewhere you will still have it in five years. **An Android app
+   cannot change its signing key**: lose it and the only way to ship an update
+   is a new listing that nobody who installed the old one will be offered.
+
+5. **Build:**
+
+   ```powershell
+   pnpm tauri android build --apk
+   ```
+
+Push notifications are the open question and are deliberately out of scope.
+With MLS a push can carry nothing but "something arrived" — the server has no
+key and never will — so the notification a phone shows before the app syncs
+cannot name a sender or quote a message. That is a design decision to make
+with its consequences in view, not a setting.
+
 ### 4. Using cargo directly
 
 Raw `cargo` commands — `cargo test`, `cargo clippy`, `cargo build` — need the

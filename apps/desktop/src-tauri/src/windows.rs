@@ -371,9 +371,14 @@ pub fn forget_account<R: Runtime>(app: &AppHandle<R>) {
         tracing::debug!(%error, "the tray tooltip could not be reset");
     }
 
-    use tauri_plugin_autostart::ManagerExt as _;
-    if let Err(error) = app.autolaunch().disable() {
-        tracing::debug!(%error, "the startup entry could not be removed");
+    // Desktop only: Android has no startup entry to remove, because it has
+    // no such thing to create.
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_autostart::ManagerExt as _;
+        if let Err(error) = app.autolaunch().disable() {
+            tracing::debug!(%error, "the startup entry could not be removed");
+        }
     }
 }
 

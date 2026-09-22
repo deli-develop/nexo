@@ -1,75 +1,90 @@
-/**
- * Stories, as the page sees them.
- *
- * These lived in `meet.ts` until the map was removed, which was never where
- * they belonged: a story is encrypted media sent through the conversation
- * layer, exactly as an attachment is.
- *
- * The errors these calls throw come from the conversation shell, so they
- * narrow with `asConversationError` from `./conversations` rather than with
- * anything of their own.
- */
+import { conversations as core, stories as coreStories } from "@nexo/core";
 
-import { invoke } from "@tauri-apps/api/core";
+import { runtime } from "./runtime";
 
 /**
- * One story this device holds.
+ * Stories.
  *
- * The key that opens it is **not** here and never crosses the IPC seam — the
- * page asks for a story by id and Rust hands back bytes, exactly as with an
- * attachment (rule 2).
+ * One encrypted object in the store, and its key sent down every conversation
+ * this device already has — which is why a story is visible to exactly the
+ * people you already talk to and to nobody else. There is no story feed and no
+ * follower list involved; the fan-out *is* the audience.
  */
 export interface Story {
   id: number;
-  /**
-   * Who posted it.
-   *
-   * A received story arrives over MLS, which names a device rather than an
-   * account, so Rust starts this blank and fills it in from the server's own
-   * `GET /v1/stories` listing, matched by id — never invented from the device
-   * id, which would put a UUID under somebody's story. It stays blank only
-   * when that reconciliation could not run (offline) or found nothing to
-   * match (a story arrived and the listing has not caught up yet); either is
-   * rare and both are honestly unresolved rather than guessed.
-   */
   author_handle: string;
-  /** The device that sent it. Empty for this device's own stories. */
   author_device_id: string;
   mime: string;
   created_at_ms: number;
-  /** When it stops being available. At most 24 hours after it was posted. */
   expires_at_ms: number;
 }
 
 /**
- * Post a story.
+ * Posts one.
  *
- * Encrypted once and uploaded once; the key is then sent down every
- * conversation you already have. Your contacts are whoever you share a
- * conversation with, which is the same definition the server uses, and
- * blocking therefore takes effect without any story-specific code.
+ * Takes bytes rather than a path: a browser never learns a path, and the two
+ * hosts have to agree on one shape. See `native.ts` for the same change made
+ * to the picker that feeds this.
  */
-export function postStory(path: string): Promise<number> {
-  return invoke<number>("story_post", { path });
+export async function postStory(file: { bytes: Uint8Array; mime: string }): Promise<number> {
+  return coreStories.postStory(await context(), file.bytes, file.mime);
 }
 
 /**
- * Stories this device holds.
+ * Every live story on this device, newest first.
  *
- * Reading is also what ends the expired ones: the call deletes them and their
- * keys as it goes. That is the layer that actually makes a story disappear —
- * ciphertext without its key is nothing — and it works offline.
+ * A local read: the keys are here and the expiry is enforced here, so this
+ * costs no round trip and works with no network. Reading it is also the
+ * **purge** — anything past its expiry is dropped rather than returned, and
+ * the key goes with it.
  */
-export function listStories(): Promise<Story[]> {
-  return invoke<Story[]>("story_list");
+export async function listStories(): Promise<Story[]> {
+  const rows = await coreStories.listStories(await context());
+  return rows.map((row) => ({
+    id: row.id,
+    author_handle: row.authorHandle,
+    author_device_id: row.authorDeviceId,
+    mime: row.mime,
+    created_at_ms: row.createdAtMs,
+    expires_at_ms: row.expiresAtMs,
+  }));
 }
 
 /**
- * A story's bytes, as a `data:` URL.
+ * Fetches one and hands back a URL this page can render.
  *
- * The key that opens it stays in Rust — the page asks by id and gets pixels,
- * never what decrypted them.
+ * An object URL. The caller revokes it when the viewer closes — a story can be
+ * a video, and holding one in memory behind a closed viewer is the sort of
+ * leak nobody notices until the tab has been open an hour.
  */
-export function openStory(id: number): Promise<string> {
-  return invoke<string>("story_open", { id });
+export async function openStory(id: number): Promise<string> {
+  const { bytes, mime } = await coreStories.openStory(await context(), id);
+  return URL.createObjectURL(new Blob([bytes as unknown as BlobPart], { type: mime }));
+}
+
+async function context(): Promise<coreStories.StoryContext> {
+  const it = await runtime();
+  const ctx = await it.context();
+  return {
+    transport: it.transport,
+    store: it.store,
+    // The same sealing the Rust client does, through the same crate. Nothing
+    // in TypeScript computes anything cryptographic.
+    crypto: {
+      encrypt: async (plaintext) => {
+        const sealed = it.objects.seal(plaintext);
+        return {
+          ciphertext: sealed.ciphertext,
+          key: sealed.key,
+          nonce: sealed.nonce,
+          sha256: sealed.sha256,
+        };
+      },
+      decrypt: async (ciphertext, key, nonce, sha256) =>
+        it.objects.open(ciphertext, key, nonce, sha256),
+    },
+    objects: coreStories.fetchStoryObjects(),
+    sendPayload: (conversationId, payload) =>
+      core.sendPayload(ctx, conversationId, payload as never),
+  };
 }

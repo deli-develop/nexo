@@ -25,7 +25,7 @@ export async function pickAndPostStory(): Promise<StoryPost> {
   const picked = await pickFile({ title: "Post a story", media: true });
   if (!picked) return { posted: false };
   try {
-    await postStory(picked.path);
+    await postStory(picked);
     return { posted: true };
   } catch (error) {
     return { posted: false, problem: asConversationError(error).message };

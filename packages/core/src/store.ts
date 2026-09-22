@@ -43,6 +43,22 @@ export interface StoredConversation {
   lastMessage: string | null;
   updatedAtMs: number;
   /**
+   * Whether this device sent the most recent message.
+   *
+   * What decides that a conversation whose newest message is our own never
+   * toasts and never counts as unread — which is not derivable from
+   * `lastMessage`, a string that looks identical either way.
+   */
+  lastMessageOutgoing?: boolean;
+  /**
+   * Everyone in it, by handle.
+   *
+   * From the server's conversation list, which is the only place handles
+   * exist: MLS names *devices*, so a client holding the group has no way to
+   * say whose leaf is whose. Absent until a `discover` has run.
+   */
+  members?: string[];
+  /**
    * The encoded `group_avatar` payload, when somebody set one.
    *
    * The payload rather than the picture: it holds the key the bytes are
@@ -348,12 +364,27 @@ export class Store {
       await idb.put(tx, "conversations", {
         ...conversation,
         lastMessage: message.body,
+        lastMessageOutgoing: message.senderDeviceId === null,
         updatedAtMs: Math.max(conversation.updatedAtMs, message.sentAtMs),
         syncedTo: syncedTo === undefined
           ? conversation.syncedTo
           : Math.max(conversation.syncedTo, syncedTo),
       });
     });
+  }
+
+  /**
+   * One message by its envelope id, wherever it is.
+   *
+   * No conversation needed: an envelope id is the server's, and it is unique
+   * across every conversation this device is in — which is why `messages` is
+   * keyed by it. A caller that has an id and not a conversation is the normal
+   * case, not a shortcut.
+   */
+  async message(id: number): Promise<StoredMessage | null> {
+    return transact(this.#db, "messages", "readonly", async (tx) =>
+      (await idb.get<StoredMessage>(tx, "messages", id)) ?? null,
+    );
   }
 
   /** One message by the name its sender gave it, or nothing. */

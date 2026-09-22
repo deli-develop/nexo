@@ -42,7 +42,13 @@ Step 'cargo deny (linux server)' {
 }
 Step 'cargo audit'      { cargo audit }
 
+# Before the typecheck, not after: `lib/runtime.ts` imports
+# `@nexo/crypto-wasm/web`, which is generated. Without it the typecheck fails
+# on a missing module and says nothing about why.
+Step 'wasm'             { pnpm --filter @nexo/crypto-wasm build }
 Step 'pnpm typecheck'   { pnpm typecheck }
+Step 'pnpm test'        { pnpm test }
+Step 'pnpm test:wasm'   { pnpm test:wasm }
 Step 'pnpm build'       { pnpm build }
 
 if ($failed.Count -gt 0) {

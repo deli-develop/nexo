@@ -77,25 +77,50 @@ wins and the conflict gets flagged rather than resolved silently.
 | # | Rule | Where it lives / is enforced |
 |---|---|---|
 | 1 | Never invent cryptography. | `crates/crypto` only wraps OpenMLS; no primitive is written here. |
-| 2 | No key material in the WebView. | The seam is `apps/desktop/src-tauri`. The frontend receives decrypted strings over IPC and nothing else. |
-| 3 | No remote code in the client. | Strict CSP in `tauri.conf.json`; everything bundled, no CDN, no `eval`. |
+| 2 | ~~No key material in the WebView.~~ | **Retired in wave 7.** See below — this one changed, and pretending otherwise would be the worst thing this file could do. |
+| 3 | No remote code in the client. | Strict CSP in `tauri.conf.json` **and in `netlify.toml`**; everything bundled, no CDN, no `eval`. `wasm-unsafe-eval` is present and is not `eval`: it permits compiling WebAssembly and nothing else. |
 | 4 | The server must never read message contents. | `crates/protocol` carries no plaintext types; `apps/server/src/delivery` moves opaque envelopes. |
 | 5 | Be honest in the UI about what is encrypted. | Feed and profile surfaces say they are public. Never "military grade", never "unhackable". |
-| 6 | Zeroize secrets. | `zeroize` on key material, MLS buffers, password bytes — `crates/store/src/key.rs`, `crates/client/src/pin.rs`. |
+| 6 | Zeroize secrets. | Still true in Rust — `crates/crypto` zeroizes key material and MLS buffers. **Not achievable in the page**: JavaScript cannot guarantee a string is erased, and `packages/core` holds verifiers in `Uint8Array` and clears them where it can, which is weaker and is meant to be read as weaker. |
 | 7 | Fail closed. | A decryption failure renders as "can't decrypt", never a plaintext fallback and never a silent skip. |
 | 8 | Every dependency pinned. | `=x.y.z` in `Cargo.toml`, exact versions in `package.json`, both lockfiles committed, `cargo deny` + `cargo audit` + `pnpm audit` in CI. |
 
+### Invariant 2, and what replaced it
+
+Until wave 7 the tokens, the MLS state, the identity key and every message
+plaintext lived in the Rust process, and a script that got into the WebView
+could reach none of them. **There is no such other side in a browser.** The
+session now lives in the page: `packages/core` holds it, IndexedDB stores it,
+and anything that runs script in that origin can read all of it.
+
+That is the price of one client across three targets, and
+[`REWORK.md`](REWORK.md) records it as a decision rather than an accident. The
+consequences, stated plainly because they are what somebody deserves to be
+told:
+
+- **Nothing is encrypted at rest.** No keystore exists to hold a key a browser
+  could use, so there is no SQLCipher and nothing to unlock.
+- **"Lock" guards the screen, not the disk.** `lib/auth.ts` says so in the
+  code, and the settings screen says so to the person.
+- **An XSS is a total compromise.** It always was severe; it is now fatal.
+  This is why invariant 3 matters more than it used to, and why the CSP is now
+  maintained in two files rather than one.
+
+What did **not** change, and it is the half that matters to somebody who is not
+holding the device: the server still holds no key and a message is still opaque
+to it. Invariants 1, 4, 5 and 7 are untouched.
+
 Two structural rules of the same weight:
 
-- **`crates/protocol`, `crates/crypto` and `crates/platform` must compile
-  unchanged for Android.** No I/O, no OS calls, no HTTP. Every platform call
-  goes behind `nexo-platform`. Adding a dependency to one of those three is a
+- **`crates/protocol` and `crates/crypto` must compile unchanged for
+  `wasm32-unknown-unknown`.** No I/O, no OS calls, no HTTP. That is no longer
+  aspirational — the page will not start without it, and the `web` job in CI
+  fails the moment it stops being true. Adding a dependency to either is a
   portability decision, not a convenience.
-- **`crates/client` has no platform calls and no HTTP client of its own.** It
-  reaches the OS through `SecureStore` and the network through the `Transport`
-  trait, both supplied by the shell around it. The `http` feature adds
-  `HttpTransport` (ureq) *and* the WebSocket, and stays off for anything that
-  wants to remain portable.
+- **`packages/core` has no React in it and no platform calls.** The network
+  arrives as `Transport`, storage as `Store`, MLS as `CryptoModule`. Anything
+  that knows which host it is on belongs in `apps/desktop/src/lib/runtime.ts`,
+  which is the only file that may ask.
 
 ---
 
@@ -106,19 +131,21 @@ tables below.
 
 ```
 crates/protocol       1 608 ln   Wire types shared by client and server. No I/O, no crypto.
-crates/crypto         1 863 ln   MLS, the identity keypair, safety numbers, attachment crypto.
-crates/crypto-wasm      479 ln   The same, through wasm-bindgen, for a browser engine.
-crates/platform         427 ln   The OS seam: SecureStore, and the Windows DPAPI backing.
-crates/store          4 113 ln   The client's SQLCipher database.
-crates/client         7 248 ln   Session logic, portable across Windows and Android.
-apps/server           8 299 ln   axum API + MLS Delivery Service (Linux aarch64).
+crates/crypto         2 449 ln   MLS, the identity keypair, safety numbers, object crypto.
+crates/crypto-wasm      616 ln   The same, through wasm-bindgen, for a browser engine.
+apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      6 968 ln   The Windows shell: 103 Tauri commands, windowing, IPC.
-apps/desktop/src     22 314 ln   React 19 client (TypeScript, Tailwind, Zustand).
+                      1 421 ln   The desktop shell: 12 Tauri commands, windowing, tray.
+apps/desktop/src     23 035 ln   React 19 page (TypeScript, Tailwind, Zustand). Every host runs this.
+packages/core         7 293 ln   The client's brain in TypeScript. Session, transport, store, MLS.
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
 packages/crypto-wasm             Builds crates/crypto-wasm into an npm package. Generated, not committed.
-packages/core          1 313 ln  The client's brain in TypeScript. Started: errors, wire types, transport, auth.
 ```
+
+**Three crates are gone**, and their absence is the shape of the rework:
+`crates/client` (7 248 ln), `crates/store` (4 113 ln) and `crates/platform`
+(427 ln) were the Windows client, and every line of what they did now lives in
+`packages/core` where a browser can run it too. `docs/REWORK.md` wave 11.
 
 Counted the same way each time: every `.rs` under a crate's `src/`, every
 `.ts`/`.tsx` under the page, tests included where they live inside those files
@@ -129,44 +156,49 @@ number by a delta keeps it stale.
 The dependency direction is one-way and worth holding in your head:
 
 ```
-protocol  ←  crypto   ←  client  ←  src-tauri  ←  src (React, over IPC)
-             crypto   ←  crypto-wasm  ←  packages/crypto-wasm  (the web path)
-             store    ←  client
-             platform ←  store, client
-protocol  ←  server                    (the server shares only the wire types)
+protocol  ←  crypto   ←  crypto-wasm  ←  packages/crypto-wasm  ←  packages/core  ←  src
+protocol  ←  server
+
+src-tauri  →  nothing of ours. It is a window, a tray and an updater.
 ```
 
-Nothing below `client` knows about Tauri. Nothing in `src` (React) knows about
-Rust except through `invoke()` in `lib/*.ts`.
+**Nothing in `src` knows about Rust any more.** It imports `@nexo/core`, which
+imports `@nexo/crypto-wasm`, which is `crates/crypto` compiled for a browser
+engine. `invoke()` survives in exactly one file — `lib/native.ts` — for the
+twelve shell things a page cannot do: a tray icon, a toast, a startup entry,
+an updater.
 
-### A consumer outside this repository
+### One page, three hosts
 
-`nexo-web` — <https://github.com/deli-develop/nexo-web> — is the web client,
-deployed to `nexo.delidev.net` on Netlify. It is a **separate repository**, not
-a package here, and it is the reason three things in this one look the way they
-do:
+The same `apps/desktop/src` is served three ways, and the difference is what
+is around it, not what is in it.
+
+| Host | Shell | What it adds | What it cannot do |
+|---|---|---|---|
+| Windows | `apps/desktop/src-tauri` | Tray, toasts, autostart, updater, Save dialog | — |
+| Web | none | — | No tray, no updater, no path to a file |
+| Android | the same shell, `cfg(mobile)` | Nothing yet | Autostart and the updater answer honestly that the platform owns them |
+
+`lib/runtime.ts` is the only file that knows which of the three it is, and
+`inTauri()` is the only test. Everything else is written once.
+
+Three consequences worth knowing before reading anything else:
 
 - **`apps/server` has a CORS layer.** `NEXO_CORS_ORIGINS` names the browser
-  origins allowed to call the API, and unset means no layer at all. The desktop
-  app sends no `Origin` header, so this is invisible to it. Never `*` —
-  `parse_origins` refuses one at startup.
-- **`packages/design-tokens` has a second consumer**, which holds a *copy*
-  pinned to a commit here rather than importing the package. Generated values
-  only; the exception does not extend to anything with logic in it.
-- **`crates/crypto` compiles to WASM, and this is now true rather than
-  aspirational.** An earlier version of this paragraph claimed it before it
-  was, which is why it is worth saying plainly: `crates/crypto-wasm` is a
-  `wasm-bindgen` facade over it, `packages/crypto-wasm` builds that into an npm
-  package, and the `crypto-wasm` job in `ci.yml` drives two devices through a
-  real MLS conversation against it. `crates/client` will **not** compile for
-  WASM, and that one is genuine: `crates/store` is SQLCipher over vendored
-  OpenSSL, which is C and has no business in a browser. That is why session
-  logic is being reimplemented in TypeScript — see [`REWORK.md`](REWORK.md)
-  wave 6.
-
-Its own map is `docs/CONTEXT.md` in that repository, and its threat model is
-`docs/WEB-THREAT-MODEL.md` there — the web build does not inherit invariants 2,
-3 and 6 unchanged, and that file is where the differences are written down.
+  origins allowed to call the API, and unset means no layer at all. The
+  desktop app sends no `Origin` header, so this is invisible to it. Never
+  `*` — `parse_origins` refuses one at startup.
+- **Nothing is encrypted at rest.** `crates/store` was SQLCipher with a key
+  from the OS keystore; a browser has no such place, so `packages/core`'s
+  IndexedDB holds the session and the history in the clear. That is the price
+  of one client across three targets, recorded in [`REWORK.md`](REWORK.md)
+  rather than left to be discovered.
+- **`crates/crypto` compiles to WASM**, and this is true rather than
+  aspirational: `crates/crypto-wasm` is a `wasm-bindgen` facade over it,
+  `packages/crypto-wasm` builds that into an npm package in two layouts
+  (`pkg/` for Node, `web/` for a browser), and the `web` job in `ci.yml`
+  drives two devices through a real MLS conversation against it — through
+  `packages/core`, not around it.
 
 ---
 
@@ -208,7 +240,7 @@ it, and [`REWORK.md`](REWORK.md) makes one page serve web, Windows and Android.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/lib.rs` | 479 | `Device` (identity, credential, signer, MLS provider) and `Group` (one conversation). Also the state blob, encoded exactly as `crates/client/src/mls_state.rs` encodes it. |
+| `src/lib.rs` | 616 | `Device` (identity, credential, signer, MLS provider), `Group` (one conversation), `Sealed` (`sealObject` / `openObject` for attachments and stories), `peek`, and `deriveVerifier`. Also the MLS state blob codec. |
 
 Three things to know before touching it:
 
@@ -226,85 +258,36 @@ Three things to know before touching it:
   call.
 
 The state codec is written twice today — here and in
-`crates/client/src/mls_state.rs`, byte for byte — and wave 6 moves it into
+the codec the deleted `crates/client/src/mls_state.rs` used, byte for byte —
+and wave 6 moved it into
 `crates/crypto` so there is one of it.
 
 ---
 
-### `crates/platform` — the OS seam
+### The three crates that are gone
 
-| File | Ln | Owns |
-|---|---|---|
-| `src/lib.rs` | 54 | The `SecureStore` trait and `STORE_KEY_NAME`. **The whole seam.** Adding an OS capability means adding a trait method here and implementing it per platform. |
-| `src/dpapi.rs` | 371 | Windows DPAPI. **The only `unsafe` in the workspace**, confined to `dpapi::ffi`. `src-tauri` carried the other until calls were removed; it is `forbid(unsafe_code)` again. One file per secret under `%APPDATA%\Nexo`, with name-bound extra entropy so one blob cannot be unwrapped as another. |
+`crates/platform` (the OS seam and Windows DPAPI), `crates/store` (SQLCipher)
+and `crates/client` (session logic, 7 248 lines) were deleted in
+[`REWORK.md`](REWORK.md) wave 11. Everything they did is in `packages/core`.
 
-Read `dpapi.rs`'s module header before touching it. The named secrets in use are
-`store-db-key`, `nexo-unlock-pin` and `nexo-unlock-pin-attempts`; each becomes
-`<name>.bin` in that directory beside `store.db`.
+They are named here rather than simply removed, because a year of commit
+messages and half the older documents point at them, and "that file does not
+exist" is a worse answer than knowing where it went:
 
----
+| Was | Is |
+|---|---|
+| `crates/client/src/session.rs` | `packages/core/src/session.ts` |
+| `crates/client/src/conversations.rs` | `packages/core/src/conversations.ts` |
+| `crates/client/src/http.rs`, `transport.rs` | `packages/core/src/transport.ts` |
+| `crates/client/src/feed.rs` | `packages/core/src/feed.ts` |
+| `crates/client/src/pin.rs` | `packages/core/src/pin.ts` |
+| `crates/client/src/mls_state.rs` | the state blob codec in `crates/crypto-wasm` |
+| `crates/store/src/lib.rs` | `packages/core/src/store.ts` + `idb.ts` |
+| `crates/platform` | nothing — a browser has no keystore to seam to |
 
-### `crates/store` — the encrypted local database
+That last row is the one with a consequence rather than a new home. See
+*Invariants* below.
 
-SQLCipher, one file at `%APPDATA%\Nexo\store.db`. **`src/lib.rs` is 4 019 lines
-— never read it top to bottom.** `grep` the table name and read the range around
-it.
-
-| File | Ln | Owns |
-|---|---|---|
-| `src/lib.rs` | 4 019 | `SCHEMA_VERSION`, `migrate()`, and every query. Also `default_path()` and `delete()`. |
-| `src/key.rs` | 201 | The store key: zeroized in memory, OS-wrapped on disk, nowhere else. `load_or_create` reports whether it *created* one, which is how a caller tells "first run" from "orphaned database". |
-
-`SCHEMA_VERSION` is **19**. The tables:
-
-```
-account          conversation_peers   conversations   drafts
-folder_members   folders              forgotten_conversations
-identity         message_reactions
-messages         mls_state            outbox          pinned_messages
-refresh_token    stories              view_once
-messages_fts   (fts5 virtual table — backs conversation search)
-```
-
-Add a column with the `add_column` helper, never a bare
-`ALTER TABLE ... ADD COLUMN` — see [Conventions](#conventions-that-will-trip-you-up).
-
----
-
-### `crates/client` — the portable core
-
-No platform calls, and no HTTP client except behind the `http` feature. This is
-the crate that has to survive the Android port.
-
-| File | Ln | Owns | Open it when |
-|---|---|---|---|
-| `src/lib.rs` | 813 | The crate doc, the re-exports, and the in-crate `FakeTransport` its own tests use. | Getting oriented; finding what is public. |
-| `src/conversations.rs` | 2 622 | Conversation lifecycle: create, join, send, sync, attachments, reactions, edits, retractions, key packages, call signalling. `Context<'a, T>` is the borrow bundle every call takes. | Most messaging behaviour. |
-| `src/session.rs` | 582 | `register`, `login`, `restore`, `resume`, `change_password`, `logout`, `delete_account_on_server`, `wipe_local`. The session state machine. | Auth on the client. |
-| `src/http.rs` | 1 262 | `HttpTransport` over `ureq`: retries, error mapping, and the access-token refresh with its **rotated-token hand-off**. Behind `http`. | Wire-level client behaviour. |
-| `src/transport.rs` | 492 | The `Transport` trait — the network seam. | Adding a call. Then implement it in **all seven** places (see Conventions). |
-| `src/stream.rs` | 357 | The WebSocket client. Behind `http`. | Live events. |
-| `src/feed.rs` | 343 | Feed and profile calls. Not encrypted, on purpose. | Feed or profile behaviour. |
-| `src/pin.rs` | 323 | The unlock PIN: a salted Argon2id verifier, DPAPI-wrapped, attempt-limited (`MAX_ATTEMPTS = 5`, 4–12 digits). | The lock screen path. |
-| `src/people.rs` | 87 | Search, invitations, reporting — what Meet&Greet left behind. | Finding somebody, or letting a stranger past a private account. |
-| `src/stories.rs` | 215 | Stories: encrypted once, the key handed to every contact. | Stories. |
-| `src/mls_state.rs` | 209 | Persisting and restoring the MLS provider across restarts. | A restart losing group state. |
-| `src/outbox.rs` | 188 | The offline queue. | Send-while-offline behaviour. |
-| `examples/peer.rs` | 215 | A headless second client — register, start, send, sync, list — keeping its store under a per-handle directory in `%TEMP%`. Behind `required-features = ["http"]`. | Driving the desktop app against a real peer. The GUI is one process with one account and the single-instance plugin means no second window, so the other side of a conversation runs here. |
-
-Tests (`crates/client/tests/`), each building its own fake transport:
-
-| Test | Ln | Proves |
-|---|---|---|
-| `live_messaging.rs` | 960 | Two clients exchange messages — and call signalling — against a real local server. |
-| `offline_queue.rs` | 588 | A cut network queues and later flushes, in order, without duplicates. |
-| `leftover_conversations.rs` | 366 | A conversation the server lists but this device cannot open is not shown as broken. |
-| `stories.rs` | 348 | Story creation, listing and expiry. |
-| `mls_persistence.rs` | 172 | Group state survives a restart. |
-| `live_auth.rs` | 168 | Register, login, refresh, logout against a real server. |
-| `wipe.rs` | 140 | Sign-out erases the PIN and the key even when the unlink fails. |
-
----
 
 ### `apps/server` — the API and Delivery Service
 
@@ -443,87 +426,44 @@ They share one development database and never clean up, so a test must assert on
 
 ---
 
-### `apps/desktop/src-tauri` — the Windows shell
+### `apps/desktop/src-tauri` — the desktop shell
 
-**Rule 2 lives here.** What crosses into the WebView is already decrypted, and
-nothing else does: no tokens, no key material, no salt.
+**What this is not, any more.** Until wave 7 it was the application: it held
+MLS, the identity keypair, the SQLCipher key and every message plaintext, and
+rule 2 lived here — what crossed into the WebView was already decrypted and
+nothing else did. That arrangement cannot exist in a browser, which has no
+other side, so all of it moved to `packages/core`.
+
+What is left is 1 421 lines and **twelve commands**: a window, a tray, toasts,
+autostart, a link preview and an updater. `src-tauri/Cargo.toml` depends on no
+Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it.
 
 | File | Ln | Cmds | Owns |
 |---|---|---|---|
-| `src/lib.rs` | 208 | — | The builder: managed state, plugins, and the `generate_handler!` list. **Every new command is registered here.** |
+| `src/lib.rs` | 130 | — | The builder: plugins, `WindowPrefs`, and the `generate_handler!` list. **Every new command is registered here.** Desktop-only plugins sit behind `cfg(desktop)`. |
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
-| `src/client.rs` | 209 | — | `LoggedIn` (session, transport, MLS provider, store, signer, credential), `ClientState`, `build()`, `resume()`, `Resumed`. One mutex covers store + MLS + transport. |
-| `src/auth.rs` | 842 | 11 | Register, login, restore, change password, fingerprint, the PIN, sign-out, delete account. `SessionState` (tokens) lives here. |
-| `src/conversations.rs` | 2 415 | 42 | Messaging, replies, attachments, voice, view-once, reactions, pinning, local delete, edit, retract, folders, drafts, search, outbox. Owns a `with_client` helper, which `stories.rs` borrows. |
-| `src/feed.rs` | 943 | 25 | Posts, comments, votes, reactions, follows, blocks, profiles, images. Owns its own `with_client`. |
-| `src/people.rs` | 235 | 5 | Search, reporting, invitations. Owns its own `with_client`. |
-| `src/stories.rs` | 142 | 3 | Posting, listing and opening a story. **Borrows `conversations.rs`'s `with_client`, error view and `now_ms`** rather than copying them — a fourth copy of the rotated-token drain is a fourth place to forget it. |
-| `src/commands.rs` | 330 | 15 | Version, notifications, tray count, **lock**, window backdrop, autostart, storage, cache, link preview, updater. |
-| `src/stream.rs` | 142 | 2 | The live socket: opens it with the session, forwards typing to the page. |
-| `src/media.rs` | 394 | — | The `nexo-media` custom scheme (served as `http://nexo-media.localhost/<envelope id>` on Windows): decrypted video, one byte range at a time, **without holding the client lock across the download**. |
+| `src/commands.rs` | 243 | 12 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater. `cfg(mobile)` variants answer honestly where Android owns the feature. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
-| `src/windows.rs` | 502 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
-
-Managed state, all four registered in `lib.rs`: `auth::SessionState` (tokens),
-`client::ClientState` (the `LoggedIn`), `windows::WindowPrefs`,
-`stream::StreamState`. Plugins: single-instance, dialog, clipboard-manager,
-opener, notification, autostart, updater.
-
-The two pieces of state are deliberately separate, and the difference shows up
-at the lock screen: **`lock` clears `ClientState` and leaves `SessionState`**, so
-the tokens survive a lock and `unlock_with_pin` can rebuild the client from them
-without touching the network.
+| `src/windows.rs` | 507 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
 
 #### Every IPC command
 
-**103 commands.** A command needs a `#[tauri::command]` attribute *and* an entry
-in `generate_handler!` in `lib.rs`; missing the second is a runtime rejection,
-not a compile error.
+**Twelve.** A command needs a `#[tauri::command]` attribute *and* an entry in
+`generate_handler!` in `lib.rs`; missing the second is a runtime rejection, not
+a compile error.
 
-**`auth.rs` (11)**
-`register` · `login` · `restore_session` · `change_password` ·
-`device_fingerprint` · `pin_status` · `set_pin` · `clear_pin` ·
-`unlock_with_pin` · `logout` · `delete_account`
+`app_version` · `notify_message` · `set_unread` · `focus_window` ·
+`set_close_to_tray` · `set_window_backdrop` · `forget_account` ·
+`preview_link` · `get_autostart` · `set_autostart` · `check_update` ·
+`install_update`
 
-**`commands.rs` (15)**
-`app_version` · `notify_message` · `set_unread` · `lock` · `is_unlocked` ·
-`focus_window` · `set_window_backdrop` · `set_close_to_tray` · `get_autostart` ·
-`set_autostart` · `storage_info` · `clear_media_cache` · `preview_link` ·
-`check_update` · `install_update`
-
-**`conversations.rs` (46)**
-`list_conversations` · `delete_conversation` · `start_conversation` ·
-`start_group` · `open_self_conversation` · `add_to_conversation` ·
-`rename_conversation` · `set_conversation_avatar` · `conversation_avatar` ·
-`conversation_messages` · `conversation_attachments` · `mark_verified` ·
-`acknowledge_key_change` · `safety_number` · `search_messages` ·
-`forward_message` · `send_message` · `send_reply` · `send_attachment` ·
-`send_voice_message` · `send_sticker` · `send_view_once` · `open_view_once` ·
-`attachment_stream_info` · `attachment_data_url` · `save_attachment` ·
-`revise_message` · `react_to_message` · `set_message_pinned` ·
-`delete_message_for_me` · `draft` · `set_draft` · `conversations_with_drafts` ·
-`list_folders` · `create_folder` · `rename_folder` · `delete_folder` ·
-`set_folder_member` · `sync_conversation` · `sync_all` · `flush_outbox` ·
-`outbox_count`
-
-**`feed.rs` (25)**
-`feed` · `set_following` · `follow_state` · `posts_by` · `create_post` ·
-`delete_post` · `vote` · `comments` · `add_comment` · `delete_comment` ·
-`react` · `pin_post` · `unpin_post` · `blocks` · `block` · `unblock` ·
-`profile` · `my_profile` · `update_profile` · `update_visibility` ·
-`upload_image` · `read_image_for_crop` · `upload_image_bytes` · `image_url` ·
-`image_data_url`
-
-**`people.rs` (5)**
-`search_users` · `report` · `create_invite` · `invites` · `revoke_invite`
-
-**`stories.rs` (3)**
-`story_post` · `story_list` · `story_open`
-
-**`stream.rs` (2)**
-`drain_stream` · `typing`
+Four went when the page took over what they did: `lock` and `is_unlocked` (the
+lock is now `lib/auth.ts`, and there is no SQLCipher handle to close),
+`storage_info` and `clear_media_cache` (`navigator.storage.estimate()`, and the
+Cache API).
 
 ---
+
 
 ### `apps/desktop/src` — the React client
 
@@ -710,7 +650,8 @@ mock/         data
 
 ### `packages/core` — the brain, in TypeScript
 
-What `crates/client` is for the desktop app, this is for every target. No React
+What the deleted `crates/client` was for the desktop app, this is for every
+target. No React
 in it and no platform calls: the network arrives as `Transport`, storage will
 arrive the same way, so one implementation runs in a browser, a WebView and
 Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
@@ -720,7 +661,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | File | Ln | Owns |
 |---|---|---|
 | `src/conversations.ts` | 905 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
-| `src/store.ts` | 408 | Everything this device keeps, over IndexedDB. Same vocabulary as `crates/store` on purpose, so wave 7 is a swap rather than a rewrite. |
+| `src/store.ts` | 898 | Everything this device keeps, over IndexedDB. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
 | `src/payload.ts` | 280 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
 | `src/idb.ts` | 175 | A promise over IndexedDB and the schema ladder, written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
@@ -729,13 +670,13 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
 | `src/wasm.ts` | 48 | `bindWasm`: the twenty lines between the facade's static constructors and the seam above. |
-| tests | 931 | 44 cases. The transport and the store learned theirs from `crates/client` being wrong first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 2 000 | 96 cases. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
-**Two things about the store that are not true of `crates/store`, and both are
+**Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
 
 - **Every read is a promise.** IndexedDB answers later, which is why all of
-  `packages/core` is async where `crates/client` is not.
+  `packages/core` is async where the Rust client was not.
 - **Nothing is encrypted at rest.** SQLCipher had a key from the OS keystore;
   a browser has no such place. That is the price of one client across three
   targets, recorded in [`REWORK.md`](REWORK.md) rather than left to be found.
@@ -794,29 +735,30 @@ it is expensive.
 
 | Task | Open, in this order | Do not open |
 |---|---|---|
-| Add or change an **encrypted-path endpoint** (messages, groups, key packages) | `crates/protocol/src/lib.rs` (the type first — both sides follow it) → `apps/server/src/delivery/` → `crates/client/src/transport.rs` → `crates/client/src/http.rs` → `apps/desktop/src-tauri/src/conversations.rs` → `apps/desktop/src/lib/conversations.ts` | `BRIEF.md` |
-| Add or change a **feed / profile endpoint** | `crates/client/src/feed.rs` → `apps/server/src/posts.rs` or `profiles.rs` → `crates/client/src/http.rs` → `apps/desktop/src-tauri/src/feed.rs` → `apps/desktop/src/lib/feed.ts` | `BRIEF.md` |
+| Add or change an **encrypted-path endpoint** (messages, groups, key packages) | `crates/protocol/src/lib.rs` (the type first — both sides follow it) → `apps/server/src/delivery/` → `packages/core/src/types.ts` → `packages/core/src/conversations.ts` → `apps/desktop/src/lib/conversations.ts` | `BRIEF.md` |
+| Add or change a **feed / profile endpoint** | `apps/server/src/posts.rs` or `profiles.rs` → `packages/core/src/feed.ts` → `apps/desktop/src/lib/feed.ts` | `BRIEF.md` |
 | Add a **route the server already has** but nothing calls | `apps/server/src/` first — check [the route table](#every-route). `/v1/stream` sat unused for months, and `follows` was the opposite case | — |
-| Add a **new IPC command** | `apps/desktop/src-tauri/src/<area>.rs` → **register it in `lib.rs`'s `generate_handler!`** → `apps/desktop/src/lib/*.ts` → the calling component | — |
-| Add a **`Transport` method** | `crates/client/src/transport.rs` → then **all seven implementors** (see Conventions) → `crates/client/src/http.rs` last | — |
-| A **UI-only change** | the `features/*` file → `components/ui` → `packages/design-tokens/tokens.css` | Rust, usually |
-| Change **what is stored on the client** | `crates/store/src/lib.rs` (`grep` the table, do not read the file) → the caller in `crates/client` → bump `SCHEMA_VERSION` and add a `migrate()` step | — |
+| Add a **new IPC command** | Ask first whether it belongs in the page. Only twelve things are the shell's: `apps/desktop/src-tauri/src/commands.rs` → **register it in `lib.rs`'s `generate_handler!`** → `apps/desktop/src/lib/native.ts` | — |
+| A **UI-only change** | the `features/*` file → `components/ui` → `packages/design-tokens/tokens.css` | Rust, always |
+| Change **what is stored on the client** | `packages/core/src/idb.ts` (the `STORES` table) → `packages/core/src/store.ts` → bump `SCHEMA_VERSION` and add a rung | — |
 | Change **what is stored on the server** | `apps/server/migrations/` (a **new** file) → the module → regenerate `.sqlx/` | — |
-| Anything **MLS / group membership** | `crates/crypto/src/mls.rs` → `crates/client/src/conversations.rs` → `apps/server/src/delivery/` | OpenMLS internals |
-| **Auth, login, tokens** | `apps/server/src/auth/` → `crates/client/src/session.rs` → `apps/desktop/src-tauri/src/auth.rs` → `apps/desktop/src/features/auth/` | — |
-| **Lock screen / PIN** | `crates/client/src/pin.rs` → `apps/desktop/src-tauri/src/auth.rs` (`unlock_with_pin`, and `commands.rs::lock`) → `apps/desktop/src/features/auth/` | `PIN-ROTATION.md` — that is TLS key pinning, an unrelated subject |
-| **Search, invitations, reporting** | `apps/server/src/invites.rs` or `profiles.rs` → `crates/client/src/people.rs` → `apps/desktop/src-tauri/src/people.rs` → `apps/desktop/src/lib/people.ts` | `BRIEF.md` |
+| Anything **MLS / group membership** | `crates/crypto/src/mls.rs` → `crates/crypto-wasm/src/lib.rs` (the facade) → `packages/core/src/conversations.ts` → `apps/server/src/delivery/` | OpenMLS internals |
+| **Auth, login, tokens** | `apps/server/src/auth/` → `packages/core/src/session.ts` → `apps/desktop/src/lib/auth.ts` → `apps/desktop/src/features/auth/` | — |
+| **Lock screen / PIN** | `packages/core/src/pin.ts` → `apps/desktop/src/lib/auth.ts` (`lockSession`, `unlockWithPin`) → `apps/desktop/src/features/auth/` | `PIN-ROTATION.md` — that is TLS key pinning, an unrelated subject |
+| **Search, invitations, reporting** | `apps/server/src/invites.rs` or `profiles.rs` → `packages/core/src/people.ts` → `apps/desktop/src/lib/people.ts` | `BRIEF.md` |
 | **Who may open a conversation with whom** | `apps/server/src/invites.rs::may_reach` → its call site in `apps/server/src/delivery/mod.rs`, before anything is written | The client — the rule is the server's or it is nothing |
-| **Stories** | `crates/client/src/stories.rs` → `apps/server/src/stories.rs` → `features/home/storyGroups.ts` (read it before changing grouping) → `features/home/Stories.tsx`, `features/profile/MyStories.tsx` | — |
-| **Attachments or media playback** | `crates/crypto/src/attachment.rs` (which encoding?) → `crates/client/src/conversations.rs::send_attachment` → `apps/desktop/src-tauri/src/media.rs` → `apps/desktop/src/lib/media.ts` | — |
-| The **live socket** | `apps/server/src/stream/` → `crates/client/src/stream.rs` → `apps/desktop/src-tauri/src/stream.rs` → `apps/desktop/src/lib/stream.ts` | — |
-| **Feed, posts, comments** | `apps/server/src/posts.rs` → `apps/desktop/src-tauri/src/feed.rs` → `app/useFeed.ts` → `features/home/` | — |
+| **Stories** | `packages/core/src/stories.ts` → `apps/server/src/stories.rs` → `features/home/storyGroups.ts` (read it before changing grouping) → `features/home/Stories.tsx` | — |
+| **Attachments or media playback** | `crates/crypto/src/attachment.rs` (which encoding?) → `packages/core/src/attachments.ts` → `apps/desktop/src/lib/conversations.ts` → `apps/desktop/src/lib/media.ts` | — |
+| The **live socket** | `apps/server/src/stream/` → `packages/core/src/stream.ts` → `apps/desktop/src/lib/stream.ts` | — |
+| **Feed, posts, comments** | `apps/server/src/posts.rs` → `packages/core/src/feed.ts` → `app/useFeed.ts` → `features/home/` | — |
 | **Keyboard shortcuts** | `app/useShortcuts.ts` — all of them, in one listener | Anywhere else |
 | **Anything about width** | `app/useLayout.ts` — the three breakpoints and nothing else has any | A media query in a component |
 | **Colours, spacing, motion** | `packages/design-tokens/tokens.css`, then regenerate the JSON | Never hardcode a value in a component |
 | **Tray, notifications, window chrome, autostart** | `apps/desktop/src-tauri/src/windows.rs` → `apps/desktop/src-tauri/src/commands.rs` → `app/useWindow.ts`, `app/useChrome.ts` | — |
 | **Link previews** | `apps/desktop/src-tauri/src/preview.rs` → `app/useLinkPreview.ts`. Read `THREAT-MODEL.md` §2.3 first — the refusals are the feature | — |
-| **Offline behaviour** | `crates/client/src/outbox.rs` → `app/syncAgent.ts` → `crates/client/tests/offline_queue.rs` | — |
+| **Offline behaviour** | `packages/core/src/conversations.ts` (`sendPayload`, `flushOutbox`) → `packages/core/src/store.ts` (the outbox) → `app/syncAgent.ts` | — |
+| **Which host am I on** | `apps/desktop/src/lib/runtime.ts` — `inTauri()` is the only test, and it lives in one file for a reason | A `window.__TAURI__` check in a component |
+| **The web build or its deploy** | `netlify.toml` → the `web` job in `.github/workflows/ci.yml` → `docs/DEPLOY.md` step 8 | — |
 | **Rate limits** | `apps/server/src/limits.rs` → the module that calls it | — |
 
 ### Process
@@ -1019,7 +961,7 @@ failed silently.
   `undefined` rather than guessing. The core records fixing the same
   conflation once for groups; it survived in the UI for the untitled DM.
 - **The local store's schema version is one constant.**
-  `crates/store/src/lib.rs` `SCHEMA_VERSION` and the last `PRAGMA
+  `packages/core/src/idb.ts` `SCHEMA_VERSION` and the last rung of the
   user_version` in `migrate()` must agree; a test fails if they drift. Add a
   column with the `add_column` helper, never a bare `ALTER TABLE ... ADD
   COLUMN`: the helper checks `PRAGMA table_info` first, so a step that runs
@@ -1062,7 +1004,7 @@ failed silently.
 - **A `Transport` trait method needs an implementation everywhere the trait is
   implemented**, not just in `http.rs`. **Five** places today: the real
   `HttpTransport`, `lib.rs`'s in-crate `FakeTransport`, and three purpose-built
-  fakes under `crates/client/tests/` (`Listing` in `leftover_conversations.rs`,
+  the doubles in `packages/core/src/conversations.test.ts` (`FakeCrypto`,
   `CutNetwork` in `offline_queue.rs`, `Listing` in `stories.rs`). `grep -rn "impl Transport
   for"` finds all of them; missing one is a compile error, not a silent gap.
 - **Two different questions decide what an attachment is**, and only one of
@@ -1138,20 +1080,20 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 70 KB | This file. Where things are, and what not to break. |
+| [`CONTEXT.md`](CONTEXT.md) | 69 KB | This file. Where things are, and what not to break. |
 | [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
 | [`STATUS.md`](STATUS.md) | 95 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
 | [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
-| [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `crates/client/src/pin.rs` and `THREAT-MODEL.md` §3. |
+| [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `packages/core/src/pin.ts` and `THREAT-MODEL.md` §3. |
 | [`SIGNAL-ANALYSIS.md`](SIGNAL-ANALYSIS.md) | 10 KB | Why MLS and not the Signal protocol. |
 | [`TELEGRAM-FEATURES.md`](TELEGRAM-FEATURES.md) | 13 KB | Which Telegram features fit this app, which cannot, and why. Read before proposing one. |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
-| [`DEVELOPMENT.md`](DEVELOPMENT.md) | 8 KB | Setup, prerequisites, commands, troubleshooting. For humans on a new machine. |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | 10 KB | Setup, prerequisites, the three builds (Windows, web, Android), troubleshooting. For humans on a new machine. |
 | [`THREAT-MODEL.md`](THREAT-MODEL.md) | 34 KB | Adversaries in and out of scope; what is deliberately not protected. |
 | [`TUTORIAL.md`](TUTORIAL.md) | 19 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
-| [`DEPLOY.md`](DEPLOY.md) | 10 KB | **The straight line from a fresh server to a live API.** Seven steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
+| [`DEPLOY.md`](DEPLOY.md) | 19 KB | **The straight line from a fresh server to a live API, and from CI to the website.** Eight steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
 | [`OPS.md`](OPS.md) | 24 KB | The Hetzner runbook — the reasoning behind every step `DEPLOY.md` takes, plus TLS, backups and incidents. |
 | [`PLAN.md`](PLAN.md) | 23 KB | Milestones M0–M9 and the open risks. |
 | [`BRIEF.md`](BRIEF.md) | 27 KB | The original specification. The source of the §-numbers other docs cite. |
@@ -1174,7 +1116,7 @@ move.
 Habits that keep a session's context small enough to stay useful:
 
 1. **Route, then read.** Use [Task → where](#task--where). Opening
-   `crates/store/src/lib.rs` whole costs ~50 000 tokens;
+   `packages/core/src/store.ts` whole costs ~12 000 tokens;
    `grep -n "TABLE IF NOT EXISTS messages" -A 20` costs almost nothing and
    usually answers the question.
 2. **`grep` for the symbol, then read the range** — `sed -n '400,460p'`. Read

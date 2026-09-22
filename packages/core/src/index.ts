@@ -32,7 +32,36 @@ export * as conversations from "./conversations";
 export * as people from "./people";
 export * as stories from "./stories";
 export * as pin from "./pin";
+export * as feed from "./feed";
+export * as attachments from "./attachments";
+export * as blocks from "./blocks";
+export { Stream } from "./stream";
 export type { Context, SyncOutcome } from "./conversations";
+export type {
+  Bucket,
+  Comment,
+  FeedPage,
+  FeedSort,
+  FollowState,
+  MyProfile,
+  Post,
+  PostKind,
+  Profile,
+  ProfileEdit,
+  ProfileLink,
+  ReactionCount,
+  Visibility,
+  VisibilityField,
+  VoteResult,
+} from "./feed";
+export type {
+  EnvelopeEvent,
+  PresenceEvent,
+  ReceiptEvent,
+  ServerEvent,
+  StreamOptions,
+  TypingEvent,
+} from "./stream";
 export {
   decodePayload,
   encodePayload,
@@ -54,8 +83,18 @@ export type {
 } from "./payload";
 export type { CryptoModule, Decrypted, Device, Group, Peeked, StagedCommit } from "./crypto";
 export { bindWasm } from "./wasm";
-export { bindPasswordWasm } from "./wasm";
+export { bindPasswordWasm, bindObjectWasm } from "./wasm";
 export type { WasmModule } from "./wasm";
+export type {
+  AttachmentContext,
+  AttachmentMeta,
+  ObjectCrypto,
+  ObjectStore,
+  SealedObject,
+} from "./attachments";
+export type { Block } from "./blocks";
+export type { PinContext, PinStatus, PinStore } from "./pin";
+export type { PeopleContext } from "./people";
 export * from "./types";
 export { Session } from "./session";
 export type { PasswordCrypto, SessionOptions } from "./session";

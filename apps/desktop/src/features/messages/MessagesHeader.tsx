@@ -346,7 +346,7 @@ function RenameConversation({
     setBusy(true);
     setError(null);
     try {
-      await setConversationAvatar(conversation.id, file.path);
+      await setConversationAvatar(conversation.id, file);
       // Remounts the preview, which is what makes it fetch the new bytes.
       setHasPicture(false);
       setHasPicture(true);

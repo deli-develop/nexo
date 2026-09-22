@@ -422,6 +422,102 @@ the feature rather than a binary aimed at the wrong host.
 
 ---
 
+## Step 8 — The website, at `nexo.delidev.net`
+
+The same app the Windows client runs, served as a page. Nothing new is built:
+`apps/desktop` is the app and always was, and the web build is that bundle
+without the Tauri shell around it.
+
+### Why CI deploys it, and Netlify does not build it
+
+The page cannot start without WebAssembly. `packages/crypto-wasm` is what does
+MLS, and building it needs a Rust toolchain, the `wasm32-unknown-unknown`
+target, and `wasm-bindgen-cli` at **exactly** the version pinned in
+`crates/crypto-wasm/Cargo.toml`. Netlify's build image has none of those, and
+installing them on every deploy would cost minutes and pin that version in a
+second place — which rule 8 exists to prevent.
+
+So the GitHub Actions `web` job builds it, with the toolchain it already has
+and a warm cache, and pushes the finished directory with the Netlify CLI. The
+`[build]` block in `netlify.toml` deliberately **fails**, so that turning
+Netlify's git integration back on breaks loudly rather than publishing a page
+with no crypto in it.
+
+If your first attempt at "connect this repo to Netlify" failed, that is why.
+
+### What to set up, once
+
+1. **Make the site.** In Netlify: *Add new site → Deploy manually*, and drop
+   any folder in. It only needs to exist; CI replaces its contents.
+2. **Copy the site ID.** *Site configuration → General → Site ID*.
+3. **Make a token.** *User settings → Applications → Personal access tokens →
+   New access token*. Copy it once; it is not shown again.
+4. **Put both in GitHub**, at *Settings → Secrets and variables → Actions*:
+
+   | Secret | Value |
+   |---|---|
+   | `NETLIFY_SITE_ID` | the site ID from step 2 |
+   | `NETLIFY_AUTH_TOKEN` | the token from step 3 |
+
+   Do not paste either into a file in this repository, and do not paste them
+   into a chat. A token with no expiry is a key to the site.
+
+5. **Point the DNS.** At Dynadot, on `delidev.net`:
+
+   | Type | Host | Value |
+   |---|---|---|
+   | CNAME | `nexo` | `<your-site>.netlify.app` |
+
+   Then in Netlify, *Domain management → Add a domain* → `nexo.delidev.net`,
+   and let it issue the certificate. That takes a few minutes and sometimes
+   an hour; it is DNS.
+
+6. **Let the API accept it.** The browser will refuse every request until the
+   server says the origin is allowed. On the server, in `/etc/nexo/nexo.env`:
+
+   ```
+   NEXO_CORS_ORIGINS=https://nexo.delidev.net
+   ```
+
+   then `sudo systemctl restart nexo`. Without this the site loads, looks
+   perfect, and cannot sign anybody in — the failure shows up only in the
+   browser's console, as CORS.
+
+After that, every push to `main` that passes CI republishes the site.
+
+### What the page is allowed to talk to
+
+`netlify.toml` sets a Content-Security-Policy that permits exactly three
+destinations: the site itself, `api.delidev.net` over HTTPS and the WebSocket,
+and the object store. If you move either, that file is the second place to
+change — and until you do, the symptom is a blocked request rather than an
+error anybody would connect to the move.
+
+`wasm-unsafe-eval` is in the policy and has to be: it is what allows
+`WebAssembly.instantiate`. It does **not** enable `eval`, which is exactly why
+the narrower keyword exists.
+
+### What a browser cannot promise
+
+Worth knowing before telling anybody the site is the same as the app:
+
+- **Nothing is encrypted at rest.** The Windows client keeps its store in
+  SQLCipher with a key from the OS keystore. A browser has no such place, so
+  IndexedDB holds the session and the message history in the clear. Anybody
+  with the machine, and anything that runs script in the page, can read them.
+- **There is no updater and no tray**, no toasts outside the tab, and no
+  autostart. The settings screen says so rather than offering buttons that
+  do nothing.
+- **A long video waits.** The desktop app streams attachments range by range
+  through a custom scheme; a page fetches the whole file, decrypts it, and
+  plays it from memory.
+
+The part that does *not* change is the part that matters to somebody who is
+not holding the device: the server still never holds a key, and a message is
+still opaque to it.
+
+---
+
 ## What you have now, and what you do not
 
 **Working:** accounts, sign-in, conversations, the feed, profiles, follows,
@@ -434,7 +530,7 @@ the protocol does that does not need a bucket.
 |---|---|---|
 | Object storage | No attachments, no feed images, no story media | OPS.md Phase 8 |
 | Backups | A dead disk is a dead service, with everything in it | OPS.md Phase 9 |
-| The website | `nexo.delidev.net` does not exist yet | [`REWORK.md`](REWORK.md) wave 8 |
+| The website | Needs the two Netlify secrets and a CNAME | Step 8 above |
 
 **Do the backups before you invite anybody.** The server holds accounts, the
 follow graph, and every envelope not yet synced. It does not hold message

@@ -9,7 +9,6 @@ import { useProfile } from "../../app/useProfile";
 import {
   asFeedError,
   pinPost,
-  readImageForCrop,
   unpinPost,
 } from "../../lib/feed";
 import { deviceFingerprint } from "../../lib/auth";
@@ -93,11 +92,10 @@ export function ProfilePage({ now }: { now: Date }) {
       images: true,
     });
     if (!picked) return;
-    try {
-      setCropping({ which, src: await readImageForCrop(picked.path) });
-    } catch (error) {
-      await notify("Couldn't open that image", asFeedError(error).message);
-    }
+    // The picker already handed us an object URL for exactly these bytes, so
+    // there is nothing to read back — the round trip this used to make was
+    // the file being loaded a second time.
+    setCropping({ which, src: picked.url });
   }
 
   const changeBanner = () => void pickFor("banner");

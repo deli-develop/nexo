@@ -17,32 +17,40 @@ path = "src/main.rs"
 [build-dependencies]
 tauri-build.workspace = true
 
+# A shell depends on shell things. Every Nexo crate that used to be here --
+# protocol, crypto, store, platform, client -- and every OpenMLS crate with
+# them went when the application moved into `packages/core` (wave 7). What
+# this leaves is a Tauri app with no cryptography in it at all, which is the
+# honest description of what it now does.
 [dependencies]
-nexo-protocol.workspace = true
-nexo-crypto.workspace = true
-thiserror.workspace = true
-openmls_traits.workspace = true
-openmls_rust_crypto.workspace = true
-openmls_basic_credential.workspace = true
-openmls.workspace = true
-nexo-platform.workspace = true
-nexo-store.workspace = true
-nexo-client = { workspace = true, features = ["http"] }
 tauri.workspace = true
 tauri-plugin-dialog = "=2.7.2"
 tauri-plugin-fs = "=2.5.1"
 tauri-plugin-clipboard-manager = "=2.3.2"
 tauri-plugin-opener = "=2.5.4"
 serde.workspace = true
+# `tauri::generate_context!` expands to code that names `serde_json` at the
+# crate root, so this is a dependency of the macro rather than of anything
+# written here. Removing it fails to compile in a way that points at lib.rs.
 serde_json.workspace = true
+thiserror.workspace = true
 # Link previews (§4.5) fetch from this machine, never from the server. Same
 # blocking client the rest of the process uses.
 ureq.workspace = true
 tracing.workspace = true
-base64.workspace = true
 tracing-subscriber.workspace = true
 # Windows integration (§8). Pinned exactly, like everything else (rule 8).
 tauri-plugin-notification = "=2.3.3"
+
+# Desktop ideas, and target-scoped because Android has none of them: the
+# platform owns launching, app lifecycle and updates there, so a tray, a
+# startup entry, a second-instance guard and a sideloaded updater are not
+# features that happen to be missing -- they are the OS's, and a plugin that
+# reached for one would be fighting it.
+#
+# `cfg(desktop)` is Tauri's switch and Cargo does not know it, so the target
+# is spelled out as what it actually means.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "=2.4.3"
 tauri-plugin-autostart = "=2.5.1"
 tauri-plugin-updater = "=2.10.1"

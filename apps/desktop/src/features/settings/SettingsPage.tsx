@@ -1,10 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useApp, type LockTimeout, type Preferences, type Theme } from "../../app/store";
 import { cn } from "../../lib/cn";
 import { fileSize } from "../../lib/format";
 import {
+  appVersion,
   checkUpdate,
   clearMediaCache,
   confirm,
@@ -16,6 +16,7 @@ import {
   storageInfo,
   type StorageInfo,
 } from "../../lib/native";
+import { inTauri } from "../../lib/runtime";
 import { Button } from "../../components/ui/Button";
 import { FactRow, Select, Toggle, type SelectOption } from "../../components/ui/Controls";
 import { Callout } from "../../components/ui/Feedback";
@@ -702,9 +703,11 @@ function About() {
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    invoke<string>("app_version")
-      .then(setVersion)
-      .catch(() => setError("Can't reach the app core."));
+    void appVersion().then(setVersion);
+    // There is no updater on the web, and there should not be: a page is
+    // whatever the server last served. Saying so is better than a Check button
+    // that does nothing, or one that reports a failure that is not one.
+    if (!inTauri()) setError("On the web, reloading the page is the update.");
   }, []);
 
   // The real check, against the update server. Manifests are minisign-signed

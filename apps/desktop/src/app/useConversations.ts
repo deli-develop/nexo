@@ -159,14 +159,22 @@ export interface LiveConversations {
   problem: string | null;
   loading: boolean;
   send: (body: string) => Promise<void>;
-  /** Sends a file the user already picked, by path. */
-  sendFile: (path: string, body?: string) => Promise<void>;
+  /**
+   * Sends a file the user already picked.
+   *
+   * The bytes, not a path: a browser never learns a path, and one shape has to
+   * work on every host this page runs on.
+   */
+  sendFile: (
+    file: { name: string; mime: string; bytes: Uint8Array },
+    body?: string,
+  ) => Promise<void>;
   /** Sends something the user just recorded. */
   sendVoice: (recording: Recording) => Promise<void>;
   /** Sends a message answering another one, by that message's name. */
   sendReply: (body: string, target: string) => Promise<void>;
   /** Sends a picture or clip the other person can open once. */
-  sendOnce: (path: string) => Promise<void>;
+  sendOnce: (file: { mime: string; bytes: Uint8Array }) => Promise<void>;
   /** Sends a sticker by name. */
   sendSticker: (pack: string, stickerId: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -296,10 +304,10 @@ export function useConversations(
   );
 
   const sendFile = useCallback(
-    async (path: string, body?: string) => {
+    async (file: { name: string; mime: string; bytes: Uint8Array }, body?: string) => {
       if (!activeId) return;
       try {
-        const sent = await sendAttachment(activeId, path, body);
+        const sent = await sendAttachment(activeId, file, body);
         setMessages((current) => [...current, toMessage(sent, activeId)]);
         setProblem(null);
         void loadList();
@@ -326,10 +334,10 @@ export function useConversations(
   );
 
   const sendOnce = useCallback(
-    async (path: string) => {
+    async (file: { mime: string; bytes: Uint8Array }) => {
       if (!activeId) return;
       try {
-        const sent = await sendViewOnce(activeId, path);
+        const sent = await sendViewOnce(activeId, file);
         setMessages((current) => [...current, toMessage(sent, activeId)]);
         setProblem(null);
         void loadList();

@@ -416,10 +416,13 @@ function ChatPane({
   problem: string | null;
   now: Date;
   onSend: (body: string) => Promise<void>;
-  onSendFile: (path: string, body?: string) => Promise<void>;
+  onSendFile: (
+    file: { name: string; mime: string; bytes: Uint8Array },
+    body?: string,
+  ) => Promise<void>;
   onSendVoice: (recording: Recording) => Promise<void>;
   onSendReply: (body: string, target: string) => Promise<void>;
-  onSendOnce: (path: string) => Promise<void>;
+  onSendOnce: (file: { mime: string; bytes: Uint8Array }) => Promise<void>;
   onSendSticker: (pack: string, stickerId: string) => Promise<void>;
   /// Opens the details panel, where the safety number is.
   onCompare: () => void;
@@ -444,10 +447,10 @@ function ChatPane({
   // refuses anything else regardless, since a chosen extension proves nothing.
   async function pickAndSendOnce() {
     // `media` is the existing "pictures and video" filter -- the same one
-    // stories use. Rust sniffs the bytes and refuses anything else regardless:
-    // a chosen extension proves nothing.
+    // stories use. The bytes are sniffed before they are sent regardless: a
+    // chosen extension proves nothing.
     const picked = await pickFile({ title: "Send once", media: true });
-    if (picked) await onSendOnce(picked.path);
+    if (picked) await onSendOnce(picked);
   }
 
   return (
@@ -497,7 +500,7 @@ function ChatPane({
           <div className="w-full max-w-[560px]">
             <Composer
               onSend={(body, attachment) => {
-                if (attachment) void onSendFile(attachment.path, body);
+                if (attachment) void onSendFile(attachment, body);
                 else void onSend(body);
               }}
               onSendVoice={(recording) => void onSendVoice(recording)}
@@ -575,7 +578,7 @@ function ChatPane({
           ) : null}
           <Composer
             onSend={(body, attachment) => {
-              if (attachment) void onSendFile(attachment.path, body);
+              if (attachment) void onSendFile(attachment, body);
               // A reply and an attachment are two different messages, and the
               // file is the one that was just chosen -- so a pending reply is
               // left standing rather than silently spent on it.

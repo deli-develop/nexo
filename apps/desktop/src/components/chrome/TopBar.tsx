@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { windowAction } from "../../app/useWindow";
 import { cn } from "../../lib/cn";
+import { inTauri } from "../../lib/runtime";
 import { BrandMark } from "../ui/BrandMark";
 import { Icon, type IconName } from "../ui/Icon";
 
@@ -15,6 +16,13 @@ import { Icon, type IconName } from "../ui/Icon";
  * right end.
  *
  * Everything but the caption buttons is drag region.
+ *
+ * **The caption buttons exist only in the Tauri build.** A browser tab already
+ * has a titlebar, drawn by the browser, and a second set of minimise and close
+ * buttons underneath it is three controls that cannot do what they say — the
+ * window is not this page's to move or close. The bar itself stays: it is the
+ * app's top row, not a titlebar, and the wordmark and the page header live in
+ * it on every host.
  */
 // `children` is optional: before there is an account there is no page header
 // to put in the bar, but the bar itself still has to exist, because a
@@ -38,24 +46,26 @@ export function TopBar({
 
       <div className="flex min-w-0 flex-1 items-stretch">{children}</div>
 
-      <div className="no-drag flex shrink-0 items-stretch">
-        <CaptionButton
-          name="minus"
-          label="Minimise"
-          onClick={() => void windowAction("minimize")}
-        />
-        <CaptionButton
-          name={maximized ? "restore" : "maximize"}
-          label={maximized ? "Restore down" : "Maximise"}
-          onClick={() => void windowAction("toggleMaximize")}
-        />
-        <CaptionButton
-          name="close"
-          label="Close"
-          danger
-          onClick={() => void windowAction("close")}
-        />
-      </div>
+      {inTauri() ? (
+        <div className="no-drag flex shrink-0 items-stretch">
+          <CaptionButton
+            name="minus"
+            label="Minimise"
+            onClick={() => void windowAction("minimize")}
+          />
+          <CaptionButton
+            name={maximized ? "restore" : "maximize"}
+            label={maximized ? "Restore down" : "Maximise"}
+            onClick={() => void windowAction("toggleMaximize")}
+          />
+          <CaptionButton
+            name="close"
+            label="Close"
+            danger
+            onClick={() => void windowAction("close")}
+          />
+        </div>
+      ) : null}
     </header>
   );
 }

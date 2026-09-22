@@ -1,7 +1,7 @@
 import { markVerified } from "../../lib/conversations";
 import { fileSize, relativeTime, safetyNumber } from "../../lib/format";
-import { confirm, notify, pickSavePath } from "../../lib/native";
-import { asConversationError, saveAttachmentTo } from "../../lib/conversations";
+import { confirm, notify } from "../../lib/native";
+import { asConversationError, saveAttachment } from "../../lib/conversations";
 import { fieldFor, fileTone } from "../../lib/palette";
 import type { Attachment, Conversation, Message } from "../../lib/types";
 import { IconButton } from "../../components/ui/Button";
@@ -358,10 +358,8 @@ async function saveSharedFile(attachment: {
   id: string;
   name: string;
 }): Promise<void> {
-  const path = await pickSavePath(attachment.name);
-  if (!path) return;
   try {
-    await saveAttachmentTo(Number(attachment.id), path);
+    await saveAttachment(Number(attachment.id));
   } catch (error) {
     await notify("Couldn't save that file", asConversationError(error).message);
   }

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { lockCore } from "../lib/native";
+import { lockSession } from "../lib/auth";
 import { useApp } from "./store";
 
 /**
@@ -48,9 +48,9 @@ export function useAutoLock(): void {
 
     const timer = window.setInterval(() => {
       if (Date.now() - lastActivity < limit) return;
-      // Rust locks first, then the UI follows. The other order would draw a
-      // lock screen over an app that is still open underneath.
-      void lockCore().then(() => {
+      // The session is dropped first, then the UI follows. The other order
+      // would draw a lock screen over an app that is still live underneath.
+      void lockSession().then(() => {
         useApp.getState().setLocked(true);
       });
     }, CHECK_EVERY_MS);

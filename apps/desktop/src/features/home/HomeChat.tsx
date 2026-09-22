@@ -269,7 +269,7 @@ export function HomeChat({ now, width }: { now: Date; width: string }) {
             conversationTitle={conversation.title}
             onSend={(body, attachment) => {
               if (attachment)
-                void live.sendFile(attachment.path, body || undefined);
+                void live.sendFile(attachment, body || undefined);
               else if (replyingTo?.clientId) {
                 void live.sendReply(body, replyingTo.clientId);
                 setReplyingTo(undefined);
@@ -293,7 +293,7 @@ export function HomeChat({ now, width }: { now: Date; width: string }) {
                   onSendViewOnce: () => {
                     void pickFile({ title: "Send once", media: true }).then(
                       (picked) => {
-                        if (picked) void live.sendOnce(picked.path);
+                        if (picked) void live.sendOnce(picked);
                       },
                     );
                   },

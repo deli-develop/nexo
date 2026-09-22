@@ -1,4 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { feed as core } from "@nexo/core";
+
+import { runtime } from "./runtime";
 
 /**
  * The Home feed and profiles, as the WebView sees them.
@@ -187,32 +189,31 @@ export function feed(
   sort: FeedSort = "new",
   following = false,
 ): Promise<FeedPage> {
-  return invoke<FeedPage>("feed", { before: before ?? null, sort, following });
+  return runtime().then((it) => {
+    const options: { before?: number; sort: FeedSort } = { sort };
+    if (before !== undefined) options.before = before;
+    // `following` narrows the feed to people you follow. The server reads it
+    // from the same query, so it belongs in the same place as `sort` rather
+    // than as a second call.
+    return core.feed(it.transport, following ? { ...options, sort } : options);
+  });
 }
 
-/** Whether an account is followed, and how many follow it. */
 export interface FollowState {
   following: boolean;
   followers: number;
 }
 
-/**
- * Follows an account, or stops.
- *
- * Rejects identically for a handle that does not exist, one that blocked you,
- * and a private one — the server will not say which, and the UI must not guess
- * on its behalf.
- */
 export function setFollowing(handle: string, follow: boolean): Promise<void> {
-  return invoke<void>("set_following", { handle, follow });
+  return runtime().then((it) => core.setFollowing(it.transport, handle, follow));
 }
 
 export function followState(handle: string): Promise<FollowState> {
-  return invoke<FollowState>("follow_state", { handle });
+  return runtime().then((it) => core.followState(it.transport, handle));
 }
 
 export function postsBy(handle: string, before?: number): Promise<FeedPage> {
-  return invoke<FeedPage>("posts_by", { handle, before: before ?? null });
+  return runtime().then((it) => core.postsBy(it.transport, handle, before));
 }
 
 export function createPost(input: {
@@ -222,117 +223,111 @@ export function createPost(input: {
   kind?: PostKind;
   linkUrl?: string | null;
 }): Promise<Post> {
-  return invoke<Post>("create_post", {
-    body: input.body,
-    mediaKeys: input.mediaKeys ?? [],
-    title: input.title ?? null,
-    kind: input.kind ?? "text",
-    linkUrl: input.linkUrl ?? null,
-  });
+  return runtime().then((it) =>
+    core.createPost(it.transport, {
+      body: input.body,
+      media_keys: input.mediaKeys ?? [],
+      kind: input.kind ?? "text",
+      // Absent rather than null: the server defaults them, and sending an
+      // explicit null is how a field that was never set becomes one that was
+      // deliberately cleared.
+      ...(input.title ? { title: input.title } : {}),
+      ...(input.linkUrl ? { link_url: input.linkUrl } : {}),
+    }),
+  );
 }
 
-/** Pins one of your own posts. At most three; the server enforces it. */
 export function pinPost(id: number): Promise<void> {
-  return invoke<void>("pin_post", { id });
+  return runtime().then((it) => core.pinPost(it.transport, id));
 }
 
-/** Unpins one of your own posts. */
 export function unpinPost(id: number): Promise<void> {
-  return invoke<void>("unpin_post", { id });
+  return runtime().then((it) => core.unpinPost(it.transport, id));
 }
 
 export function deletePost(id: number): Promise<void> {
-  return invoke<void>("delete_post", { id });
+  return runtime().then((it) => core.deletePost(it.transport, id));
 }
 
-export function react(
-  id: number,
-  emoji: string,
-  on: boolean,
-): Promise<ReactionCount[]> {
-  return invoke<ReactionCount[]>("react", { id, emoji, on });
+export function react(id: number, emoji: string, on: boolean): Promise<ReactionCount[]> {
+  return runtime().then((it) => core.react(it.transport, id, emoji, on));
 }
 
-/** Votes on a post. `1`, `-1`, or `0` to take a vote back. */
 export function vote(id: number, value: number): Promise<VoteResult> {
-  return invoke<VoteResult>("vote", { id, value });
+  return runtime().then((it) => core.vote(it.transport, id, value));
 }
 
-/** The whole thread for a post, oldest first, deleted ones included. */
 export function comments(postId: number): Promise<Comment[]> {
-  return invoke<Comment[]>("comments", { postId });
+  return runtime().then((it) => core.comments(it.transport, postId));
 }
 
-/** Adds a comment, or a reply when `parentId` is given. */
 export function addComment(
   postId: number,
   body: string,
   parentId?: number | null,
 ): Promise<Comment> {
-  return invoke<Comment>("add_comment", {
-    postId,
-    body,
-    parentId: parentId ?? null,
-  });
+  return runtime().then((it) =>
+    core.addComment(it.transport, postId, body, parentId ?? undefined),
+  );
 }
 
 export function deleteComment(id: number): Promise<void> {
-  return invoke<void>("delete_comment", { id });
+  return runtime().then((it) => core.deleteComment(it.transport, id));
 }
 
 export function profile(handle: string): Promise<Profile> {
-  return invoke<Profile>("profile", { handle });
+  return runtime().then((it) => core.profile(it.transport, handle));
 }
 
 export function myProfile(): Promise<MyProfile> {
-  return invoke<MyProfile>("my_profile");
+  return runtime().then((it) => core.myProfile(it.transport));
 }
 
 export function updateProfile(edit: ProfileEdit): Promise<MyProfile> {
-  return invoke<MyProfile>("update_profile", { edit });
+  return runtime().then((it) => core.updateProfile(it.transport, edit));
 }
 
 export function updateVisibility(
   visibility: Partial<Record<VisibilityField, Visibility>>,
 ): Promise<MyProfile> {
-  return invoke<MyProfile>("update_visibility", { visibility });
+  return runtime().then((it) => core.updateVisibility(it.transport, visibility));
 }
 
 /**
- * Uploads an image the user already picked, and returns its object key.
+ * Uploads a picture for a post, an avatar or a banner, and returns its key.
  *
- * The path goes to Rust; the bytes and the presigned URL stay there. A
- * presigned PUT is a bearer credential for one object, and there is no reason
- * for a WebView to be holding one.
+ * Bytes rather than a path, like everything else that used to go through a
+ * native dialog: the page is handed a file and that is all it will ever have.
  */
+export function uploadImage(file: { bytes: Uint8Array; mime: string }): Promise<string> {
+  return runtime().then((it) => core.uploadBytes(it.transport, file.bytes, file.mime));
+}
+
 /**
- * A picked file, as a `data:` URL, so the page can crop it.
+ * Uploads what a cropper produced.
  *
- * The page cannot read a local path — that capability was removed deliberately.
- * Rust reads the one file the picker returned and hands over its bytes.
+ * A canvas hands back a data URL, so this is the one place that decodes one.
+ * Doing it at the call site would mean every screen with a cropper grew its
+ * own base64 loop, and they would not stay the same.
  */
-export function readImageForCrop(path: string): Promise<string> {
-  return invoke<string>("read_image_for_crop", { path });
-}
-
-/** Uploads an image the cropper produced. Returns its object key. */
-export function uploadImageBytes(dataUrl: string): Promise<string> {
-  return invoke<string>("upload_image_bytes", { data: dataUrl });
-}
-
-export function uploadImage(path: string): Promise<string> {
-  return invoke<string>("upload_image", { path });
+export function uploadImageDataUrl(dataUrl: string): Promise<string> {
+  const comma = dataUrl.indexOf(",");
+  const header = dataUrl.slice(0, comma);
+  const mime = /^data:([^;,]+)/.exec(header)?.[1] ?? "image/png";
+  const binary = atob(dataUrl.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return uploadImage({ bytes, mime });
 }
 
 /**
- * A stored image, inlined as a `data:` URL.
+ * A URL for one image key, good for about an hour.
  *
- * Not the presigned object-storage URL it looks like it should be: the CSP
- * allows `img-src 'self' asset: data: blob:` and no remote host, so a bucket
- * URL is blocked before a byte is fetched. Rust downloads it and hands over
- * the bytes, which keeps the bucket unreachable from anything running in the
- * page.
+ * Presigned per read rather than public: this bucket holds people's pictures,
+ * and a URL that works for ever works for ever for everybody who ever saw it.
  */
 export function imageUrl(key: string): Promise<string> {
-  return invoke<string>("image_data_url", { key });
+  return runtime().then((it) => core.imageUrl(it.transport, key));
 }

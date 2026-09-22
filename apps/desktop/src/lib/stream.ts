@@ -1,19 +1,23 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Stream } from "@nexo/core";
+
+import { runtime } from "./runtime";
 
 /**
  * The live socket, as the page sees it.
  *
- * The connection itself lives in Rust: the access token never crosses this
- * boundary (rule 2), and a socket opened from here would need it — or would
- * need it in the URL, where every proxy on the way logs it.
- *
  * **It adds promptness, not correctness.** The four-second sync poll continues
  * underneath and is what makes the app right; everything here is allowed to
- * fail quietly. That is why none of these reject in a way anybody handles.
+ * fail quietly, and none of it rejects in a way anybody handles. `stream.ts`
+ * in `packages/core` says the same thing from the other side, and the two have
+ * to keep agreeing: the moment something here is load-bearing, a dropped
+ * connection becomes a lost message.
+ *
+ * The subscription shape is the one Tauri's event bus had — `on…` returns an
+ * unlisten function — because forty call sites were written against it and the
+ * shape is a good one regardless of what is behind it.
  */
 
-/** A typing notice, as Rust emits it. */
+/** A typing notice. */
 export interface TypingEvent {
   conversation_id: string;
   user_id: number;
@@ -27,43 +31,74 @@ export interface EnvelopeEvent {
   conversation_id: string;
 }
 
-const TYPING_EVENT = "nexo://typing";
-const ENVELOPE_EVENT = "nexo://envelope";
+export type UnlistenFn = () => void;
+
+const typingHandlers = new Set<(event: TypingEvent) => void>();
+const envelopeHandlers = new Set<(event: EnvelopeEvent) => void>();
+const resyncHandlers = new Set<() => void>();
+
+let stream: Stream | null = null;
 
 /**
- * Moves whatever the socket has received into Tauri events.
+ * Opens the socket if somebody is signed in, and keeps it open.
  *
- * Also what opens and closes the connection: Rust connects when there is a
- * session and disconnects when there is not, so signing in, locking and signing
- * out all take care of themselves.
+ * Called from the same place the old `drain_stream` was, so signing in,
+ * locking and signing out all still take care of themselves — the difference
+ * is that the socket is now in this process rather than in Rust's.
  */
-export function drainStream(): Promise<void> {
-  return invoke<void>("drain_stream");
+export async function drainStream(): Promise<void> {
+  if (stream) return;
+  const it = await runtime();
+  stream = new Stream({
+    baseUrl: it.transport.baseUrl,
+    token: () => it.transport.accessToken(),
+    onResync: () => {
+      for (const handler of resyncHandlers) handler();
+    },
+    onEvent: (event) => {
+      if (event.type === "typing") {
+        for (const handler of typingHandlers) handler(event);
+      } else if (event.type === "envelope") {
+        for (const handler of envelopeHandlers) {
+          handler({ conversation_id: event.conversation_id });
+        }
+      }
+    },
+  });
+  stream.start();
+}
+
+/** Closes it. Sign-out, and any failure that invalidates the session. */
+export function closeStream(): void {
+  stream?.stop();
+  stream = null;
 }
 
 /** Tells the conversation this device is typing. Fire and forget. */
-export function sendTyping(conversationId: string): Promise<void> {
-  return invoke<void>("typing", { conversationId });
+export async function sendTyping(conversationId: string): Promise<void> {
+  stream?.typing(conversationId);
 }
 
 /** Listens for other people typing. */
-export function onTyping(
-  handler: (event: TypingEvent) => void,
-): Promise<UnlistenFn> {
-  return listen<TypingEvent>(TYPING_EVENT, (event) => handler(event.payload));
+export function onTyping(handler: (event: TypingEvent) => void): Promise<UnlistenFn> {
+  typingHandlers.add(handler);
+  return Promise.resolve(() => typingHandlers.delete(handler));
+}
+
+/** Listens for anything arriving in a conversation. */
+export function onEnvelope(handler: (event: EnvelopeEvent) => void): Promise<UnlistenFn> {
+  envelopeHandlers.add(handler);
+  return Promise.resolve(() => envelopeHandlers.delete(handler));
 }
 
 /**
- * Listens for anything arriving in a conversation.
+ * Listens for "you were away; go and find out what happened".
  *
- * What makes a call ring promptly: signalling travels as an ordinary envelope,
- * so without this the gap between pressing *call* and the other side ringing
- * was however much of the four-second poll was left.
+ * Fired on every connect, the first one included. The gap while the socket was
+ * down is exactly the window where events were missed, and only a sync closes
+ * it — so this is the one subscription that is not decoration.
  */
-export function onEnvelope(
-  handler: (event: EnvelopeEvent) => void,
-): Promise<UnlistenFn> {
-  return listen<EnvelopeEvent>(ENVELOPE_EVENT, (event) =>
-    handler(event.payload),
-  );
+export function onResync(handler: () => void): Promise<UnlistenFn> {
+  resyncHandlers.add(handler);
+  return Promise.resolve(() => resyncHandlers.delete(handler));
 }

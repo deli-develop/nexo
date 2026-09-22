@@ -5,11 +5,12 @@
 //! files should always be read together.
 
 use tauri::{AppHandle, Manager};
+#[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt;
+#[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt as _;
 
-use crate::client::ClientState;
 use crate::windows::{NotificationDetail, WindowPrefs, toast_text, tray_tooltip};
 
 /// The running app version, for the About panel and the M0 IPC smoke test.
@@ -54,80 +55,6 @@ pub fn set_unread(app: AppHandle, unread: usize) -> Result<(), String> {
     Ok(())
 }
 
-/// Locks the app: closes the encrypted store and drops the MLS state (§8).
-///
-/// # What locking does, and does not, guarantee
-///
-/// It drops `LoggedIn` — the SQLCipher connection, the MLS provider, the
-/// signer. What it cannot do is guarantee those bytes are gone from RAM: the
-/// allocator may reuse the pages, the OS may have paged them out, and Rust
-/// does not promise to zero a freed heap allocation. So this defends against
-/// the realistic case — an unattended, unlocked machine, someone who sits
-/// down at it — and not against an attacker who can already read this
-/// process's memory; someone with that access has the key whether or not the
-/// store is "locked". `docs/THREAT-MODEL.md` §3 says the same; it is repeated
-/// here because a feature called "lock" invites a stronger reading than it
-/// earns.
-///
-/// The idle *timer* lives in the WebView, because idleness means "no keyboard
-/// or pointer input" and the window is the only place that is observable.
-/// Rust is only ever told that the time has come — the WebView cannot lock or
-/// unlock anything itself.
-///
-/// Deliberately infallible from the caller's side. If locking could fail and
-/// the UI treated that as "stay unlocked", the failure mode would be an app
-/// that looks locked and is not.
-#[tauri::command]
-pub fn lock(
-    client_state: tauri::State<'_, ClientState>,
-    stream_state: tauri::State<'_, crate::stream::StreamState>,
-) {
-    match client_state.0.lock() {
-        Ok(mut guard) => {
-            // Dropping `LoggedIn` closes the SQLCipher connection and releases
-            // the provider that holds the MLS secrets.
-            *guard = None;
-        }
-        Err(poisoned) => {
-            // A poisoned lock means a previous holder panicked. Clearing it
-            // anyway is right: the whole point is to end up with no session,
-            // and refusing here would leave one in place.
-            *poisoned.into_inner() = None;
-        }
-    }
-
-    // And the socket, explicitly.
-    //
-    // `stream.rs` has always said that locking closes it — "a socket still
-    // delivering into a locked app is a session that did not really end" — but
-    // the mechanism it relied on does not fire here. `follow_session` closes
-    // the socket when there is no *session*, and locking deliberately keeps
-    // `SessionState`: the tokens are what let `unlock_with_pin` rebuild
-    // everything from disk with no server round trip. So the session outlives
-    // the lock, `follow_session` sees it and holds the connection open, and
-    // nothing was ever going to call it anyway — `drain_stream` is driven by
-    // the sync agent, which unmounts with the app shell.
-    //
-    // The result was an authenticated WebSocket left open by a locked app,
-    // quietly accumulating events nobody could decrypt. Closed here instead,
-    // where the intent lives.
-    match stream_state.0.lock() {
-        // Dropping the `Stream` asks its thread to stop.
-        Ok(mut guard) => *guard = None,
-        Err(poisoned) => *poisoned.into_inner() = None,
-    }
-}
-
-/// Whether the app is currently unlocked.
-#[tauri::command]
-pub fn is_unlocked(client_state: tauri::State<'_, ClientState>) -> bool {
-    client_state
-        .0
-        .lock()
-        .map(|guard| guard.is_some())
-        .unwrap_or(false)
-}
-
 /// Brings the window to the front, from the tray or a notification.
 #[tauri::command]
 pub fn focus_window(app: AppHandle) {
@@ -164,10 +91,22 @@ pub fn set_close_to_tray(app: AppHandle, enabled: bool) {
 /// truth, and a preference that disagreed with it — say, after another tool
 /// cleaned "startup programs" — would show a toggle that lies.
 #[tauri::command]
+#[cfg(desktop)]
 pub fn get_autostart(app: AppHandle) -> Result<bool, String> {
     app.autolaunch()
         .is_enabled()
         .map_err(|e| format!("The startup entry could not be read: {e}"))
+}
+
+/// There is no such thing on a phone, and saying so is the honest answer.
+///
+/// `false` rather than an error: the settings screen hides the toggle when
+/// this is false, and an error there would be a red line about a feature the
+/// platform does not have.
+#[tauri::command]
+#[cfg(mobile)]
+pub fn get_autostart(_app: AppHandle) -> Result<bool, String> {
+    Ok(false)
 }
 
 /// Turns start-with-Windows on or off (§8).
@@ -175,6 +114,7 @@ pub fn get_autostart(app: AppHandle) -> Result<bool, String> {
 /// HKCU, never HKLM: the plugin writes the per-user `Run` key, which needs no
 /// admin and touches nobody else's account.
 #[tauri::command]
+#[cfg(desktop)]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     let launcher = app.autolaunch();
     let result = if enabled {
@@ -185,96 +125,26 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     result.map_err(|e| format!("The startup entry could not be changed: {e}"))
 }
 
-/// What Settings → Storage reports.
-///
-/// Two numbers, kept apart because they are not the same kind of thing and
-/// only one of them is safe to delete. `store_bytes` is the encrypted database
-/// — the messages themselves, and the only copy: the server deletes ciphertext
-/// on acknowledgement. `cache_bytes` is downloaded media the WebView is
-/// holding, re-fetchable from object storage.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct StorageView {
-    /// The absolute path of the store, for the fact row.
-    pub store_path: String,
-    /// The store file plus its WAL sidecars.
-    pub store_bytes: u64,
-    /// The WebView's cache directory, or 0 when there is nothing cached yet.
-    pub cache_bytes: u64,
-}
-
-/// Measures what Nexo is keeping on this machine (§6.4).
-///
-/// Reported rather than estimated: an invented number in a Storage panel is
-/// the kind of small dishonesty that makes someone doubt the rest of the app.
-/// A path that cannot be read counts as zero rather than failing the whole
-/// panel — a missing cache directory just means nothing has been cached.
 #[tauri::command]
-pub fn storage_info(app: AppHandle) -> Result<StorageView, String> {
-    let store_path =
-        nexo_store::default_path().ok_or("Could not locate the application data folder.")?;
-
-    // The WAL and shared-memory sidecars are part of the store: after a busy
-    // session the -wal file can be a large fraction of the total, and omitting
-    // it would understate what deleting the account would actually reclaim.
-    let store_bytes: u64 = ["", "-wal", "-shm"]
-        .iter()
-        .map(|suffix| {
-            let mut path = store_path.clone().into_os_string();
-            path.push(suffix);
-            std::fs::metadata(std::path::PathBuf::from(path))
-                .map(|m| m.len())
-                .unwrap_or(0)
-        })
-        .sum();
-
-    let cache_bytes = app
-        .path()
-        .app_cache_dir()
-        .map(|dir| directory_size(&dir))
-        .unwrap_or(0);
-
-    Ok(StorageView {
-        store_path: store_path.display().to_string(),
-        store_bytes,
-        cache_bytes,
-    })
+#[cfg(mobile)]
+pub fn set_autostart(_app: AppHandle, _enabled: bool) -> Result<(), String> {
+    Err("Android decides when apps start.".to_string())
 }
 
-/// Bytes under a directory, following it down.
+/// Forgets what the shell knows about the account that just signed out.
 ///
-/// Unreadable entries are skipped rather than propagated: this feeds a number
-/// on a settings panel, and a locked file somewhere in a cache tree is not a
-/// reason to show an error instead of a size.
-fn directory_size(dir: &std::path::Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => directory_size(&entry.path()),
-            Ok(kind) if kind.is_file() => entry.metadata().map(|m| m.len()).unwrap_or(0),
-            // Symlinks are not followed: a link out of the cache directory
-            // would make this measure something else entirely, and on Windows
-            // a directory junction could make it loop.
-            _ => 0,
-        })
-        .sum()
-}
-
-/// Clears downloaded media from the WebView's cache (§6.4).
+/// Two things, and neither is in the page's gift: the tray tooltip still says
+/// how many unread messages the last account had, and the startup entry still
+/// launches the app for whoever logs in next. Somebody handing over a machine
+/// should not leave it opening a messenger for the next person.
 ///
-/// Only the cache. The encrypted store is untouched, and the button that calls
-/// this says so — messages are the store, not the cache, and there is no
-/// server-side copy to restore them from.
+/// Infallible from the caller's side. The store and the keys are already gone
+/// by the time this runs -- which is the part that mattered -- so a tray that
+/// will not update is logged and stepped over rather than turned into a
+/// sign-out that appears to have failed.
 #[tauri::command]
-pub fn clear_media_cache(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or("The main window is not open.")?;
-    window
-        .clear_all_browsing_data()
-        .map_err(|e| format!("The cache could not be cleared: {e}"))
+pub fn forget_account(app: AppHandle) {
+    crate::windows::forget_account(&app);
 }
 
 /// Fetches a link preview for one URL (§4.5).
@@ -310,6 +180,7 @@ pub struct UpdateView {
 /// pinned in `tauri.conf.json`, so a compromised update server cannot hand out
 /// a build this function would report as real.
 #[tauri::command]
+#[cfg(desktop)]
 pub async fn check_update(app: AppHandle) -> Result<Option<UpdateView>, String> {
     let updater = app.updater().map_err(|e| {
         // A dev build has no signing key configured; say so rather than
@@ -329,6 +200,7 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateView>, String> 
 /// byte of it is run; a manifest the key does not sign is an error, not an
 /// install.
 #[tauri::command]
+#[cfg(desktop)]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     let updater = app
         .updater()
@@ -351,4 +223,21 @@ mod tests {
     fn app_version_matches_the_crate() {
         assert_eq!(super::app_version(), env!("CARGO_PKG_VERSION"));
     }
+}
+
+/// The store updates the app on a phone, and it is not this app's business.
+///
+/// `None` rather than an error, for the same reason `get_autostart` answers
+/// `false`: the About panel hides the Check button when there is nothing to
+/// check, and an error there would report a fault where there is none.
+#[tauri::command]
+#[cfg(mobile)]
+pub async fn check_update(_app: AppHandle) -> Result<Option<UpdateView>, String> {
+    Ok(None)
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+pub async fn install_update(_app: AppHandle) -> Result<(), String> {
+    Err("Updates come from the store on this platform.".to_string())
 }

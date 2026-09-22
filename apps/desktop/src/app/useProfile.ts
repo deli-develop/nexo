@@ -8,7 +8,7 @@ import {
   postsBy,
   updateProfile as updateProfileCall,
   updateVisibility as updateVisibilityCall,
-  uploadImageBytes,
+  uploadImageDataUrl,
   type MyProfile,
   type Post,
   type ProfileEdit,
@@ -117,7 +117,7 @@ export function useProfile(): LiveProfile {
         //
         // The bytes come from the cropper rather than from disk: what gets
         // stored is the region the person chose, already capped at 1920px.
-        const key = await uploadImageBytes(dataUrl);
+        const key = await uploadImageDataUrl(dataUrl);
         const updated = await updateProfileCall(
           which === "avatar" ? { avatar_key: key } : { banner_key: key },
         );

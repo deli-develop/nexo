@@ -1,8 +1,87 @@
-   [build]
-     command = "npm run build"
-     publish = "dist"
+# Netlify, for nexo.delidev.net.
+#
+# **Netlify does not build this site.** It publishes a directory that CI has
+# already built, and the reason is the WebAssembly: the page cannot start
+# without `packages/crypto-wasm`, which needs a Rust toolchain, the
+# `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the exact version
+# pinned in `crates/crypto-wasm/Cargo.toml`. Installing that on every deploy
+# would add minutes to each one and would pin a version in a second place,
+# which rule 8 exists to prevent.
+#
+# So `.github/workflows/ci.yml` builds it — with the toolchain it already has
+# and a cache — and deploys the result with the Netlify CLI. `docs/DEPLOY.md`
+# has the two secrets that needs.
+#
+# The `[build]` block below is what a Netlify-side build *would* run, kept
+# honest so that turning the git integration back on fails loudly rather than
+# publishing a page with no crypto in it.
 
-   [[redirects]]
-     from = "/*"
-     to = "/index.html"
-     status = 200
+[build]
+  base = ""
+  publish = "apps/desktop/dist"
+  command = "echo 'This site is built by CI and deployed with the Netlify CLI. See netlify.toml.' && exit 1"
+
+# A single-page app: every path is the same document, and the router decides.
+# Without this, opening nexo.delidev.net/messages directly is a 404 — the
+# classic way an SPA looks broken only to people who followed a link.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # The page may talk to exactly three places: itself, the API (over HTTPS
+    # and over the WebSocket), and the object store it is handed presigned
+    # URLs for. Anything else is either a mistake or an exfiltration.
+    #
+    # `wasm-unsafe-eval` is what lets `WebAssembly.instantiate` run. It is not
+    # `unsafe-eval` and does not enable `eval`: it permits compiling wasm and
+    # nothing else, which is the whole reason the narrower keyword exists.
+    #
+    # `blob:` in img-src and media-src is not a loophole — every attachment,
+    # avatar and story is decrypted in the page and handed to the DOM as a
+    # blob. A policy without it would show a messenger with no pictures.
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'wasm-unsafe-eval';
+      style-src 'self' 'unsafe-inline';
+      font-src 'self';
+      img-src 'self' blob: data:;
+      media-src 'self' blob:;
+      connect-src 'self' https://api.delidev.net wss://api.delidev.net https://fsn1.your-objectstorage.com;
+      worker-src 'self';
+      object-src 'none';
+      base-uri 'none';
+      frame-ancestors 'none';
+      form-action 'none'
+    """
+    # A year, and the subdomains with it. `preload` is deliberately absent:
+    # it is a one-way door enforced by browsers, and it belongs to whoever
+    # owns delidev.net rather than to this file.
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    # Nothing here needs a camera, a microphone stays for voice notes only
+    # where the page asks, and nothing needs a location at all.
+    Permissions-Policy = "camera=(), geolocation=(), payment=(), usb=()"
+
+# The bundle's filenames carry a content hash, so a year is safe and a
+# revisit costs nothing. The document itself must never be cached that way,
+# or a deploy would reach nobody who already had the page open.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"

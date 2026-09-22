@@ -20,7 +20,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import * as conversations from "../../core/src/conversations";
 import { Store } from "../../core/src/store";
 import { Transport } from "../../core/src/transport";
-import { bindWasm, type WasmModule } from "../../core/src/wasm";
+import { bindObjectWasm, bindWasm, type WasmModule } from "../../core/src/wasm";
 import type { ConversationSummary, Envelope } from "../../core/src/types";
 
 import * as wasm from "../pkg/nexo_crypto_wasm.js";
@@ -210,5 +210,38 @@ describe("core over the real MLS module", () => {
     // every envelope twice, and MLS refuses the second time — which is how a
     // cursor bug surfaces as "failed", not as duplicates.
     expect(second).toMatchObject({ messages: 0, failed: 0 });
+  });
+});
+
+describe("sealing objects with the real module", () => {
+  it("round-trips an attachment through the seam core uses", async () => {
+    const crypto = bindObjectWasm(wasm as never);
+    const plaintext = new TextEncoder().encode("the file nobody else may read");
+
+    const sealed = crypto.seal(plaintext);
+
+    // A third party holds this. The whole arrangement is that what it holds
+    // is not the thing.
+    expect(sealed.ciphertext).not.toEqual(plaintext);
+    expect(sealed.size).toBe(plaintext.byteLength);
+    // `u64` crosses the boundary as a BigInt, and one that reached a JSON
+    // payload would serialise as a throw rather than a number.
+    expect(typeof sealed.size).toBe("number");
+
+    const opened = crypto.open(sealed.ciphertext, sealed.key, sealed.nonce, sealed.sha256);
+    expect(new TextDecoder().decode(opened)).toBe("the file nobody else may read");
+  });
+
+  it("refuses an object that is not the one the message named", async () => {
+    const crypto = bindObjectWasm(wasm as never);
+    const sealed = crypto.seal(new TextEncoder().encode("the real one"));
+    const otherHash = crypto.seal(new TextEncoder().encode("a different file")).sha256;
+
+    // AES-GCM proves the object store did not alter these bytes. It does not
+    // prove they are the bytes the message named — the hash, which travelled
+    // inside the encrypted payload, is the only thing that does.
+    expect(() =>
+      crypto.open(sealed.ciphertext, sealed.key, sealed.nonce, otherHash),
+    ).toThrow();
   });
 });

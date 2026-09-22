@@ -5,8 +5,13 @@
   "description": "MLS, the identity keypair and safety numbers, compiled from crates/crypto to WebAssembly.",
   "main": "pkg/nexo_crypto_wasm.js",
   "types": "pkg/nexo_crypto_wasm.d.ts",
+  "exports": {
+    ".": "./pkg/nexo_crypto_wasm.js",
+    "./web": "./web/nexo_crypto_wasm.js"
+  },
   "files": [
-    "pkg"
+    "pkg",
+    "web"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

@@ -14,8 +14,8 @@
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
-use axum::http::header::{AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL};
 use axum::http::HeaderMap;
+use axum::http::header::{AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL};
 use axum::response::Response;
 use axum::{Router, routing::get};
 use futures_util::{SinkExt, StreamExt};
@@ -97,44 +97,6 @@ fn stream_token(headers: &HeaderMap) -> Result<&str, Unauthorized> {
     match (bearer, protocol) {
         (Some(token), None) | (None, Some(token)) => Ok(token),
         _ => Err(Unauthorized),
-    }
-}
-
-#[cfg(test)]
-mod auth_tests {
-    use super::*;
-
-    #[test]
-    fn browser_token_is_read_without_echoing_it() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            SEC_WEBSOCKET_PROTOCOL,
-            "nexo, nexo.auth.abc.def.ghi".parse().unwrap(),
-        );
-        assert_eq!(stream_token(&headers).unwrap(), "abc.def.ghi");
-    }
-
-    #[test]
-    fn rejects_ambiguous_and_unnegotiable_tokens() {
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, "Bearer native".parse().unwrap());
-        headers.insert(SEC_WEBSOCKET_PROTOCOL, "nexo, nexo.auth.web".parse().unwrap());
-        assert!(stream_token(&headers).is_err());
-        headers.remove(AUTHORIZATION);
-        headers.insert(SEC_WEBSOCKET_PROTOCOL, "nexo.auth.web".parse().unwrap());
-        assert!(stream_token(&headers).is_err());
-        headers.insert(
-            SEC_WEBSOCKET_PROTOCOL,
-            "nexo, nexo.auth.first, nexo.auth.second".parse().unwrap(),
-        );
-        assert!(stream_token(&headers).is_err());
-    }
-
-    #[test]
-    fn native_bearer_keeps_working() {
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, "Bearer native".parse().unwrap());
-        assert_eq!(stream_token(&headers).unwrap(), "native");
     }
 }
 
@@ -305,4 +267,45 @@ async fn member_conversations(
     .fetch_all(&state.db)
     .await?;
     Ok(rows.into_iter().map(|r| r.conversation_id).collect())
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+
+    #[test]
+    fn browser_token_is_read_without_echoing_it() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            "nexo, nexo.auth.abc.def.ghi".parse().unwrap(),
+        );
+        assert_eq!(stream_token(&headers).unwrap(), "abc.def.ghi");
+    }
+
+    #[test]
+    fn rejects_ambiguous_and_unnegotiable_tokens() {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, "Bearer native".parse().unwrap());
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            "nexo, nexo.auth.web".parse().unwrap(),
+        );
+        assert!(stream_token(&headers).is_err());
+        headers.remove(AUTHORIZATION);
+        headers.insert(SEC_WEBSOCKET_PROTOCOL, "nexo.auth.web".parse().unwrap());
+        assert!(stream_token(&headers).is_err());
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            "nexo, nexo.auth.first, nexo.auth.second".parse().unwrap(),
+        );
+        assert!(stream_token(&headers).is_err());
+    }
+
+    #[test]
+    fn native_bearer_keeps_working() {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, "Bearer native".parse().unwrap());
+        assert_eq!(stream_token(&headers).unwrap(), "native");
+    }
 }

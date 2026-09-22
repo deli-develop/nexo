@@ -9,7 +9,6 @@ import {
   copyText,
   notify,
   openUrl,
-  pickSavePath,
 } from "../../lib/native";
 import {
   deleteMessageForMe,
@@ -31,10 +30,9 @@ import { StickerArt, findSticker } from "../../components/ui/stickers";
 const EDIT_WINDOW_MS = 10 * 60 * 1000;
 import {
   asConversationError,
-  attachmentDataUrl,
-  streamUrl,
+  attachmentUrl,
   conversationAttachments,
-  saveAttachmentTo,
+  saveAttachment,
   type AttachmentEntry,
 } from "../../lib/conversations";
 import { Waveform } from "./Composer";
@@ -1064,27 +1062,23 @@ function AttachedMedia({
   attachment: Attachment;
   onOpen: (envelopeId: number) => void;
 }) {
-  // A streamable attachment needs no fetch at all: the player is pointed at a
-  // URL that is answered range by range, so the first frame and the duration
-  // appear without the file moving. Everything else takes the old path, which
-  // pulls the whole thing across IPC as a data URL and is capped because of it.
-  const streaming = attachment.streamable
-    ? streamUrl(Number(attachment.id))
-    : null;
-
-  const [url, setUrl] = useState<string | null>(streaming);
+  // Every attachment is fetched whole, decrypted, and handed to the player as
+  // an object URL. There used to be a second path for the streamable ones —
+  // a custom scheme answered range by range, so the first frame appeared
+  // without the file moving — and it went with the Rust process that served
+  // it. A browser has no scheme to register, and a signed URL to the object
+  // store would hand out ciphertext nothing can play.
+  //
+  // What that costs is honest and visible: a long video waits for the whole
+  // download before it starts. Seeking works normally once it has.
+  const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
-    if (streaming) {
-      setUrl(streaming);
-      setFailed(null);
-      return;
-    }
     let cancelled = false;
     setUrl(null);
     setFailed(null);
-    void attachmentDataUrl(Number(attachment.id))
+    void attachmentUrl(Number(attachment.id))
       .then((next) => {
         if (!cancelled) setUrl(next);
       })
@@ -1097,7 +1091,7 @@ function AttachedMedia({
     return () => {
       cancelled = true;
     };
-  }, [attachment.id, streaming]);
+  }, [attachment.id]);
 
   const viewable = attachment.kind === "image" || attachment.kind === "video";
   const { onContextMenu, menu } = useContextMenu(() => [
@@ -1296,10 +1290,8 @@ function SoundRow({
 
 /** Downloads, decrypts and writes one attachment where the user chooses. */
 async function saveTo(attachment: Attachment): Promise<void> {
-  const path = await pickSavePath(attachment.name);
-  if (!path) return;
   try {
-    await saveAttachmentTo(Number(attachment.id), path);
+    if (!(await saveAttachment(Number(attachment.id)))) return;
     await notify("Saved", `${attachment.name} was saved.`);
   } catch (error) {
     await notify("Couldn't save that", asConversationError(error).message);
@@ -1309,22 +1301,20 @@ async function saveTo(attachment: Attachment): Promise<void> {
 /**
  * One attached file.
  *
- * `attachment.id` is the envelope id: that is all the WebView needs to ask for
- * the file, and all it is given. The S3 key and the AES key stay in Rust
- * (rule 2), which downloads, decrypts, verifies, and only then writes to the
- * path the user chose.
+ * `attachment.id` is the envelope id: that is all this component is given.
+ * The object key and the AES key stay inside `lib/conversations.ts`, which
+ * fetches, decrypts and verifies the hash before anything is written or drawn —
+ * so there is exactly one place that holds them rather than one per screen.
  */
 function FileRow({ attachment }: { attachment: Attachment }) {
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
-    // The name is a suggestion for the dialog. The user picks where it goes,
-    // so a sender cannot choose a destination.
-    const path = await pickSavePath(attachment.name);
-    if (!path) return;
+    // The name is a suggestion. The person picks where it goes, so a sender
+    // cannot choose a destination.
     setBusy(true);
     try {
-      await saveAttachmentTo(Number(attachment.id), path);
+      await saveAttachment(Number(attachment.id));
     } catch (error) {
       // Rule 7: a file that failed to decrypt or failed to download says so.
       // Nothing partial is written -- Rust verifies before it writes -- and a

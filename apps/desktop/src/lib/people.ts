@@ -6,7 +6,9 @@
  * by the server and shown once, and the page never sees key material.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { people as core } from "@nexo/core";
+
+import { runtime } from "./runtime";
 
 /** Why something was reported. The server accepts exactly these. */
 export type ReportReason =
@@ -30,12 +32,9 @@ export function reportUser(
   reason: ReportReason,
   note?: string,
 ): Promise<void> {
-  return invoke<void>("report", {
-    subjectKind: "user",
-    subjectId: userId,
-    reason,
-    note: note ?? null,
-  });
+  return runtime().then((it) =>
+    core.report(it, "user", userId, reason, note ?? null),
+  );
 }
 
 /** Why a people call failed. Match on `kind`, never on `message`. */
@@ -97,7 +96,7 @@ export interface Invite {
  * the client trims is one anybody can untrim.
  */
 export function searchUsers(term: string): Promise<SearchResult[]> {
-  return invoke<SearchResult[]>("search_users", { term });
+  return runtime().then((it) => core.search(it, term));
 }
 
 /** Mint an invitation. At most seven days. */
@@ -105,15 +104,12 @@ export function createInvite(
   label: string | undefined,
   days: number,
 ): Promise<MintedInvite> {
-  return invoke<MintedInvite>("create_invite", {
-    label: label ?? null,
-    days,
-  });
+  return runtime().then((it) => core.createInvite(it, label ?? null, days));
 }
 
 /** My invitations, live and spent. */
 export function listInvites(): Promise<Invite[]> {
-  return invoke<Invite[]>("invites");
+  return runtime().then(core.invites);
 }
 
 /**
@@ -123,5 +119,5 @@ export function listInvites(): Promise<Invite[]> {
  * it.
  */
 export function revokeInvite(id: number): Promise<void> {
-  return invoke<void>("revoke_invite", { id });
+  return runtime().then((it) => core.revokeInvite(it, id));
 }

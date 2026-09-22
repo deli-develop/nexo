@@ -1,0 +1,19 @@
+{
+  "name": "@nexo/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The client's brain in TypeScript: session, transport, storage and MLS orchestration. Runs anywhere a browser engine does.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "fake-indexeddb": "6.2.2"
+  }
+}

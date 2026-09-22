@@ -136,7 +136,7 @@ in a state where stopping is fine.
 | 3 | **Spike: MLS in WASM** — **done, and it works** | A browser encrypts and decrypts a real MLS message. It does; see below |
 | 4 | The server: cleaned, redeployed, `api.delidev.net` — **done** | It answers 200, with `protocol_version: 5` |
 | 5 | Mobile-first layout — **built, not yet seen running** | The existing app, correct from 360px to 2560px |
-| 6 | `packages/core` — the TypeScript session layer | Headless tests pass against a real local server |
+| 6 | `packages/core` — the TypeScript session layer — **started** | Headless tests pass against a real local server |
 | 7 | The React app swapped onto `packages/core` | `invoke()` gone from feature code; the Windows app still works |
 | 8 | The web build | `nexo.delidev.net` is live |
 | 9 | The Tauri shell, thinned | Windows `.msi`, ~12 commands |

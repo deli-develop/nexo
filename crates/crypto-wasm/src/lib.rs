@@ -39,7 +39,7 @@
 #![warn(missing_docs)]
 
 use nexo_crypto::identity::{IdentityKeypair, SafetyNumber};
-use nexo_crypto::mls::{self, Conversation, Incoming};
+use nexo_crypto::mls::{self, Conversation, Incoming, Peeked};
 use openmls::prelude::CredentialWithKey;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -71,6 +71,26 @@ fn parse_uuid(value: &str) -> Result<Uuid, JsError> {
     value
         .parse::<Uuid>()
         .map_err(|_| JsError::new("not a uuid"))
+}
+
+/// What an envelope turns out to hold, without processing it.
+///
+/// `"welcome"`, `"group_message"` or `"other"`.
+///
+/// Sync needs this and cannot do without it: a device that has just been added
+/// receives its Welcome as an **ordinary envelope** on the conversation's own
+/// stream — there is no separate endpoint for it and there does not need to be,
+/// because the invitee is already a member server-side. This is how a caller
+/// tells "join this" from "decrypt this" before committing to either, and
+/// guessing wrong means handing a Welcome to a group that does not exist yet.
+#[wasm_bindgen(js_name = "peek")]
+pub fn peek(ciphertext: &[u8]) -> Result<String, JsError> {
+    Ok(match mls::peek(ciphertext).map_err(js_err)? {
+        Peeked::Welcome => "welcome",
+        Peeked::GroupMessage => "group_message",
+        _ => "other",
+    }
+    .to_string())
 }
 
 /// One device's keys and MLS storage.

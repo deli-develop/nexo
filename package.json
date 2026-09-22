@@ -7,7 +7,7 @@
     "build": "pnpm --filter nexo-desktop build",
     "dev": "pnpm --filter nexo-desktop dev",
     "dev:server": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cargo.ps1 run -p nexo-server",
-    "typecheck": "pnpm --filter nexo-desktop typecheck",
+    "typecheck": "pnpm --filter nexo-desktop --filter @nexo/core typecheck",
     "test": "pnpm -r --filter=!@nexo/crypto-wasm test",
     "test:wasm": "pnpm --filter @nexo/crypto-wasm test",
     "build:tokens": "pnpm --filter @nexo/design-tokens build:tokens",

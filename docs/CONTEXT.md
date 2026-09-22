@@ -117,6 +117,7 @@ apps/desktop/src-tauri
 apps/desktop/src     22 314 ln   React 19 client (TypeScript, Tailwind, Zustand).
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
 packages/crypto-wasm             Builds crates/crypto-wasm into an npm package. Generated, not committed.
+packages/core          1 313 ln  The client's brain in TypeScript. Started: errors, wire types, transport, auth.
 ```
 
 Counted the same way each time: every `.rs` under a crate's `src/`, every
@@ -704,6 +705,50 @@ mock/         data
 
 `packages/design-tokens` has its own suite (18 tests), one of which fails if
 `tokens.json` has drifted from `tokens.css`.
+
+---
+
+### `packages/core` — the brain, in TypeScript
+
+What `crates/client` is for the desktop app, this is for every target. No React
+in it and no platform calls: the network arrives as `Transport`, storage will
+arrive the same way, so one implementation runs in a browser, a WebView and
+Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
+
+**Started, not finished.** Present today:
+
+| File | Ln | Owns |
+|---|---|---|
+| `src/conversations.ts` | 905 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
+| `src/store.ts` | 408 | Everything this device keeps, over IndexedDB. Same vocabulary as `crates/store` on purpose, so wave 7 is a swap rather than a rewrite. |
+| `src/payload.ts` | 280 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
+| `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
+| `src/idb.ts` | 175 | A promise over IndexedDB and the schema ladder, written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
+| `src/types.ts` | 140 | The wire, mirroring `crates/protocol`, which stays the authority. |
+| `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
+| `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
+| `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
+| `src/wasm.ts` | 48 | `bindWasm`: the twenty lines between the facade's static constructors and the seam above. |
+| tests | 931 | 44 cases. The transport and the store learned theirs from `crates/client` being wrong first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+
+**Two things about the store that are not true of `crates/store`, and both are
+load-bearing:**
+
+- **Every read is a promise.** IndexedDB answers later, which is why all of
+  `packages/core` is async where `crates/client` is not.
+- **Nothing is encrypted at rest.** SQLCipher had a key from the OS keystore;
+  a browser has no such place. That is the price of one client across three
+  targets, recorded in [`REWORK.md`](REWORK.md) rather than left to be found.
+
+**The doubles are not the whole story.** Doubles agree with whatever the code
+believes, so the seam is also driven against the real module, in
+`packages/crypto-wasm/src/orchestration.test.ts`: two devices, real MLS, a
+forty-line fake delivery service, a message each way. It found a cursor that
+never moved for a conversation the store had not heard of — which every
+invitee's first sync is — within a minute of being written.
+
+Still to come in this wave: the WebSocket stream, and the feed, people and
+story calls.
 
 ---
 

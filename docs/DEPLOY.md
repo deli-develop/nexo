@@ -428,41 +428,33 @@ The same app the Windows client runs, served as a page. Nothing new is built:
 `apps/desktop` is the app and always was, and the web build is that bundle
 without the Tauri shell around it.
 
-### Why CI deploys it, and Netlify does not build it
+### How it is built
 
-The page cannot start without WebAssembly. `packages/crypto-wasm` is what does
-MLS, and building it needs a Rust toolchain, the `wasm32-unknown-unknown`
-target, and `wasm-bindgen-cli` at **exactly** the version pinned in
-`crates/crypto-wasm/Cargo.toml`. Netlify's build image has none of those, and
-installing them on every deploy would cost minutes and pin that version in a
-second place — which rule 8 exists to prevent.
+Netlify builds it from the repository, on every push, and the only unusual
+part is that the build has to produce WebAssembly first: the page cannot start
+without `packages/crypto-wasm`, which is what does MLS.
 
-So the GitHub Actions `web` job builds it, with the toolchain it already has
-and a warm cache, and pushes the finished directory with the Netlify CLI. The
-`[build]` block in `netlify.toml` deliberately **fails**, so that turning
-Netlify's git integration back on breaks loudly rather than publishing a page
-with no crypto in it.
+`scripts/netlify-build.sh` handles it — Rust toolchain, the `wasm32` target,
+then the **prebuilt** `wasm-bindgen` binary downloaded from its release, which
+takes about ten seconds rather than the several minutes compiling it would.
+The version is read out of `crates/crypto-wasm/Cargo.toml` rather than written
+in the Netlify config, because a pin in two files is a pin that will eventually
+disagree with itself — and that disagreement produces a module which loads and
+then throws on its first call.
 
-If your first attempt at "connect this repo to Netlify" failed, that is why.
+There is a second path, off by default: the `web` job in
+`.github/workflows/ci.yml` will deploy with the Netlify CLI if
+`NETLIFY_AUTH_TOKEN` and `NETLIFY_SITE_ID` are set as GitHub secrets. It skips
+itself silently when they are not, so having both paths configured does not
+race — but if you do set those secrets, turn off Netlify's own build first, or
+two builds will publish over each other.
 
 ### What to set up, once
 
-1. **Make the site.** In Netlify: *Add new site → Deploy manually*, and drop
-   any folder in. It only needs to exist; CI replaces its contents.
-2. **Copy the site ID.** *Site configuration → General → Site ID*.
-3. **Make a token.** *User settings → Applications → Personal access tokens →
-   New access token*. Copy it once; it is not shown again.
-4. **Put both in GitHub**, at *Settings → Secrets and variables → Actions*:
-
-   | Secret | Value |
-   |---|---|
-   | `NETLIFY_SITE_ID` | the site ID from step 2 |
-   | `NETLIFY_AUTH_TOKEN` | the token from step 3 |
-
-   Do not paste either into a file in this repository, and do not paste them
-   into a chat. A token with no expiry is a key to the site.
-
-5. **Point the DNS.** At Dynadot, on `delidev.net`:
+1. **Connect the repository** in Netlify. *Add new site → Import an existing
+   project*, and pick this repo. The build command and the publish directory
+   come from `netlify.toml`; there is nothing to type.
+2. **Point the DNS.** At Dynadot, on `delidev.net`:
 
    | Type | Host | Value |
    |---|---|---|
@@ -472,7 +464,7 @@ If your first attempt at "connect this repo to Netlify" failed, that is why.
    and let it issue the certificate. That takes a few minutes and sometimes
    an hour; it is DNS.
 
-6. **Let the API accept it.** The browser will refuse every request until the
+3. **Let the API accept it.** The browser will refuse every request until the
    server says the origin is allowed. On the server, in `/etc/nexo/nexo.env`:
 
    ```
@@ -483,7 +475,14 @@ If your first attempt at "connect this repo to Netlify" failed, that is why.
    perfect, and cannot sign anybody in — the failure shows up only in the
    browser's console, as CORS.
 
-After that, every push to `main` that passes CI republishes the site.
+### If the build fails
+
+| In the log | What it means |
+|---|---|
+| `This site is built by CI` then `exit 1` | An old `netlify.toml`. That guard is gone; pull `main`. |
+| `ERR_PNPM_NO_LOCKFILE` or `workspace:` errors | Netlify ran npm. The script runs `pnpm install` itself; check that `NODE_VERSION` is 24 and that no UI override sets a build command. |
+| `wasm-bindgen: permission denied` | The downloaded binary lost its exec bit. The script chmods it; if this appears, the extraction path changed. |
+| `the CLI is X, the crate is pinned to Y` | Exactly what that check is for. The pin moved in `Cargo.toml` and the release for the new version has not been fetched — clear the Netlify cache and rebuild. |
 
 ### What the page is allowed to talk to
 

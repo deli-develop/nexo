@@ -12,6 +12,9 @@ dist/
 packages/crypto-wasm/pkg/
 packages/crypto-wasm/web/
 
+# Downloaded by scripts/netlify-build.sh during a deploy.
+.netlify-bin/
+
 # Tauri
 apps/desktop/src-tauri/gen/
 

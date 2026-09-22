@@ -1,25 +1,29 @@
 # Netlify, for nexo.delidev.net.
 #
-# **Netlify does not build this site.** It publishes a directory that CI has
-# already built, and the reason is the WebAssembly: the page cannot start
-# without `packages/crypto-wasm`, which needs a Rust toolchain, the
-# `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the exact version
-# pinned in `crates/crypto-wasm/Cargo.toml`. Installing that on every deploy
-# would add minutes to each one and would pin a version in a second place,
-# which rule 8 exists to prevent.
+# Netlify builds this site from the repository, which means it has to build the
+# WebAssembly first: the page cannot start without `packages/crypto-wasm`.
+# `scripts/netlify-build.sh` does that — it installs the Rust toolchain, adds
+# the wasm32 target, downloads the prebuilt `wasm-bindgen` at the version
+# pinned in `crates/crypto-wasm/Cargo.toml`, and then builds the bundle.
 #
-# So `.github/workflows/ci.yml` builds it — with the toolchain it already has
-# and a cache — and deploys the result with the Netlify CLI. `docs/DEPLOY.md`
-# has the two secrets that needs.
+# The version is *read* from that manifest, never written here. A pin in two
+# files is a pin that will eventually disagree with itself, and the disagreement
+# produces a module that loads and then throws on its first call.
 #
-# The `[build]` block below is what a Netlify-side build *would* run, kept
-# honest so that turning the git integration back on fails loudly rather than
-# publishing a page with no crypto in it.
+# `.github/workflows/ci.yml` can also deploy, with the Netlify CLI, when
+# `NETLIFY_AUTH_TOKEN` and `NETLIFY_SITE_ID` are set. Both paths are safe to
+# have: the CI step skips itself when those secrets are absent, which is the
+# default.
 
 [build]
   base = ""
   publish = "apps/desktop/dist"
-  command = "echo 'This site is built by CI and deployed with the Netlify CLI. See netlify.toml.' && exit 1"
+  command = "bash scripts/netlify-build.sh"
+
+[build.environment]
+  # Matches the `node-version` in `.github/workflows/ci.yml`, so the bundle
+  # Netlify serves is built the same way the one CI checks is.
+  NODE_VERSION = "24"
 
 # A single-page app: every path is the same document, and the router decides.
 # Without this, opening nexo.delidev.net/messages directly is a 404 — the
@@ -29,6 +33,13 @@
   to = "/index.html"
   status = 200
 
+# One line per header, deliberately.
+#
+# A TOML multi-line string keeps its newlines and its indentation, and both end
+# up inside the header value. A Content-Security-Policy with a line break in it
+# is at best fragile and at worst discarded — which would leave the page with
+# no policy at all while the config file appeared to set a strict one. That is
+# the worst possible way for this to fail, so it is one long line.
 [[headers]]
   for = "/*"
   [headers.values]
@@ -43,20 +54,7 @@
     # `blob:` in img-src and media-src is not a loophole — every attachment,
     # avatar and story is decrypted in the page and handed to the DOM as a
     # blob. A policy without it would show a messenger with no pictures.
-    Content-Security-Policy = """
-      default-src 'self';
-      script-src 'self' 'wasm-unsafe-eval';
-      style-src 'self' 'unsafe-inline';
-      font-src 'self';
-      img-src 'self' blob: data:;
-      media-src 'self' blob:;
-      connect-src 'self' https://api.delidev.net wss://api.delidev.net https://fsn1.your-objectstorage.com;
-      worker-src 'self';
-      object-src 'none';
-      base-uri 'none';
-      frame-ancestors 'none';
-      form-action 'none'
-    """
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' https://api.delidev.net wss://api.delidev.net https://fsn1.your-objectstorage.com; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
     # A year, and the subdomains with it. `preload` is deliberately absent:
     # it is a one-way door enforced by browsers, and it belongs to whoever
     # owns delidev.net rather than to this file.
@@ -64,8 +62,8 @@
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
     Referrer-Policy = "no-referrer"
-    # Nothing here needs a camera, a microphone stays for voice notes only
-    # where the page asks, and nothing needs a location at all.
+    # A microphone stays, for voice notes, and the page asks before using it.
+    # Nothing here needs a camera, a payment handler or a USB device.
     Permissions-Policy = "camera=(), geolocation=(), payment=(), usb=()"
 
 # The bundle's filenames carry a content hash, so a year is safe and a
@@ -81,6 +79,8 @@
   [headers.values]
     Cache-Control = "no-cache"
 
+# A stale service worker outlives everything else: it is the thing that decides
+# what the next visit is even allowed to fetch.
 [[headers]]
   for = "/sw.js"
   [headers.values]

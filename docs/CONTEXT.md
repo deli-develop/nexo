@@ -61,7 +61,7 @@ logged-in user, and the UI says so rather than implying otherwise. Conversation
 metadata (who, when, how big) is visible to the server. Android is a later port
 that must not require a rewrite, which is why the layering below is strict.
 
-Current version: `0.1.23`. The authority is `[workspace.package] version` in
+Current version: `0.1.27`. The authority is `[workspace.package] version` in
 `Cargo.toml`, and `apps/desktop/src-tauri/tauri.conf.json` has to agree with it
 — the release workflow refuses a tag that does not match.
 Current state: [`STATUS.md`](STATUS.md). Milestones: [`PLAN.md`](PLAN.md).

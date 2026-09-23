@@ -14,10 +14,9 @@ import {
   type ObjectStore,
   type PinContext,
   RelayTransport,
-  type RelayTransportOptions,
   type WasmModule,
 } from "@nexo/core";
-import { startRelay, stopRelay, getRelayInfo, type RelayAddress } from "./native";
+import { startRelay, stopRelay } from "./native";
 
 /**
  * The one place that knows which platform this is running on.
@@ -93,6 +92,8 @@ export function runtime(): Promise<Runtime> {
 }
 
 async function build(): Promise<Runtime> {
+  let _relay: RelayTransport | undefined = undefined;
+
   const wasm = await import("@nexo/crypto-wasm/web");
   await wasm.default();
   wasm.initPanicHook();

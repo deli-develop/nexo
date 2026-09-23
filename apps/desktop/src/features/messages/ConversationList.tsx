@@ -412,10 +412,13 @@ export function ConversationList({
             className="[&]:h-10 [&]:rounded-full"
           />
         </div>
+        {/* Round and 40px, the search pill's height and ends: a square
+            button against a pill read as two controls from two sets. */}
         <IconButton
           name="plus"
           label="New conversation"
           variant="secondary"
+          className="[&]:size-10 [&]:rounded-full"
           onClick={onStart}
         />
       </div>
@@ -439,7 +442,12 @@ export function ConversationList({
           keep things is only useful if you can find it before you need it.
           Hidden while searching: it matches nothing and would sit above the
           results pretending to. */}
+      {/* On the same grid as the rows below: the same inset, and the pin
+          centred in a column as wide as their avatars. It used to sit 8px
+          further left with its text 20px left of theirs, so the list had two
+          left edges. */}
       {term === "" ? (
+        <div className="border-b border-[var(--hairline)] px-2 py-1">
         <button
           type="button"
           onClick={() => {
@@ -447,10 +455,12 @@ export function ConversationList({
               .then((id) => open(id))
               .catch((error) => notify("Nexo", asConversationError(error).message));
           }}
-          className="hover:bg-fill-hover flex w-full items-center gap-3 border-b border-[var(--hairline)] px-3 py-2 text-left"
+          className="hover:bg-fill-hover rounded-panel flex w-full items-center gap-3.5 px-3 py-2 text-left transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]"
         >
-          <span className="bg-fill text-text-mid ring-line flex size-9 shrink-0 items-center justify-center rounded-full ring-1">
-            <Icon name="pin" size={15} />
+          <span className="flex w-[46px] shrink-0 justify-center">
+            <span className="bg-fill text-text-mid ring-line flex size-9 items-center justify-center rounded-full ring-1">
+              <Icon name="pin" size={15} />
+            </span>
           </span>
           <span className="min-w-0 flex-1">
             <span className="text-text-hi block truncate text-body font-medium">
@@ -461,6 +471,7 @@ export function ConversationList({
             </span>
           </span>
         </button>
+        </div>
       ) : null}
 
       {/*

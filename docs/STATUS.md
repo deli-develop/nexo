@@ -1921,6 +1921,14 @@ could not have caught.
   keyboard comes up. Wider, it still sits with the invitation (N5), without the
   hairline that used to float above it across a blank pane.
 
+- **The rail says where you are.** Its accent marker was placed 18px left of
+  a button that starts 9.5px in, so it was drawn off the window and the rail
+  had no active state beyond a tint on the icon. Beside it, "Saved messages"
+  sat on its own grid, 8px left of the rows with its text 20px left of
+  theirs, and the new-conversation button was a rounded square next to a
+  pill. The row now shares the rows' columns, and the button is round and
+  the pill's height.
+
 **Verified** at 375 and 1440 CSS px in a browser, with the shell and the
 Messages pane mounted on fixture data. Not driven on a device, and not signed
 in: the dev page cannot reach the production API, so everything that needs a

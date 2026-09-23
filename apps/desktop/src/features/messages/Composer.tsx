@@ -7,6 +7,7 @@ import { pickFile, type PickedFile } from "../../lib/native";
 import { useApp } from "../../app/store";
 import { draft, setDraft } from "../../lib/conversations";
 import { sendTyping } from "../../lib/stream";
+import { cn } from "../../lib/cn";
 import { formatDuration, useRecorder, type Recording } from "./useRecorder";
 
 
@@ -47,6 +48,7 @@ export function Composer({
   onSendSticker,
   conversationId,
   conversationTitle,
+  bare = false,
 }: {
   onSend: (body: string, attachment?: PickedFile) => void;
   onSendVoice: (recording: Recording) => void;
@@ -69,6 +71,13 @@ export function Composer({
    */
   conversationId?: string | undefined;
   conversationTitle: string;
+  /**
+   * Without the hairline above it and its own side padding, for where it
+   * stands on its own rather than as the floor of a conversation — the empty
+   * conversation's invitation. There the hairline was a rule drawn across
+   * the middle of a blank pane, above nothing.
+   */
+  bare?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [attachment, setAttachment] = useState<PickedFile | null>(null);
@@ -204,7 +213,12 @@ export function Composer({
   // 280px on a 1440px screen — no breakpoint in `useLayout` can tell the two
   // apart. Below 20rem of its own width the text box gets a row to itself.
   return (
-    <div className="@container shrink-0 border-t border-[var(--hairline)] px-3 py-2">
+    <div
+      className={cn(
+        "@container shrink-0 py-2",
+        bare ? null : "border-t border-[var(--hairline)] px-3",
+      )}
+    >
       {replyingTo ? (
         <div className="rounded-control bg-fill mb-1.5 flex items-stretch gap-2 px-2.5 py-1.5">
           <span

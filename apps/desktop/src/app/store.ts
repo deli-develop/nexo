@@ -292,6 +292,17 @@ interface AppState {
   activeConversationId: string;
   /** User intent for the context panel, before the viewport gets a say. */
   contextPanelOpen: boolean;
+  /**
+   * The context panel below 1280px, where it cannot stand beside the chat.
+   *
+   * A phone draws it instead of the conversation, a tablet over the
+   * conversation's right edge. Below 1280 the Details button and "Compare
+   * safety numbers" used to set `contextPanelOpen` and nothing drew it. It is
+   * a separate flag because that one starts open, which is right for a column
+   * that fits and wrong for one that would cover every conversation the
+   * moment it opened. Closed again with the conversation.
+   */
+  contextSheetOpen: boolean;
   /** The feed's search box, opened from the Home title row. */
   homeSearchQuery: string;
   /**
@@ -347,6 +358,7 @@ interface AppState {
   /** Close the open conversation. On a phone this is what Back does. */
   closeConversation: () => void;
   toggleContextPanel: () => void;
+  setContextSheet: (open: boolean) => void;
   /** `null` goes back to the list of sections. */
   openSettingsSection: (section: SettingsSection | null) => void;
   setConversationSearch: (open: boolean) => void;
@@ -374,6 +386,7 @@ export const useApp = create<AppState>()(
       settingsSection: null,
       activeConversationId: "",
       contextPanelOpen: true,
+      contextSheetOpen: false,
       homeSearchQuery: "",
       backdropReport: null,
       conversationOverrides: {},
@@ -409,13 +422,15 @@ export const useApp = create<AppState>()(
           const { [id]: _gone, ...unreadMark } = s.unreadMark;
           return {
             activeConversationId: id,
-                  conversationSearchOpen: false,
+            conversationSearchOpen: false,
+            contextSheetOpen: false,
             unreadMark,
           };
         }),
       closeConversation: () =>
-        set({ activeConversationId: "", conversationSearchOpen: false }),
+        set({ activeConversationId: "", conversationSearchOpen: false, contextSheetOpen: false }),
       toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
+      setContextSheet: (contextSheetOpen) => set({ contextSheetOpen }),
       openSettingsSection: (settingsSection) => set({ settingsSection }),
       setConversationSearch: (open) => set({ conversationSearchOpen: open }),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),

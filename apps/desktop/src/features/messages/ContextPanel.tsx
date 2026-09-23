@@ -25,6 +25,7 @@ export function ContextPanel({
   now,
   onRefresh,
   messages = [],
+  shape = "column",
 }: {
   conversation: Conversation;
   now: Date;
@@ -32,6 +33,13 @@ export function ContextPanel({
   onRefresh: () => Promise<void>;
   /// The open conversation, so pinned messages can be listed from it.
   messages?: Message[];
+  /**
+   * Where it is drawn. `column` is the 280px strip beside the chat, from
+   * 1280px up. `screen` replaces the chat on a phone. `sheet` lies over the
+   * chat's right edge in between, where a third column would squeeze the
+   * conversation below a readable measure.
+   */
+  shape?: "column" | "screen" | "sheet";
 }) {
   // Pinned on this device, newest first. Read from what is already loaded
   // rather than fetched: the list is the same messages, and a second source
@@ -46,9 +54,16 @@ export function ContextPanel({
 
   return (
     <Panel
-      tone="list"
+      tone={shape === "sheet" ? "raised" : "list"}
       edge={false}
-      className="flex w-[280px] shrink-0 flex-col border-l border-[var(--hairline)]"
+      aria-label="Details"
+      className={cn(
+        "flex flex-col",
+        shape === "column" && "w-[280px] shrink-0 border-l border-[var(--hairline)]",
+        shape === "screen" && "min-w-0 flex-1",
+        shape === "sheet" &&
+          "absolute inset-y-0 right-0 z-20 w-[300px] max-w-full border-l border-line-strong",
+      )}
     >
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
         {pinned.length > 0 ? (

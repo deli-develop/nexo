@@ -513,7 +513,7 @@ package, and `main.tsx` imports them.
 
 #### `components/`
 
-`chrome/`: `TopBar.tsx` (100 ln — one top row across the whole app),
+`chrome/`: `TopBar.tsx` (121 ln — one top row across the whole app; on a phone it drops the mark's 64px cell, which only lines up with the rail),
 `IconRail.tsx` (134 ln — the 64px rail, at 768px and up), `BottomBar.tsx`
 (92 ln — the same destinations across the bottom, below 768px) and
 `destinations.ts` (27 ln — **the four destinations, shared by both**, so which
@@ -583,9 +583,9 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `ConversationList.tsx` | 962 | The list, the folders, the multi-selection. |
 | `MessagesPage.tsx` | 614 | Rail, list, chat, context panel. |
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |
-| `MessagesHeader.tsx` | 426 | The Messages cells of the top row. |
+| `MessagesHeader.tsx` | 489 | The Messages cells of the top row. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
 | `Composer.tsx` | 390 | Typing, attaching, recording. |
-| `ContextPanel.tsx` | 368 | The 280px panel. |
+| `ContextPanel.tsx` | 381 | The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
 | `useRecorder.ts` | 213 | Voice recording, and the waveform that describes it. |
 | `ConversationSearch.tsx` | 155 | Searching inside the conversation you are looking at. |
 | `ForwardPicker.tsx` | 127 | Choosing where a message goes next. |

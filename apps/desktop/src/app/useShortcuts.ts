@@ -77,6 +77,13 @@ export function useShortcuts(conversationIds: string[]): void {
           state.setConversationSearch(false);
           return;
         }
+        // The details, where they cover the conversation rather than sit
+        // beside it: a sheet beside the list, a screen of their own on a phone.
+        if (state.contextSheetOpen && !layoutNow().canShowContext) {
+          event.preventDefault();
+          state.setContextSheet(false);
+          return;
+        }
         // Back to the list, where the list is not already beside you. On a
         // desktop the conversation stays open, because Escape closing it would
         // mean losing your place for a keypress that had no target.

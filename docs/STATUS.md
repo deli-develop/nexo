@@ -1903,6 +1903,24 @@ could not have caught.
   at every width, which left the theme cards 30px wide with their labels drawn
   over each other.
 
+- **The top row fits a phone, and its buttons act.** A conversation's row on a
+  phone gave its title zero width: the 64px mark cell (which only lines up
+  with the rail a phone does not have), three actions in their own cell, and
+  two more beside the title. The lock sat on top of the search button. Now the
+  mark goes on a phone, search stays, and rename, add someone, mute and details
+  are one menu. With no conversation open, the actions cell is not drawn at
+  any width; it used to offer to add someone to nothing.
+
+- **Details and "Compare safety numbers" work below 1280px.** Both set a flag
+  that only the desktop's third column read, so on a phone or a tablet the
+  key-change banner's own button did nothing. The panel now opens as a sheet
+  over the chat beside the list, and as a screen of its own on a phone, with
+  back and Escape returning to the chat (`contextSheetOpen`).
+
+- **An empty conversation's composer sits at the foot of a phone**, where the
+  keyboard comes up. Wider, it still sits with the invitation (N5), without the
+  hairline that used to float above it across a blank pane.
+
 **Verified** at 375 and 1440 CSS px in a browser, with the shell and the
 Messages pane mounted on fixture data. Not driven on a device, and not signed
 in: the dev page cannot reach the production API, so everything that needs a

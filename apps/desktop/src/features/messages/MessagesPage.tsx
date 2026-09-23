@@ -41,8 +41,12 @@ import { MessageList } from "./MessageList";
  *   whether or not anyone had chosen one, and the empty state below could
  *   never be seen on the device that needed it most.
  * - **Tablet, 768px and up.** List and chat side by side.
- * - **Desktop, 1280px and up.** And the 280px context panel as well, which
- *   collapses below that and stays reachable from the header button.
+ * - **Desktop, 1280px and up.** And the 280px context panel as well.
+ *
+ * Below 1280 the header's Details button still reaches the panel: as a sheet
+ * over the chat's right edge beside the list, and as a screen of its own on a
+ * phone. This header used to promise that and nothing drew it — the button
+ * set a flag that only the desktop column read.
  */
 export function MessagesPage({
   now,
@@ -55,14 +59,19 @@ export function MessagesPage({
   const activeId = useApp((s) => s.activeConversationId);
   const contextOpen = useApp((s) => s.contextPanelOpen);
   const toggleContext = useApp((s) => s.toggleContextPanel);
-  // Open, not toggle: the banner's button means "show me the safety number",
-  // and toggling would hide it for anyone who already had the panel open.
-  const openContextPanel = () => {
-    if (!contextOpen) toggleContext();
-  };
+  const sheetOpen = useApp((s) => s.contextSheetOpen);
+  const setSheet = useApp((s) => s.setContextSheet);
   const open = useApp((s) => s.openConversation);
   const overrides = useApp((s) => s.conversationOverrides);
   const layout = useLayout();
+  // Open, not toggle: the banner's button means "show me the safety number",
+  // and toggling would hide it for anyone who already had the panel open.
+  // Below 1280 that is the sheet — the column is not drawn there, and this
+  // used to open it anyway, so the button did nothing on a phone.
+  const openContextPanel = () => {
+    if (!layout.canShowContext) setSheet(true);
+    else if (!contextOpen) toggleContext();
+  };
 
   const [starting, setStarting] = useState(false);
 
@@ -71,6 +80,7 @@ export function MessagesPage({
     ? { ...base, ...overrides[base.id], safetyDigits: live.safety ?? "" }
     : undefined;
   const showContext = contextOpen && layout.canShowContext;
+  const showSheet = sheetOpen && !layout.canShowContext && conversation !== undefined;
 
   // The last message per conversation, for the list rows. Only the active
   // conversation's history is loaded, so every other row falls back to the
@@ -112,6 +122,16 @@ export function MessagesPage({
             open(id);
             void live.refresh();
           }}
+        />
+      ) : conversation && layout.phone && showSheet ? (
+        // The details are a screen of their own on a phone, the way the
+        // conversation is one after the list. Back returns to the chat.
+        <ContextPanel
+          conversation={conversation}
+          now={now}
+          onRefresh={live.refresh}
+          messages={live.messages}
+          shape="screen"
         />
       ) : conversation ? (
         <ChatPane
@@ -158,6 +178,16 @@ export function MessagesPage({
           now={now}
           onRefresh={live.refresh}
           messages={live.messages}
+        />
+      ) : null}
+
+      {showSheet && layout.canShowList && conversation && !starting ? (
+        <ContextPanel
+          conversation={conversation}
+          now={now}
+          onRefresh={live.refresh}
+          messages={live.messages}
+          shape="sheet"
         />
       ) : null}
     </div>
@@ -436,6 +466,7 @@ function ChatPane({
   const [replyingTo, setReplyingTo] = useState<Message | undefined>(undefined);
   const conversationId = conversation.id;
   const typing = useTyping(conversationId);
+  const layout = useLayout();
   useEffect(() => setReplyingTo(undefined), [conversationId]);
 
   const [forwarding, setForwarding] = useState<Message | undefined>(undefined);
@@ -489,15 +520,35 @@ function ChatPane({
           rather than pinned to the bottom of an empty page. There is nothing
           above it to anchor to yet, and a lone box at the foot of a blank
           panel reads as the end of something instead of the start. It moves
-          to its usual place as soon as there is a history to sit under. */}
+          to its usual place as soon as there is a history to sit under.
+
+          Not on a phone. There the keyboard comes up under the composer and
+          the thumb expects it at the foot of the screen; halfway up, behind
+          its own hairline, it read as a box left floating over the page. */}
       {messages.length === 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4">
-          <EmptyState
-            icon="messages"
-            title={`Say something to ${conversation.title}`}
-            body="Messages here are end-to-end encrypted. Only the people in this conversation can read them."
-          />
-          <div className="w-full max-w-[560px]">
+        <>
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4">
+            <EmptyState
+              icon="messages"
+              title={`Say something to ${conversation.title}`}
+              body="Messages here are end-to-end encrypted. Only the people in this conversation can read them."
+            />
+            {layout.phone ? null : (
+              <div className="w-full max-w-[560px]">
+                <Composer
+                  bare
+                  onSend={(body, attachment) => {
+                    if (attachment) void onSendFile(attachment, body);
+                    else void onSend(body);
+                  }}
+                  onSendVoice={(recording) => void onSendVoice(recording)}
+                  conversationId={conversation.id}
+                  conversationTitle={conversation.title}
+                />
+              </div>
+            )}
+          </div>
+          {layout.phone ? (
             <Composer
               onSend={(body, attachment) => {
                 if (attachment) void onSendFile(attachment, body);
@@ -505,10 +556,10 @@ function ChatPane({
               }}
               onSendVoice={(recording) => void onSendVoice(recording)}
               conversationId={conversation.id}
-            conversationTitle={conversation.title}
+              conversationTitle={conversation.title}
             />
-          </div>
-        </div>
+          ) : null}
+        </>
       ) : (
         <>
           {/* Above the list, where a find bar belongs: it narrows what is

@@ -1792,31 +1792,30 @@ What is in the tree:
   the accept loop, so `stop_relay` closes the listener **and** what it
   forwarded. `relay_status` answers the address or `None`. Managed from
   startup in `lib.rs`; the three commands in `commands.rs` are one line each.
-- **`packages/core/src/relay.ts`** — `RelayTransport`: a WebSocket to that
-  listener, a JSON-RPC `relay_connect` handshake, a ping timer, and up to five
-  reconnects.
-- **`apps/desktop/src/lib/runtime.ts`** — `startRelay()` / `stopRelay()` start
-  the listener and connect a `RelayTransport` to the URL it answers.
 - **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
   `getRelayInfo`, over the three commands, `wsUrl` in camelCase as the shell
   now sends it.
+
+**The decision.** A relay is an HTTP `CONNECT` proxy that forwards only to the
+hosts the page's CSP already allows, and a blocked user's app points its
+WebView at one. TLS stays end to end, so a relay sees host names and byte
+counts, never a token or a message. Desktop only: a browser tab cannot choose
+its proxy. Reaching a volunteer behind a NAT is still the volunteer's port
+forward or IPv6 address; the outbound-only shape `RELAY.md` prefers needs a
+broker nobody has decided on.
+
+`RelayTransport` (a WebSocket tunnel with a JSON-RPC handshake that nothing
+answered) and `runtime.startRelay()` (which routed this device's own client
+through its own listener) are gone: neither fits that shape.
 
 Why it does not carry traffic yet:
 
 - **No target.** The forwarding target is the placeholder
   `wss://relay.example.com`, which `TcpStream::connect` cannot dial — it wants
-  `host:port`, not a URL — so every forward fails.
-- **Two protocols.** The listener is a raw TCP pipe, but `RelayTransport`
-  speaks WebSocket and waits for a JSON-RPC answer to `relay_connect` that
-  nothing sends. And `fetch` from the page cannot be pointed at either: a
-  WebView has no per-request proxy.
-- **Two roles in one call.** `runtime.startRelay()` connects this device's own
-  client to its own listener. In `RELAY.md` a volunteer forwards *other*
-  people's traffic, reached across a NAT — which a loopback listener cannot
-  be — and the open questions there are still open.
-
-Those three are one decision — how a blocked user's traffic reaches a relay —
-and not a bug each.
+  `host:port`, not a URL — so every forward fails. It is a pipe, not a
+  `CONNECT` proxy.
+- **Loopback only.** Nobody but this machine can reach it.
+- **No way to use one.** Nothing points a WebView at a relay.
 
 **Checked:** `cargo test -p nexo-desktop` drives the listener for real: a port
 of `0` answers the port it got, starting twice answers one relay, a taken port

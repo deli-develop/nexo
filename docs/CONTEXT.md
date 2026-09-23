@@ -672,7 +672,6 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
-| `src/relay.ts` | 160 | `RelayTransport`: a WebSocket to the shell's relay listener, with a JSON-RPC `relay_connect` handshake. Exported, wired into `lib/runtime.ts`, called by nothing yet. Its errors use the five `TransportError` kinds — `unreachable` — not new ones. |
 | `src/wasm.ts` | 48 | `bindWasm`: the twenty lines between the facade's static constructors and the seam above. |
 | tests | 2 378 | 104 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 

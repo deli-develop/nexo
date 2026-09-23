@@ -13,10 +13,8 @@ import {
   type ObjectCrypto,
   type ObjectStore,
   type PinContext,
-  RelayTransport,
   type WasmModule,
 } from "@nexo/core";
-import { startRelay, stopRelay } from "./native";
 
 /**
  * The one place that knows which platform this is running on.
@@ -60,7 +58,6 @@ export function inTauri(): boolean {
 
 interface Runtime {
   transport: Transport;
-  relay?: RelayTransport;
   store: Store;
   session: Session;
   crypto: CryptoModule;
@@ -68,10 +65,6 @@ interface Runtime {
   context(): Promise<Context>;
   attachments(): Promise<AttachmentContext>;
   pin: PinContext;
-  /** Start the relay listener. Returns the ws:// URL to connect through. */
-  startRelay(): Promise<void>;
-  /** Stop the relay listener and disconnect any relay transport. */
-  stopRelay(): Promise<void>;
 }
 
 let pending: Promise<Runtime> | null = null;
@@ -92,8 +85,6 @@ export function runtime(): Promise<Runtime> {
 }
 
 async function build(): Promise<Runtime> {
-  let _relay: RelayTransport | undefined = undefined;
-
   const wasm = await import("@nexo/crypto-wasm/web");
   await wasm.default();
   wasm.initPanicHook();
@@ -139,31 +130,6 @@ async function build(): Promise<Runtime> {
         sendPayload: (conversationId, payload) =>
           conversations.sendPayload(ctx, conversationId, payload),
       };
-    },
-    // Relay: start a local TCP listener, get its ws:// URL, and hand the
-    // caller a RelayTransport that connects through it.
-    startRelay: async () => {
-      if (_relay) {
-        // Already running — just connect the transport if needed.
-        return;
-      }
-      // The session answers "am I signed in"; the store only supplies the
-      // device id once it has said yes. `Device` is the MLS seam and has none.
-      await context();
-      const identity = await store.identity();
-      if (!identity) throw new Error("You are not signed in.");
-
-      // Start the Rust listener first: its URL is what the transport dials.
-      const info = await startRelay(0);
-      if (!info) throw new Error("Could not start relay listener on this machine.");
-      _relay = new RelayTransport({ relayUrl: info.wsUrl, deviceId: identity.deviceId });
-      await _relay.connect();
-    },
-    stopRelay: async () => {
-      const relay = _relay;
-      _relay = undefined;
-      if (relay) relay.close();
-      await stopRelay();
     },
   };
 }

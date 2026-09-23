@@ -25,7 +25,7 @@ for you. They list every file in the repository with one line about what it
 owns, so finding the right one costs a scan rather than a `grep` over the whole
 tree.
 
-`docs/` holds ~430 KB of prose, and this file is ~70 KB of it. The rule it
+`docs/` holds ~480 KB of prose, and this file is ~71 KB of it. The rule it
 teaches applies to itself: scan the one section you need, skip the rest.
 
 ## How to keep it
@@ -671,7 +671,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
 | `src/wasm.ts` | 48 | `bindWasm`: the twenty lines between the facade's static constructors and the seam above. |
-| tests | 2 000 | 96 cases. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 2 311 | 99 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
@@ -786,6 +786,7 @@ it is expensive.
 | The app stutters while a video plays | Something is holding the client lock across the network. See the lock rule in [Conventions](#conventions-that-will-trip-you-up) |
 | A server test passes locally and fails for somebody else | It asserted on a global listing in a shared database, or `.sqlx/` was not regenerated |
 | Nothing in the app works at all — sign-in, feed, messages | Ask `api.delidev.net` itself: `curl -i https://api.delidev.net/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.delidev.net` answers 502* |
+| Every upload fails — profile picture, banner, feed image, chat attachment — while sign-in, messages and posts work; the message is "Can't reach the server: Failed to fetch" | The **buckets' CORS**, not the API's. `curl -si -X OPTIONS https://fsn1.your-objectstorage.com/nexo-enc/probe -H "Origin: http://tauri.localhost" -H "Access-Control-Request-Method: PUT" -H "Access-Control-Request-Headers: content-type"` — a `403` means no rule matches that origin. [`OPS.md`](OPS.md) Phase 8, *Bucket CORS* |
 | `nexo-server` restart-loops after an edit to `/etc/nexo/nexo.env` | It refuses a half-finished deployment by design: the S3 block and `NEXO_CORS_ORIGINS` are each all-or-nothing and checked at startup. `journalctl -u nexo-server -n 60` names the one that failed |
 | The UI looks stale after a `cargo build --release` | `pnpm build` was not run first; the binary embeds `apps/desktop/dist` |
 
@@ -878,8 +879,10 @@ failed silently.
   a `video/` type gets the segmented encoding, which is why the voice command
   forces `audio/` even though `MediaRecorder` sometimes says `video/webm`.
 - **Nothing in the page may reach a third party, and the CSP is what says so.**
-  `img-src` and `connect-src` name no remote host, which is rule 3's
-  enforcement point and not an oversight to be widened when a feature wants it.
+  `img-src` names no remote host, and `connect-src` names only the two the
+  page cannot work without — the API and the object store, added when the page
+  became the client. That is rule 3's enforcement point and not an oversight to
+  be widened when a feature wants it.
   `THREAT-MODEL.md` §2.3 already worked this through once for link previews and
   ended with "no image fetch" — so a feature that wants remote pictures (GIF
   search is the standing example) is a threat-model decision before it is a
@@ -899,6 +902,20 @@ failed silently.
   A Netlify deploy-preview URL is **not** in the list on purpose — previews
   reaching production data is one pull request away from anyone who can open
   one.
+- **The buckets have CORS rules of their own, and nothing in the repo sets
+  them.** The page uploads and downloads every picture and attachment itself,
+  with a URL the API signed, so each bucket must allow the same origins as
+  `NEXO_CORS_ORIGINS`. It is bucket configuration, applied by hand with
+  `put-bucket-cors` (`OPS.md` Phase 8, *Bucket CORS*), and it was missing for
+  the whole first round of testing after the rework: sign-in, messages and
+  posts worked, and every picture failed.
+- **Anything thrown that is not a `TransportError` becomes "Something went
+  wrong. Try again."** — the fallback in `asConversationError`, `asFeedError`
+  and their siblings in `lib/`. A `fetch` to anywhere but the API has to wrap
+  its own failures the way `fetchStoryObjects` does, or a browser's bare
+  `TypeError: Failed to fetch` reaches the screen as that sentence and hides
+  its cause. The object-store fetches in `lib/runtime.ts` and
+  `core/src/feed.ts::uploadBytes` did exactly that until they were wrapped.
 - **The CSP is the whole policy, it fails silently, and it has been wrong three
   times.** `tauri.conf.json` holds all of it: Tauri appends script and style
   hashes and touches nothing else, so an absent or mistyped directive falls back
@@ -1082,9 +1099,9 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 69 KB | This file. Where things are, and what not to break. |
+| [`CONTEXT.md`](CONTEXT.md) | 71 KB | This file. Where things are, and what not to break. |
 | [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
-| [`STATUS.md`](STATUS.md) | 95 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
+| [`STATUS.md`](STATUS.md) | 100 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
 | [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
 | [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `packages/core/src/pin.ts` and `THREAT-MODEL.md` §3. |
@@ -1095,8 +1112,8 @@ Read cost matters. Sizes are approximate and current.
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | 10 KB | Setup, prerequisites, the three builds (Windows, web, Android), troubleshooting. For humans on a new machine. |
 | [`THREAT-MODEL.md`](THREAT-MODEL.md) | 34 KB | Adversaries in and out of scope; what is deliberately not protected. |
 | [`TUTORIAL.md`](TUTORIAL.md) | 19 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
-| [`DEPLOY.md`](DEPLOY.md) | 19 KB | **The straight line from a fresh server to a live API, and from CI to the website.** Eight steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
-| [`OPS.md`](OPS.md) | 24 KB | The Hetzner runbook — the reasoning behind every step `DEPLOY.md` takes, plus TLS, backups and incidents. |
+| [`DEPLOY.md`](DEPLOY.md) | 22 KB | **The straight line from a fresh server to a live API, and from CI to the website.** Eight steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
+| [`OPS.md`](OPS.md) | 27 KB | The Hetzner runbook — the reasoning behind every step `DEPLOY.md` takes, plus TLS, backups and incidents. |
 | [`PLAN.md`](PLAN.md) | 23 KB | Milestones M0–M9 and the open risks. |
 | [`BRIEF.md`](BRIEF.md) | 27 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 29 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |

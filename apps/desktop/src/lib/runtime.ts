@@ -2,6 +2,7 @@ import {
   Session,
   Store,
   Transport,
+  TransportError,
   bindObjectWasm,
   bindPasswordWasm,
   bindWasm,
@@ -140,26 +141,39 @@ async function build(): Promise<Runtime> {
  * to `apps/server` at all. They are presigned PUTs and GETs against a third
  * party, and attaching this account's bearer token to one would hand that
  * third party the session.
+ *
+ * Failures still come out as a `TransportError`, the same as the transport's
+ * own. A bare `TypeError` from `fetch` — which is all a browser says when the
+ * bucket's CORS rules refuse this origin — is not one, so every screen used to
+ * flatten it into "Something went wrong" and nobody could tell a missing
+ * bucket rule from a bug.
  */
 const httpObjects: ObjectStore = {
   async put(url, bytes, contentType) {
-    const response = await fetch(url, {
+    await objectRequest(url, {
       method: "PUT",
       body: bytes as unknown as BodyInit,
       headers: { "content-type": contentType },
     });
-    if (!response.ok) {
-      throw new Error(`The upload was refused (${response.status}).`);
-    }
   },
   async get(url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`That file could not be fetched (${response.status}).`);
-    }
+    const response = await objectRequest(url, { method: "GET" });
     return new Uint8Array(await response.arrayBuffer());
   },
 };
+
+async function objectRequest(url: string, init: RequestInit): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, credentials: "omit" });
+  } catch (cause) {
+    throw TransportError.unreachable(cause instanceof Error ? cause.message : String(cause));
+  }
+  if (!response.ok) {
+    throw new TransportError("rejected", `The storage provider returned ${response.status}.`);
+  }
+  return response;
+}
 
 /** Forgets the runtime. Sign-out, and the failure path of a sign-in. */
 export function resetRuntime(): void {

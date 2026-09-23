@@ -20,7 +20,7 @@ Dokumente durchgesehen — in dieser Reihenfolge, und ohne Abkürzung:
 Erst danach wird Code gelesen. Wer mit einem `grep` über den ganzen Baum
 beginnt, hat Schritt 2 übersprungen und zahlt es doppelt.
 
-`docs/` umfasst gut 430 KB Prosa. Alles davon zu lesen, um einen Handler zu
+`docs/` umfasst knapp 480 KB Prosa. Alles davon zu lesen, um einen Handler zu
 ändern, ist der andere teure Fehler — den verhindert dieselbe Karte.
 
 ## Grosse Aufgaben: erst der Plan, dann Wellen

@@ -1707,3 +1707,37 @@ been *seen* at phone width. `pnpm dev` serves the page without Tauri, so every
 the bottom bar, the list or the chat. Seeing those needs `pnpm tauri dev` and a
 signed-in account, which is a person at a keyboard rather than a check that can
 run here.
+
+### Since v0.1.26: every picture failed, and said nothing about why
+
+Found by the first round of testing after the rework. Profile pictures,
+banners and chat attachments all failed with "Something went wrong. Try
+again." while sign-in and posts worked.
+
+- **The buckets had no CORS rule.** Since the page became the client, it
+  uploads and downloads objects itself with URLs the API signed, and those are
+  cross-origin requests to object storage. Both buckets answered the preflight
+  with `403` for `https://nexo.delidev.net` and `http://tauri.localhost` alike,
+  so the browser never sent a byte. That is bucket configuration rather than
+  code: the rule and how to check it are in `OPS.md` Phase 8, *Bucket CORS*,
+  and `DEPLOY.md` step 8 now names it.
+
+- **The failure reached the screen as a sentence that hid it.** The two
+  object-store `fetch`es that did not go through the transport —
+  `httpObjects` in `lib/runtime.ts` for attachments, `uploadBytes` in
+  `core/src/feed.ts` for profile and feed images — let the browser's bare
+  `TypeError` escape, and every screen turns anything that is not a
+  `TransportError` into "Something went wrong". Both now wrap their failures
+  the way `fetchStoryObjects` already did, so a refused request reads
+  "Can't reach the server: Failed to fetch" and a refusal from the store
+  carries its status. `core/src/feed.test.ts` pins both cases.
+
+**Verified:** in a browser page against a local API, both upload paths now
+end in a `TransportError`, and the console attributes the refusal to the
+bucket's CORS preflight — nothing reached the bucket.
+
+**Not yet fixed:** pictures that *are* in storage still cannot be drawn.
+`RemoteImage` puts a presigned URL in a CSS `background-image`, which `img-src`
+refuses, and `img-src` names no remote host on purpose. Text messages were also
+reported failing and could not be reproduced: sending works end to end against
+a local API, in Node and in a real browser page.

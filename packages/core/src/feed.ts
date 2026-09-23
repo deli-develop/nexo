@@ -1,3 +1,4 @@
+import { TransportError } from "./errors";
 import type { Transport } from "./transport";
 
 /**
@@ -340,6 +341,11 @@ export async function imageUrl(
  * `fetch` rather than the transport, because this one request does not go to
  * `apps/server` at all: it is a PUT to object storage, signed, with no bearer
  * token — sending one would leak this account's session to a third party.
+ *
+ * Its failures are still a `TransportError`. A browser reports a bucket whose
+ * CORS rules refuse this origin as nothing more than a `TypeError`, and the
+ * screens above turn anything that is not a `TransportError` into "Something
+ * went wrong" — which is how a missing bucket rule passed for a bug.
  */
 export async function uploadBytes(
   transport: Transport,
@@ -349,13 +355,19 @@ export async function uploadBytes(
   doFetch: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<string> {
   const ticket = await uploadUrl(transport, bytes.byteLength, bucket);
-  const response = await doFetch(ticket.url, {
-    method: "PUT",
-    body: bytes as unknown as BodyInit,
-    headers: { "content-type": contentType },
-  });
+  let response: Response;
+  try {
+    response = await doFetch(ticket.url, {
+      method: "PUT",
+      body: bytes as unknown as BodyInit,
+      headers: { "content-type": contentType },
+      credentials: "omit",
+    });
+  } catch (cause) {
+    throw TransportError.unreachable(cause instanceof Error ? cause.message : String(cause));
+  }
   if (!response.ok) {
-    throw new Error(`the object store refused the upload with ${response.status}`);
+    throw new TransportError("rejected", `The storage provider returned ${response.status}.`);
   }
   return ticket.key;
 }

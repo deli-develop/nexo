@@ -17,9 +17,12 @@
 //! rule someone has to remember. [`Storage::verify_isolation`] then checks that
 //! the *credentials* really are separate too, which no type can prove.
 //!
-//! Everything here runs on the Rust side. Nothing is ever presigned into the
-//! WebView: that keeps CORS out of the attachment path entirely (BRIEF 5.3) and
-//! keeps encryption on this side of the seam, where it belongs.
+//! The server only signs. Since the page became the client (REWORK wave 7),
+//! every upload and download is a presigned request made by the browser
+//! itself, so each bucket needs a CORS rule naming the same origins as
+//! `NEXO_CORS_ORIGINS` — without one the browser refuses the request before it
+//! is sent (docs/OPS.md Phase 8). Encryption stays in the client: what reaches
+//! `nexo-enc` is already ciphertext.
 
 use std::marker::PhantomData;
 

@@ -42,10 +42,13 @@ aws s3api get-bucket-lifecycle-configuration --bucket nexo-enc `
     --endpoint-url https://fsn1.your-objectstorage.com
 ```
 
-Note that the AWS CLI reports an absent configuration as
-`argument of type 'NoneType' is not a container` rather than as
-`NoSuchLifecycleConfiguration`; `--debug` shows the real answer. That is a
-client-side parse quirk, not a permissions problem.
+Note that the AWS CLI reports **every** error from Hetzner as
+`argument of type 'NoneType' is not a container`. Hetzner sends an empty
+`<Message>`, and the CLI's own error rewording (`s3errormsg.py`) crashes on
+it — so that line says only that *something* failed: an absent configuration
+(`NoSuchLifecycleConfiguration`), a refused key (`AccessDenied`) or a rejected
+request all look the same. `--debug` shows the real `<Code>` in the
+`Response body` line.
 
 **The prefixes are the whole safety of this.** Stories and attachments used to
 share `enc/<uuid>/<uuid>`, and a rule aimed at stories would have deleted every
@@ -432,6 +435,8 @@ NEXO_JWT_PRIVATE_KEY_PEM=/etc/nexo/jwt-ed25519.pem
 
 # The web client and the packaged desktop app both make requests from a
 # browser context. The desktop WebView origin is http://tauri.localhost.
+# Both buckets need a CORS rule with the same origins (Phase 8, Bucket CORS);
+# this line covers the API and nothing else.
 #
 # Comma-separated, and exact origins only. The server refuses to start on a
 # wildcard, on anything that is not https:// (loopback excepted), and on a
@@ -551,9 +556,73 @@ away.
 
 Endpoint `https://fsn1.your-objectstorage.com`, **path-style addressing** (the
 bucket is not part of the hostname), SigV4 pinned explicitly rather than left to
-SDK defaults. All uploads and downloads happen from the Rust process, never from
-the WebView — that sidesteps CORS entirely and keeps encryption on the Rust
-side.
+SDK defaults.
+
+### Bucket CORS
+
+The server only signs URLs. Every upload and download is made by the **page
+itself** — the website and the desktop app alike — straight to the bucket.
+That used to be the Rust process, which sends no `Origin` and never needed
+this; since the page became the client (`REWORK.md` wave 7) it is a browser
+making a cross-origin request, and the bucket has to allow it the way
+`NEXO_CORS_ORIGINS` allows the API. Encryption is unaffected: what reaches
+`nexo-enc` is already ciphertext.
+
+Without a rule the browser refuses the request at the preflight (`403` from
+the bucket), before any byte is sent. Everything else keeps working, so it
+looks like a bug in the pictures: profile pictures, banners, feed images and
+chat attachments all fail with "Can't reach the server: Failed to fetch", and
+the console says *blocked by CORS policy*.
+
+The same rule on **both** buckets. The origins are the ones in
+`NEXO_CORS_ORIGINS` — and like that list, never `*` and never a Netlify deploy
+preview:
+
+```json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://nexo.delidev.net", "http://tauri.localhost"],
+      "AllowedMethods": ["GET", "PUT", "HEAD"],
+      "AllowedHeaders": ["content-type"],
+      "MaxAgeSeconds": 600
+    }
+  ]
+}
+```
+
+Save it as `bucket-cors.json` and apply it with each bucket's own key (a
+bucket policy like the one above refuses the other bucket's):
+
+```powershell
+aws s3api put-bucket-cors --bucket nexo-media `
+    --cors-configuration file://bucket-cors.json `
+    --endpoint-url https://fsn1.your-objectstorage.com
+aws s3api put-bucket-cors --bucket nexo-enc `
+    --cors-configuration file://bucket-cors.json `
+    --endpoint-url https://fsn1.your-objectstorage.com
+```
+
+It replaces whatever rule was there, and `get-bucket-cors` reads it back.
+**Neither command's error line can be trusted:** the CLI turns every Hetzner
+error into `argument of type 'NoneType' is not a container or iterable` (see
+the lifecycle note above), whether the bucket has no rule yet
+(`NoSuchCORSConfiguration`) or the write itself was refused. A `put` that
+prints that line did **not** apply; `--debug` names the reason. The check that
+matters is the one a browser makes — a preflight, which needs no
+credentials and changes nothing. `200` with an `Access-Control-Allow-Origin`
+line is right; `403 AccessDenied` means no rule matched:
+
+```sh
+curl -si -X OPTIONS https://fsn1.your-objectstorage.com/nexo-enc/probe \
+  -H "Origin: http://tauri.localhost" \
+  -H "Access-Control-Request-Method: PUT" \
+  -H "Access-Control-Request-Headers: content-type" | grep -i "^HTTP\|access-control"
+```
+
+Run it for both buckets and both origins. **Adding an origin to
+`NEXO_CORS_ORIGINS` means adding it here too**; the two lists are one decision
+kept in two places.
 
 Base price includes 1 TB storage and 1 TB egress. Objects under 64 kB bill as
 64 kB, which matters for avatars and thumbnails.

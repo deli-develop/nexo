@@ -353,7 +353,7 @@ the env file so you pass each only once:
 | Variable | What happens without it |
 |---|---|
 | `NEXO_CORS_ORIGINS` | No CORS layer, so neither the website nor the packaged desktop app can call this server. |
-| The eight `NEXO_S3_*` values | Attachments and feed images are unavailable. Everything else works. All eight or none — a partly filled block is a startup error, on purpose. |
+| The eight `NEXO_S3_*` values | Attachments and feed images are unavailable. Everything else works. All eight or none — a partly filled block is a startup error, on purpose. The buckets also need their own CORS rule, which this script cannot set — `OPS.md` Phase 8, *Bucket CORS*. |
 
 *(OPS.md Phase 7. Object storage is Phase 8, and you do not need it today.)*
 
@@ -508,12 +508,20 @@ two builds will publish over each other.
    server says the origin is allowed. On the server, in `/etc/nexo/nexo.env`:
 
    ```
-  NEXO_CORS_ORIGINS=https://nexo.delidev.net,http://tauri.localhost
+   NEXO_CORS_ORIGINS=https://nexo.delidev.net,http://tauri.localhost
    ```
 
    then `sudo systemctl restart nexo-server`. Without this the site loads, looks
    perfect, and cannot sign anybody in — the failure shows up only in the
    browser's console, as CORS.
+
+4. **Let the buckets accept it too.** Pictures and attachments do not go
+   through the API: the page uploads and downloads them itself, with a URL the
+   API signed, straight to object storage — a different host with its own CORS
+   rules. Both buckets need one naming the same origins as step 3; the rule and
+   the commands are in `OPS.md` Phase 8, *Bucket CORS*. Without it everything
+   else works — sign-in, messages, posts — and every picture fails with
+   "Can't reach the server: Failed to fetch".
 
 ### If the build fails
 

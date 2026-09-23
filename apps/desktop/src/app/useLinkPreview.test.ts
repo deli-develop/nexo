@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { firstLink } from "./useLinkPreview";
+import { firstLink, links } from "./useLinkPreview";
 
 /**
  * What counts as a link worth previewing. Wrong in one direction it fetches a
@@ -42,5 +42,18 @@ describe("firstLink", () => {
   it("is null when there is no link", () => {
     expect(firstLink("no links here")).toBeNull();
     expect(firstLink("")).toBeNull();
+  });
+});
+
+describe("links", () => {
+  it("finds every https link, in order, each without the sentence's punctuation", () => {
+    expect(links("https://one.example, then (https://two.example/x).")).toEqual([
+      "https://one.example",
+      "https://two.example/x",
+    ]);
+  });
+
+  it("finds nothing in a body without an https link", () => {
+    expect(links("http://plain.example and no more")).toEqual([]);
   });
 });

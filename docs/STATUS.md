@@ -1952,6 +1952,15 @@ could not have caught.
   be reported, on purpose: the server cannot read a message, so a report
   would have to carry the plaintext out.
 
+- **The context panel lists what was shared.** Its three lists said "Nothing
+  shared yet" in every conversation, however many photos were in it, because
+  nothing fed them; their "See all" and full-size buttons pointed at a "media
+  milestone" and could never appear. `sharedIn` now reads them from the
+  history the panel already has: pictures and video as a grid that opens the
+  lightbox, files with Save, and every https link, once each, opened in the
+  system browser. "See all" expands a list in place. Taken-back and unreadable
+  messages and voice notes stay out, and view-once media cannot get in.
+
 - **The top row lines up with the context panel in the desktop app.** The
   actions cell above the panel was 280px wide and ended where the window's
   caption buttons begin, while the panel runs under them to the edge, so the
@@ -1964,7 +1973,10 @@ caption buttons drawn by making `inTauri()` answer yes. Not driven on a
 device or in the desktop app itself, and not signed in: the dev page cannot
 reach the production API. So the feed's Refresh was followed as far as the
 request, and the post menu was not seen at all, since without a feed there
-is no post to open it on.
+is no post to open it on. The report dialog was seen on its own and refused
+for want of a session; a report has not been sent. The context panel's
+pictures were drawn as their placeholder fields, because nothing decrypts
+without a session.
 
 ---
 

@@ -505,7 +505,7 @@ package, and `main.tsx` imports them.
 | `useShortcuts.ts` | 90 | **The whole keyboard, in one listener.** A chord is global by nature; spreading them lets two surfaces claim the same one with no way to see the collision. |
 | `useUserSearch.ts` | 88 | Debounced handle search, with the shortest term worth sending. |
 | `useTyping.ts` | 83 | Who is typing, right now. |
-| `useLinkPreview.ts` | 73 | The first https link in a body, when previews are on. |
+| `useLinkPreview.ts` | 81 | The first https link in a body, when previews are on — and `links`, every one of them, the same rule for the context panel's list. |
 | `useAutoLock.ts` | 63 | The idle timer. It lives in the WebView because idleness is only observable where the input events are; Rust does the locking. |
 | `useLayout.ts` | 91 | The three widths, in one place: phone below 768, list beside chat at 768, context panel at 1280. `matchMedia`, not a resize listener. Exports `layoutNow()` for `useShortcuts`, which is not in a render pass. |
 | `useWindow.ts` | 46 | The frameless window's own state and controls. |
@@ -586,13 +586,14 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |
 | `MessagesHeader.tsx` | 489 | The Messages cells of the top row. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
 | `Composer.tsx` | 390 | Typing, attaching, recording. |
-| `ContextPanel.tsx` | 381 | The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
+| `ContextPanel.tsx` | 504 | The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
 | `useRecorder.ts` | 213 | Voice recording, and the waveform that describes it. |
 | `ConversationSearch.tsx` | 155 | Searching inside the conversation you are looking at. |
 | `ForwardPicker.tsx` | 127 | Choosing where a message goes next. |
 | `menu.ts` | 126 | What a right-click offers **and in what order** — a pure function whose order is asserted in `menu.test.ts` rather than read. Destructive entries sit last. |
 | `selection.ts` | 97 | What a click does to a multi-selection. |
 | `pinned.ts` | 76 | What the pinned list shows for one message. |
+| `shared.ts` | 78 | `sharedIn`: the context panel's shared media, files and links, read from the history already loaded. Leaves out taken-back and unreadable messages and voice notes; view-once never carries an attachment, so it cannot appear. |
 | `peer.ts` | 75 | `peerHandle` — reads the member list and answers `undefined` rather than guessing. **A conversation's title is not a handle.** |
 | `pan.ts` | 69 | The arithmetic behind zooming and dragging a picture. |
 | `jump.ts` | 40 | Landing on one message in a wall of them — quotes and search results both, so they land the same way. |
@@ -643,14 +644,14 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-24 vitest files, 163 tests, run by `pnpm test`. They cluster on the pure
+25 vitest files, 168 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
 app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · useUserSearch
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
-              messages: grouping · menu · pan · peer · pinned · selection
+              messages: grouping · menu · pan · peer · pinned · selection · shared
 lib/          auth · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```

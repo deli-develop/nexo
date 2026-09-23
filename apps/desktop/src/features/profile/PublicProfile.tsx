@@ -185,7 +185,7 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
   }
 
   return (
-    <Panel tone="content" edge={false} className="min-h-0 flex-1 overflow-y-auto">
+    <Panel tone="content" edge={false} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[840px] px-6 pb-12">
         <div className="relative pt-4">
           {profile?.banner_key ? (

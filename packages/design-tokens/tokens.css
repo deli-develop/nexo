@@ -454,6 +454,15 @@ body {
   scrollbar-color: var(--color-line-strong) transparent;
 }
 
+/* A row that scrolls sideways only when it runs out of room -- the profile's
+   tabs on a phone -- is a row, not a region, and a bar under it reads as a
+   divider that moves. An attribute rather than a utility: the rule above is
+   outside Tailwind's layers, so it beats any utility whatever its specificity,
+   and only another unlayered rule can answer it. */
+[data-scrollbar="none"] {
+  scrollbar-width: none;
+}
+
 /* Figures that sit in a column -- unread counts, durations, remaining
    attempts, file sizes, the clock on a bubble -- are read against each other,
    so their digits have to occupy the same width. Inter ships proportional

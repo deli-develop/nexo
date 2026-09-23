@@ -1119,6 +1119,22 @@ failed silently.
 - **Design values live in tokens**, not in components. A hex code in a `.tsx` is
   a bug. Tokens are authored in `packages/design-tokens/tokens.css`;
   `tokens.json` is generated from it and a test fails when the two drift.
+- **A pane's content needs `min-w-0`, or it widens the window.** A flex item
+  will not shrink below its content's minimum, and a `<textarea>`'s minimum is
+  its `cols` — about 190px. The Messages page had no `min-w-0`, so the
+  composer pushed the whole pane 40px past a phone's edge and your own avatars
+  went with it. Every page root and every `flex-1` that holds text gets one.
+- **The window's width is `useLayout`; a component's own width is a container
+  query.** The composer is drawn in the Messages pane and in Home's 280px side
+  panel, and no window breakpoint can tell those apart — so it carries
+  `@container` and stacks below `@max-[20rem]:`. Use a container query only for
+  a component that lives in panes of different widths. A choice between
+  layouts stays in `useLayout`.
+- **`tokens.css`'s global rules sit outside Tailwind's layers, and beat every
+  utility.** `* { scrollbar-width: thin }` wins over `[scrollbar-width:none]`
+  whatever the specificity, because unlayered CSS beats layered CSS. Answering
+  one of those rules takes another unlayered rule. The one there is
+  `[data-scrollbar="none"]`, used by `Tabs`.
 - **The commit rules in [`CLAUDE.md`](../CLAUDE.md) are not decoration.** No
   attribution trailers, no tool names, in commits or anywhere else. Run
   `git config core.hooksPath .githooks` after a fresh clone so the hook backs

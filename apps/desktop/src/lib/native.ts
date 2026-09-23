@@ -452,20 +452,27 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** Relay address or `null` when no relay is running. */
-export interface RelayAddress {
-  wsUrl: string;
+/**
+ * A relay this machine is running for other people: a `CONNECT` proxy to
+ * Nexo's hosts and nowhere else, on every interface.
+ */
+export interface RelayInfo {
+  /**
+   * The port. Which address goes with it is the volunteer's to know — behind
+   * a router this machine cannot see it.
+   */
+  port: number;
 }
 
 /**
- * Starts the relay listener on `127.0.0.1:<port>`, `0` for any free port, and
- * answers the address it actually bound. A relay that is already running is
- * answered as it is rather than started twice. `null` when it could not start:
- * in a browser, or on a port something else holds.
+ * Starts relaying on `port`, `0` for any free one, and answers the port it
+ * actually bound. A relay that is already running is answered as it is rather
+ * than started twice. `null` when it could not start: in a browser, or on a
+ * port something else holds.
  */
-export async function startRelay(port: number): Promise<RelayAddress | null> {
+export async function startRelay(port: number): Promise<RelayInfo | null> {
   try {
-    const info = await invoke<RelayAddress>("start_relay", { port });
+    const info = await invoke<RelayInfo>("start_relay", { port });
     return info;
   } catch {
     return null;
@@ -473,8 +480,8 @@ export async function startRelay(port: number): Promise<RelayAddress | null> {
 }
 
 /**
- * Stops the relay listener. Resolves `true` when a relay was active and
- * stopped, `false` when no relay was running.
+ * Stops relaying, and ends every tunnel through this machine. `true` when a
+ * relay was running, `false` when none was.
  */
 export async function stopRelay(): Promise<boolean> {
   try {
@@ -485,12 +492,10 @@ export async function stopRelay(): Promise<boolean> {
   }
 }
 
-/**
- * Returns the current relay address, or `null`.
- */
-export async function getRelayInfo(): Promise<RelayAddress | null> {
+/** The relay this machine is running, or `null`. */
+export async function getRelayInfo(): Promise<RelayInfo | null> {
   try {
-    const info = await invoke<RelayAddress | null>("relay_status");
+    const info = await invoke<RelayInfo | null>("relay_status");
     return info;
   } catch {
     return null;

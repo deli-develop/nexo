@@ -228,22 +228,22 @@ mod tests {
 
 // ------------------------------------------------------------------ relay
 
-/// Starts the relay listener, or answers the one already running. `0` picks
-/// a free port. What it forwards, and why that is not useful yet, is in
+/// Starts relaying for other people, or answers the relay already running.
+/// `0` picks a free port. What it forwards, and what it refuses, is in
 /// `relay.rs`.
 #[tauri::command]
 pub async fn start_relay(relay: State<'_, Relay>, port: u16) -> Result<RelayInfo, String> {
     relay.start(port).await
 }
 
-/// Closes the listener and every connection it forwarded. `false` when no
-/// relay was running.
+/// Closes the relay and every tunnel through it. `false` when none was
+/// running.
 #[tauri::command]
 pub fn stop_relay(relay: State<'_, Relay>) -> bool {
     relay.stop()
 }
 
-/// The running relay's address, or `None`.
+/// The running relay's port, or `None`.
 #[tauri::command]
 pub fn relay_status(relay: State<'_, Relay>) -> Option<RelayInfo> {
     relay.status()

@@ -1777,24 +1777,10 @@ check this.
 
 ## Relay (M5)
 
-**A prototype, not a working feature.** [`RELAY.md`](RELAY.md) is the design;
-what exists is the listener half of its byte pipe, and nothing in the app calls
-it. The server and `crates/protocol` know nothing about a relay.
-
-What is in the tree:
-
-- **`apps/desktop/src-tauri/src/relay.rs`** — the listener. `start_relay(port)`
-  binds `127.0.0.1:<port>` (`0` for any free port) *before* answering, so a
-  taken port is an error and the address answered is the one bound; a second
-  start answers the running relay instead of opening another. Each connection
-  dials the forwarding target and is copied both ways with
-  `copy_bidirectional`. Every connection is a task in one `JoinSet` owned by
-  the accept loop, so `stop_relay` closes the listener **and** what it
-  forwarded. `relay_status` answers the address or `None`. Managed from
-  startup in `lib.rs`; the three commands in `commands.rs` are one line each.
-- **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
-  `getRelayInfo`, over the three commands, `wsUrl` in camelCase as the shell
-  now sends it.
+**Half built.** [`RELAY.md`](RELAY.md) is the design. The volunteer's side
+exists and is tested; nothing yet lets a blocked user use one, and nothing in
+the app turns one on. The server and `crates/protocol` know nothing about a
+relay, and do not need to.
 
 **The decision.** A relay is an HTTP `CONNECT` proxy that forwards only to the
 hosts the page's CSP already allows, and a blocked user's app points its
@@ -1804,21 +1790,39 @@ its proxy. Reaching a volunteer behind a NAT is still the volunteer's port
 forward or IPv6 address; the outbound-only shape `RELAY.md` prefers needs a
 broker nobody has decided on.
 
+What is in the tree:
+
+- **`apps/desktop/src-tauri/src/relay.rs`** — the relay. `start_relay(port)`
+  binds one port on every interface, IPv6 and IPv4 (`0` for any free port),
+  *before* answering, so a taken port is an error and the port answered is the
+  one bound; a second start answers the running relay. Each connection must
+  open with `CONNECT host:port HTTP/1.x` for a host in `NEXO_HOSTS` —
+  `api.delidev.net:443` and `fsn1.your-objectstorage.com:443`, the CSP's
+  `connect-src` — or it is answered `403` (another host, never dialled),
+  `405` (another method, never fetched), `400` (garbage, or a head over 8 KiB),
+  `408` (no head in 10 s), `502` (the host did not answer) or `503` (128
+  tunnels already open). Otherwise `200`, and bytes both ways. `stop_relay`
+  ends the listeners and every tunnel; `relay_status` answers the port or
+  `None`. No client address is logged.
+- **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
+  `getRelayInfo`, over the three commands.
+
 `RelayTransport` (a WebSocket tunnel with a JSON-RPC handshake that nothing
 answered) and `runtime.startRelay()` (which routed this device's own client
-through its own listener) are gone: neither fits that shape.
+through its own listener) are gone: neither fits the shape above.
 
-Why it does not carry traffic yet:
+Still missing:
 
-- **No target.** The forwarding target is the placeholder
-  `wss://relay.example.com`, which `TcpStream::connect` cannot dial — it wants
-  `host:port`, not a URL — so every forward fails. It is a pipe, not a
-  `CONNECT` proxy.
-- **Loopback only.** Nobody but this machine can reach it.
-- **No way to use one.** Nothing points a WebView at a relay.
+- **Using a relay.** Nothing points a WebView at one.
+- **Settings.** Nothing turns a relay on, or tells a volunteer what doing so
+  costs them.
 
-**Checked:** `cargo test -p nexo-desktop` drives the listener for real: a port
-of `0` answers the port it got, starting twice answers one relay, a taken port
-is an error, bytes go both ways through it to an echo server, and stopping
-ends both the listener and a connection that was open through it.
-`cargo clippy -p nexo-desktop --all-targets -- -D warnings`, `pnpm build`.
+**Checked:** `cargo test -p nexo-desktop` drives the relay over real sockets:
+a tunnel to an allowed host carries bytes both ways, including bytes sent
+behind the `CONNECT` head; another host is `403` and a listener standing in
+for it is never dialled; a plain `GET` is `405`; an oversized head is `400`; a
+host that does not answer is `502`; past the ceiling is `503`; stopping ends
+the listener and an open tunnel. A test reads the CSP out of `tauri.conf.json`
+and fails if `NEXO_HOSTS` disagrees with it. Run six times in a row without a
+flake. Not yet run against the real API through a real WebView — that needs
+the user's half.

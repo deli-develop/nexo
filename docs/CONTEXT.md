@@ -135,7 +135,7 @@ crates/crypto         2 449 ln   MLS, the identity keypair, safety numbers, obje
 crates/crypto-wasm      616 ln   The same, through wasm-bindgen, for a browser engine.
 apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      1 741 ln   The desktop shell: 15 Tauri commands, windowing, tray, relay listener.
+                      2 095 ln   The desktop shell: 15 Tauri commands, windowing, tray, the relay.
 apps/desktop/src     23 035 ln   React 19 page (TypeScript, Tailwind, Zustand). Every host runs this.
 packages/core         7 293 ln   The client's brain in TypeScript. Session, transport, store, MLS.
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
@@ -166,7 +166,7 @@ src-tauri  →  nothing of ours. It is a window, a tray and an updater.
 imports `@nexo/crypto-wasm`, which is `crates/crypto` compiled for a browser
 engine. `invoke()` survives in exactly one file — `lib/native.ts` — for the
 fifteen shell things a page cannot do: a tray icon, a toast, a startup entry,
-an updater, a listening socket for the relay.
+an updater, a relay for other people.
 
 ### One page, three hosts
 
@@ -435,8 +435,8 @@ rule 2 lived here — what crossed into the WebView was already decrypted and
 nothing else did. That arrangement cannot exist in a browser, which has no
 other side, so all of it moved to `packages/core`.
 
-What is left is 1 741 lines and **fifteen commands**: a window, a tray, toasts,
-autostart, a link preview, an updater and the relay listener. `src-tauri/Cargo.toml` depends on no
+What is left is 2 095 lines and **fifteen commands**: a window, a tray, toasts,
+autostart, a link preview, an updater and a relay for other people. `src-tauri/Cargo.toml` depends on no
 Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it.
 
 | File | Ln | Cmds | Owns |
@@ -445,7 +445,7 @@ Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
 | `src/commands.rs` | 267 | 15 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater, and start/stop/status for the relay. `cfg(mobile)` variants answer honestly where Android owns the feature. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
-| `src/relay.rs` | 291 | — | The relay listener ([`RELAY.md`](RELAY.md)): one at a time, bound before it answers, and stopping it aborts every connection it forwarded. **A prototype** — its forwarding target is a placeholder and it listens on loopback only; [`STATUS.md`](STATUS.md#relay-m5) says what is missing. |
+| `src/relay.rs` | 645 | — | The volunteer's relay ([`RELAY.md`](RELAY.md)): an HTTP `CONNECT` proxy on every interface that forwards to `NEXO_HOSTS` and nowhere else — `403` for any other host, `405` for any other method, a ceiling on tunnels. Logs no client address. Stopping it ends every tunnel. [`STATUS.md`](STATUS.md#relay-m5) says what is still missing. |
 | `src/windows.rs` | 507 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
 
 #### Every IPC command
@@ -890,6 +890,11 @@ failed silently.
   ended with "no image fetch" — so a feature that wants remote pictures (GIF
   search is the standing example) is a threat-model decision before it is a
   frontend one. Stickers are drawn in the repo for exactly this reason.
+  **A host added to `connect-src` goes into `NEXO_HOSTS` in
+  `src-tauri/src/relay.rs` as well.** A relay forwards only what that list
+  names, so a host missing from it works at home and fails for exactly the
+  people relays exist for. A test in `relay.rs` reads the CSP and fails when
+  the two disagree.
 - **CORS is off unless `NEXO_CORS_ORIGINS` names an origin, and `*` is refused
   at startup.** Both the web client and packaged desktop app make HTTP calls
   from browser contexts; the latter uses `http://tauri.localhost`. The

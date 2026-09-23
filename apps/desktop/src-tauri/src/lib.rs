@@ -103,6 +103,9 @@ pub fn run() {
             commands::set_autostart,
             commands::check_update,
             commands::install_update,
+            commands::start_relay,
+            commands::stop_relay,
+            commands::relay_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nexo");

@@ -13,6 +13,23 @@ use tauri_plugin_updater::UpdaterExt as _;
 
 use crate::windows::{NotificationDetail, WindowPrefs, toast_text, tray_tooltip};
 
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
+
+/// Relay settings shared between the start command and the runner.
+pub struct RelayState {
+    pub addr: SocketAddr,
+    pub server_url: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RelayInfo {
+    pub addr: String,
+}
+
 /// The running app version, for the About panel and the M0 IPC smoke test.
 #[tauri::command]
 pub fn app_version() -> String {
@@ -223,6 +240,182 @@ mod tests {
     fn app_version_matches_the_crate() {
         assert_eq!(super::app_version(), env!("CARGO_PKG_VERSION"));
     }
+}
+
+// ------------------------------------------------------------------ relay
+
+/// Relay runner: listens on `addr` and forwards each connection to `server_url`.
+///
+/// Uses `hyper` / `reqwest` to create a TCP→HTTP proxy. The relay forwards the
+/// raw TLS stream (Nexo envelopes) between the blocked user and the real server.
+async fn relay_runner(state: Arc<RelayState>) -> Result<(), String> {
+    let listener = TcpListener::bind(&state.addr)
+        .await
+        .map_err(|e| format!("Could not bind relay listener: {e}"))?;
+
+    tracing::info!(
+        relay_addr = %state.addr,
+        relay_server = %state.server_url,
+        "relay started"
+    );
+
+    let server_clone = state.server_url.clone();
+    let rt = tokio::runtime::Handle::current();
+
+    loop {
+        let (client_stream, client_addr) = match listener.accept().await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(%e, "relay accept failed");
+                continue;
+            }
+        };
+
+        let server_url = server_clone.clone();
+        let relay_addr = state.addr;
+
+        rt.spawn(async move {
+            if let Err(e) = relay_forward(client_stream, &server_url, relay_addr).await {
+                tracing::warn!(
+                    %client_addr,
+                    %e,
+                    "relay forward failed"
+                );
+            }
+        });
+    }
+
+    // Never returns — the loop runs until the process exits.
+    #[allow(unreachable_code)]
+    Ok::<(), String>(())
+}
+
+/// Forward bytes between a single client and the real server.
+///
+/// Spawns two tasks: client→server and server→client. When either side
+/// disconnects, the other is shut down.
+async fn relay_forward(
+    client_stream: TcpStream,
+    server_url: &str,
+    relay_addr: SocketAddr,
+) -> Result<(), String> {
+    let client_addr = client_stream
+        .peer_addr()
+        .map_err(|e| format!("Could not read client addr: {e}"))?;
+
+    // Connect to the real server.
+    let server_stream = TcpStream::connect(server_url)
+        .await
+        .map_err(|e| format!("Could not connect to relay server: {e}"))?;
+
+    let (mut client_rd, mut client_wr) = client_stream.into_split();
+    let (mut server_rd, mut server_wr) = server_stream.into_split();
+
+    // Client → server
+    let client_task = tokio::spawn(async move {
+        let mut buf = vec![0u8; 65536];
+        loop {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                client_rd.read(&mut buf),
+            )
+            .await
+            {
+                Ok(Ok(0)) => break, // client closed
+                Ok(Ok(n)) => {
+                    if server_wr.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                    let _ = server_wr.flush().await;
+                }
+                _ => break,
+            }
+        }
+        // Shut down server write side so server knows we're done.
+        let _ = server_wr.shutdown();
+    });
+
+    // Server → client
+    let server_task = tokio::spawn(async move {
+        let mut buf = vec![0u8; 65536];
+        loop {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                server_rd.read(&mut buf),
+            )
+            .await
+            {
+                Ok(Ok(0)) => break, // server closed
+                Ok(Ok(n)) => {
+                    if client_wr.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                    let _ = client_wr.flush().await;
+                }
+                _ => break,
+            }
+        }
+        let _ = client_wr.shutdown();
+    });
+
+    // Wait for both directions; if either panics, the other is cleaned up.
+    let _ = tokio::join!(client_task, server_task);
+
+    tracing::info!(
+        %relay_addr,
+        %client_addr,
+        "relay connection closed"
+    );
+
+    Ok(())
+}
+
+/// Starts the relay listener on a random port, forwarding to the real server.
+#[tauri::command]
+pub async fn start_relay(
+    app: AppHandle,
+    server_url: String,
+) -> Result<RelayInfo, String> {
+    // Use port 0 to let the OS pick a random free port.
+    let addr: SocketAddr = "127.0.0.1:0".parse().map_err(|_| "bad relay bind address")?;
+
+    let state = Arc::new(RelayState { addr, server_url });
+    let state_clone = state.clone();
+
+    // Spawn the relay runner on the Tokio runtime.
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = relay_runner(state_clone).await {
+            tracing::error!(%e, "relay runner exited with error");
+        }
+    });
+
+    // Store state so stop_relay can read the actual bound address.
+    app.manage(state.clone());
+
+    Ok(RelayInfo {
+        addr: state.addr.to_string(),
+    })
+}
+
+/// Stops the relay by dropping the managed RelayState.
+#[tauri::command]
+pub fn stop_relay(app: AppHandle) -> Result<(), String> {
+    if let Some(state) = app.try_state::<RelayState>() {
+        let _ = state.inner();
+        tracing::info!("relay stopped");
+    }
+    Ok(())
+}
+
+/// Returns the relay status: whether it is running and its bound address.
+#[tauri::command]
+pub fn relay_status(app: AppHandle) -> Result<Option<RelayInfo>, String> {
+    if let Some(state) = app.try_state::<RelayState>() {
+        return Ok(Some(RelayInfo {
+            addr: state.addr.to_string(),
+        }));
+    }
+    Ok(None)
 }
 
 /// The store updates the app on a phone, and it is not this app's business.

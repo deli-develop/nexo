@@ -1134,6 +1134,13 @@ failed silently.
   `@container` and stacks below `@max-[20rem]:`. Use a container query only for
   a component that lives in panes of different widths. A choice between
   layouts stays in `useLayout`.
+- **A top-row cell over a column that reaches the window edge is 138px short
+  in the desktop app.** The caption buttons come after every cell in
+  `TopBar`, so the last cell ends where they begin, while the column under it
+  runs under them to the edge. Size such a cell as the column less
+  `captionWidth()` (0 in a browser), as the Messages actions cell does over
+  the context panel. Before that, its hairline was 138px off the panel's in
+  the desktop app only, which is why it never showed in a browser.
 - **`tokens.css`'s global rules sit outside Tailwind's layers, and beat every
   utility.** `* { scrollbar-width: thin }` wins over `[scrollbar-width:none]`
   whatever the specificity, because unlayered CSS beats layered CSS. Answering

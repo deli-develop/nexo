@@ -1944,10 +1944,19 @@ could not have caught.
   is still not offered anywhere:** `reportUser` exists in `lib/people.ts` and
   nothing in the page calls it.
 
-**Verified** at 375 and 1440 CSS px in a browser, with the shell and the
-Messages pane mounted on fixture data. Not driven on a device, and not signed
-in: the dev page cannot reach the production API, so everything that needs a
-server was checked by layout rather than by use.
+- **The top row lines up with the context panel in the desktop app.** The
+  actions cell above the panel was 280px wide and ended where the window's
+  caption buttons begin, while the panel runs under them to the edge, so the
+  two hairlines were 138px apart. The cell is now the panel's width less the
+  caption buttons' (`captionWidth()`), which is nothing in a browser.
+
+**Verified** at 375, 800, 1024, 1280 and 1440 CSS px in a browser, with the
+shell and the Messages pane mounted on fixture data, and the desktop app's
+caption buttons drawn by making `inTauri()` answer yes. Not driven on a
+device or in the desktop app itself, and not signed in: the dev page cannot
+reach the production API. So the feed's Refresh was followed as far as the
+request, and the post menu was not seen at all, since without a feed there
+is no post to open it on.
 
 ---
 

@@ -81,6 +81,23 @@ export function TopBar({
   );
 }
 
+/** One caption button's width. `CaptionButton`'s `w-[46px]` is this number. */
+const CAPTION_BUTTON_WIDTH = 46;
+
+/**
+ * How much of the row's right end the caption buttons take: three of them in
+ * the desktop app, none in a browser.
+ *
+ * A cell that has to line up with a column under this row needs it. The
+ * buttons sit to the right of every cell, so the last cell ends 138px short
+ * of the window edge while the column below it runs all the way to it — and
+ * the context panel's hairline and the one above it in this row were 138px
+ * apart in the desktop app and nowhere else.
+ */
+export function captionWidth(): number {
+  return inTauri() ? CAPTION_BUTTON_WIDTH * 3 : 0;
+}
+
 function CaptionButton({
   name,
   label,

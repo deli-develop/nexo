@@ -19,6 +19,7 @@ import { Icon } from "../../components/ui/Icon";
 import { ContextMenu, type MenuItem } from "../../components/ui/ContextMenu";
 import { cn } from "../../lib/cn";
 import { useSignOut } from "../auth/useSignOut";
+import { captionWidth } from "../../components/chrome/TopBar";
 
 /**
  * The Messages cells of the top row: the account, the conversation, the panel
@@ -86,6 +87,8 @@ export function MessagesHeader({
   // The column from 1280px up, the sheet or the phone's screen below it —
   // the same button either way. See `contextSheetOpen`.
   const detailsShown = layout.canShowContext ? contextOpen : sheetOpen;
+  const captions = captionWidth();
+  const columnWidth = contextOpen && layout.canShowContext ? 280 - captions : null;
   const toggleDetails = () =>
     layout.canShowContext ? toggleContext() : setSheet(!sheetOpen);
   const toggleMute = () =>
@@ -250,10 +253,16 @@ export function MessagesHeader({
 
       {conversation && !layout.phone ? (
       <div
-        className={
-          "no-drag flex shrink-0 items-center gap-0.5 border-l border-[var(--hairline)] px-4" +
-          (contextOpen && layout.canShowContext ? " w-[280px]" : "")
-        }
+        className={cn(
+          "no-drag flex shrink-0 items-center gap-0.5 border-l border-[var(--hairline)]",
+          // 142px in the desktop app: three buttons fit, with less room at
+          // the end, where the caption buttons follow anyway.
+          columnWidth !== null && captions > 0 ? "pr-2 pl-4" : "px-4",
+        )}
+        // Exactly over the context panel. The caption buttons come after
+        // this cell and the panel runs under them, so the cell is the panel's
+        // width less theirs — see `captionWidth`.
+        style={columnWidth === null ? undefined : { width: columnWidth }}
       >
         <IconButton
           name="userPlus"

@@ -1772,3 +1772,41 @@ CORS rule would have turned into `Failed to fetch`; a real PNG was typed
 `image/png` from its bytes, decoded at 256×256 and drew from a `blob:` URL; the
 page's own HTML was refused as not a picture. No stored picture was read to
 check this.
+
+---
+
+## Relay (M5)
+
+**A volunteer relay that lets two blocked users talk through each other.** The
+core transport already supports a `relay` transport type (§4.3); the server
+returns it in `profile_info` when it sees an active relay connection on behalf
+of the peer.
+
+### Rust side (apps/desktop/src-tauri/src/commands.rs)
+
+- **`start_relay(port: u16)`** — opens a `TcpListener` on `127.0.0.1:<port>`,
+  stores the state (address + server URL) via `app.manage()`, and spawns the
+  accept loop. Returns the actual bound address so the TS side can read it back.
+- **`stop_relay()`** — closes the listener, drops the accept loop, and removes
+  the relay state. Returns `None` if no relay was active.
+- **`get_relay_info()`** — returns the current relay address or `null`.
+- **`relay_accept()`** — called by the accept loop; when a client connects, it
+  dials the server, runs a bidirectional `relay_forward` (two `tokio::spawn`
+  tasks, one per direction), and closes both streams on any error.
+- **`relay_forward(client, server_url, relay_addr)`** — reads 64-byte header
+  (`[u8; 64]`) from the client to build the encrypted envelope, appends relay
+  metadata (server IP, envelope size), dials the server, writes the header
+  first, then the body, and runs the bidirectional forwarding loop.
+
+### Cargo.toml
+
+- Added `tokio` dependency with `net`, `rt`, `sync`, `time` features.
+
+### Tauri registration (apps/desktop/src-tauri/src/lib.rs)
+
+- Registered `start_relay`, `stop_relay`, `get_relay_info` in the
+  `generate_handler!` list.
+
+**Checked:** `cargo check -p nexo-desktop` passes clean (zero errors, seven
+warnings — expected: commands not yet called from the TS side, which is the
+next step).

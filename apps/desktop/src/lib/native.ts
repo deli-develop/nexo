@@ -451,3 +451,46 @@ export async function copyText(text: string): Promise<boolean> {
     }
   }
 }
+
+/** Relay address or `null` when no relay is running. */
+export interface RelayAddress {
+  wsUrl: string;
+}
+
+/**
+ * Starts the relay listener on a random port. Returns the WebSocket URL the
+ * TypeScript side should connect to, or `null` when a relay is already running.
+ */
+export async function startRelay(port: number): Promise<RelayAddress | null> {
+  try {
+    const info = await invoke<RelayAddress>("start_relay", { port });
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stops the relay listener. Resolves `true` when a relay was active and
+ * stopped, `false` when no relay was running.
+ */
+export async function stopRelay(): Promise<boolean> {
+  try {
+    const active = await invoke<boolean>("stop_relay");
+    return active;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns the current relay address, or `null`.
+ */
+export async function getRelayInfo(): Promise<RelayAddress | null> {
+  try {
+    const info = await invoke<RelayAddress | null>("get_relay_info");
+    return info;
+  } catch {
+    return null;
+  }
+}

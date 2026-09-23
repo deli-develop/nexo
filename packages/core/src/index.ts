@@ -98,3 +98,5 @@ export type { PeopleContext } from "./people";
 export * from "./types";
 export { Session } from "./session";
 export type { PasswordCrypto, SessionOptions } from "./session";
+export { RelayTransport } from "./relay";
+export type { RelayTransportOptions } from "./relay";

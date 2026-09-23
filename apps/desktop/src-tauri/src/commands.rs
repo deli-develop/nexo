@@ -27,7 +27,7 @@ pub struct RelayState {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RelayInfo {
-    pub addr: String,
+    pub ws_url: String,
 }
 
 /// The running app version, for the About panel and the M0 IPC smoke test.
@@ -255,11 +255,9 @@ async fn relay_runner(state: Arc<RelayState>) -> Result<(), String> {
 
     tracing::info!(
         relay_addr = %state.addr,
-        relay_server = %state.server_url,
         "relay started"
     );
 
-    let server_clone = state.server_url.clone();
     let rt = tokio::runtime::Handle::current();
 
     loop {
@@ -271,16 +269,12 @@ async fn relay_runner(state: Arc<RelayState>) -> Result<(), String> {
             }
         };
 
-        let server_url = server_clone.clone();
         let relay_addr = state.addr;
+        let server_url = state.server_url.clone();
 
         rt.spawn(async move {
             if let Err(e) = relay_forward(client_stream, &server_url, relay_addr).await {
-                tracing::warn!(
-                    %client_addr,
-                    %e,
-                    "relay forward failed"
-                );
+                tracing::warn!(%client_addr, %e, "relay forward failed");
             }
         });
     }
@@ -374,12 +368,14 @@ async fn relay_forward(
 #[tauri::command]
 pub async fn start_relay(
     app: AppHandle,
-    server_url: String,
+    port: u16,
 ) -> Result<RelayInfo, String> {
-    // Use port 0 to let the OS pick a random free port.
-    let addr: SocketAddr = "127.0.0.1:0".parse().map_err(|_| "bad relay bind address")?;
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().map_err(|_| "bad relay bind address")?;
 
-    let state = Arc::new(RelayState { addr, server_url });
+    let state = Arc::new(RelayState {
+        addr,
+        server_url: "wss://relay.example.com".to_string(),
+    });
     let state_clone = state.clone();
 
     // Spawn the relay runner on the Tokio runtime.
@@ -393,18 +389,19 @@ pub async fn start_relay(
     app.manage(state.clone());
 
     Ok(RelayInfo {
-        addr: state.addr.to_string(),
+        ws_url: format!("ws://{}", state.addr),
     })
 }
 
 /// Stops the relay by dropping the managed RelayState.
 #[tauri::command]
-pub fn stop_relay(app: AppHandle) -> Result<(), String> {
+pub fn stop_relay(app: AppHandle) -> Result<bool, String> {
     if let Some(state) = app.try_state::<RelayState>() {
         let _ = state.inner();
         tracing::info!("relay stopped");
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Returns the relay status: whether it is running and its bound address.
@@ -412,7 +409,7 @@ pub fn stop_relay(app: AppHandle) -> Result<(), String> {
 pub fn relay_status(app: AppHandle) -> Result<Option<RelayInfo>, String> {
     if let Some(state) = app.try_state::<RelayState>() {
         return Ok(Some(RelayInfo {
-            addr: state.addr.to_string(),
+            ws_url: format!("ws://{}", state.addr),
         }));
     }
     Ok(None)

@@ -13,8 +13,11 @@ import {
   type ObjectCrypto,
   type ObjectStore,
   type PinContext,
+  RelayTransport,
+  type RelayTransportOptions,
   type WasmModule,
 } from "@nexo/core";
+import { startRelay, stopRelay, getRelayInfo, type RelayAddress } from "./native";
 
 /**
  * The one place that knows which platform this is running on.
@@ -58,6 +61,7 @@ export function inTauri(): boolean {
 
 interface Runtime {
   transport: Transport;
+  relay?: RelayTransport;
   store: Store;
   session: Session;
   crypto: CryptoModule;
@@ -65,6 +69,10 @@ interface Runtime {
   context(): Promise<Context>;
   attachments(): Promise<AttachmentContext>;
   pin: PinContext;
+  /** Start the relay listener. Returns the ws:// URL to connect through. */
+  startRelay(): Promise<void>;
+  /** Stop the relay listener and disconnect any relay transport. */
+  stopRelay(): Promise<void>;
 }
 
 let pending: Promise<Runtime> | null = null;
@@ -131,8 +139,39 @@ async function build(): Promise<Runtime> {
           conversations.sendPayload(ctx, conversationId, payload),
       };
     },
+    // Relay: start a local TCP listener, get its ws:// URL, and hand the
+    // caller a RelayTransport that connects through it.
+    startRelay: async () => {
+      if (this._relay) {
+        // Already running — just connect the transport if needed.
+        return;
+      }
+      const relay = new RelayTransport({
+        relayUrl: "ws://127.0.0.1:0", // port resolved by Rust
+        deviceId: (await context()).device.id,
+      });
+      this._relay = relay;
+
+      // Start the Rust listener and get the actual port back.
+      const info = await startRelay(0);
+      if (!info) {
+        this._relay = undefined;
+        throw new Error("Could not start relay listener on this machine.");
+      }
+      (relay as any)._actualUrl = info.wsUrl;
+      await relay.connect();
+    },
+    stopRelay: async () => {
+      const relay = this._relay;
+      this._relay = undefined;
+      if (relay) relay.close();
+      await stopRelay();
+    },
   };
 }
+
+/** Holds the relay transport instance between startRelay and stopRelay calls. */
+let _relay: RelayTransport | undefined = undefined;
 
 /**
  * Bytes to and from the object store.

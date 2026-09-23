@@ -145,16 +145,3 @@ halten — ausführlicher in [`docs/CONTEXT.md`](docs/CONTEXT.md#working-economi
 8. **`.\scripts\check.ps1` vor dem Push**, statt zu raten, was CI will. Ein
    geprüfter Push ist besser als drei spekulative.
 
-## Setup für einen neuen Clone
-
-Nach jedem frischen Clone einmal ausführen:
-
-```sh
-git config user.name  "bananaaboy"
-git config user.email "116681483+bananaaboy@users.noreply.github.com"
-git config core.hooksPath .githooks
-```
-
-Der dritte Befehl aktiviert `.githooks/commit-msg`. Der Hook entfernt die oben
-genannten Zeilen automatisch aus jeder Commit-Message — als Netz, nicht als
-Ersatz für die Regel.

@@ -273,9 +273,12 @@ pub fn decrypt_segment(
 /// different thing it always caught: an upload that disagrees with the message
 /// describing it.
 ///
-/// `size` is the sender's declared plaintext length, and it is not trusted — it
-/// only decides how many segments to expect, and a wrong count fails the AAD
-/// check on the first segment read.
+/// `size` is the sender's declared plaintext length, and it is not trusted. It
+/// decides how many segments to expect — a wrong count fails the AAD check on
+/// the first segment read — and it must agree with the ciphertext's own length,
+/// checked before anything is allocated. Sizing the buffer from a number a
+/// sender chose would let a message ask a browser for as much memory as it
+/// liked, and on a 32-bit target `as usize` would truncate it besides.
 pub fn decrypt_segmented(
     ciphertext: &[u8],
     key: &[u8],
@@ -284,7 +287,15 @@ pub fn decrypt_segmented(
     size: u64,
 ) -> Result<Zeroizing<Vec<u8>>, AttachmentError> {
     let total = segment_count(size);
-    let mut plaintext = Vec::with_capacity(size as usize);
+    // Every segment is its plaintext plus a 16-byte tag, so the two lengths
+    // determine each other exactly.
+    let expected_len = total
+        .checked_mul(16)
+        .and_then(|tags| tags.checked_add(size));
+    if expected_len != Some(ciphertext.len() as u64) {
+        return Err(AttachmentError::Undecryptable);
+    }
+    let mut plaintext = Vec::with_capacity(ciphertext.len());
 
     for index in 0..total {
         let from = (index as usize) * SEGMENT_CIPHERTEXT_LEN;
@@ -486,6 +497,26 @@ mod tests {
             (SEGMENT_LEN * 2) as u64,
         );
         assert!(matches!(result, Err(AttachmentError::Undecryptable)));
+    }
+
+    #[test]
+    fn a_size_the_ciphertext_cannot_hold_is_refused_before_anything_is_allocated() {
+        // Nothing past the length check could reach this: an allocation of
+        // `u64::MAX` bytes aborts rather than failing a tag.
+        let (sealed, _) = segmented(10);
+        for size in [u64::MAX, u64::MAX / 2, 11] {
+            let result = decrypt_segmented(
+                &sealed.ciphertext,
+                sealed.key.as_slice(),
+                &sealed.nonce,
+                &sealed.sha256,
+                size,
+            );
+            assert!(
+                matches!(result, Err(AttachmentError::Undecryptable)),
+                "size {size} was not refused",
+            );
+        }
     }
 
     #[test]

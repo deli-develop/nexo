@@ -48,6 +48,18 @@ export interface ObjectCrypto {
     nonce: Uint8Array,
     sha256: Uint8Array,
   ): Uint8Array;
+  /**
+   * Opens an object sealed in 256 KiB segments, whole. Only the Rust client
+   * sealed this way (video, so it could play a range early); `size` is the
+   * sender's declared length and must match the ciphertext's.
+   */
+  openSegmented(
+    ciphertext: Uint8Array,
+    key: Uint8Array,
+    nonce: Uint8Array,
+    sha256: Uint8Array,
+    size: number,
+  ): Uint8Array;
 }
 
 /** Getting bytes to and from the object store, which is not `apps/server`. */
@@ -158,6 +170,9 @@ export async function open(
     key: string;
     nonce: string;
     sha256: string;
+    /** Set by a sender that sealed in segments; only attachments carry it. */
+    segmented?: boolean;
+    size?: number;
   },
 ): Promise<Uint8Array> {
   const grant = await ctx.transport.postAuth<{ url: string }>("/v1/media/download", {
@@ -165,12 +180,18 @@ export async function open(
     key: payload.s3_key,
   });
   const ciphertext = await ctx.objects.get(grant.url);
-  return ctx.crypto.open(
-    ciphertext,
-    unhex(payload.key),
-    unhex(payload.nonce),
-    unhex(payload.sha256),
-  );
+  const [key, nonce, sha256] = [unhex(payload.key), unhex(payload.nonce), unhex(payload.sha256)];
+  // The two encodings are indistinguishable from the ciphertext, so the
+  // payload's word is the only way to pick. Opening a segmented object as a
+  // whole one fails its tag, which is how every video an old client sent read
+  // as "can't decrypt".
+  if (payload.segmented === true) {
+    if (typeof payload.size !== "number") {
+      throw new TransportError("rejected", "That attachment does not say how large it is.");
+    }
+    return ctx.crypto.openSegmented(ciphertext, key, nonce, sha256, payload.size);
+  }
+  return ctx.crypto.open(ciphertext, key, nonce, sha256);
 }
 
 /**

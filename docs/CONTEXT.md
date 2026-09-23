@@ -131,8 +131,8 @@ tables below.
 
 ```
 crates/protocol       1 608 ln   Wire types shared by client and server. No I/O, no crypto.
-crates/crypto         2 449 ln   MLS, the identity keypair, safety numbers, object crypto.
-crates/crypto-wasm      616 ln   The same, through wasm-bindgen, for a browser engine.
+crates/crypto         1 894 ln   MLS, the identity keypair, safety numbers, object crypto.
+crates/crypto-wasm      657 ln   The same, through wasm-bindgen, for a browser engine.
 apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
                       2 353 ln   The desktop shell: 17 Tauri commands, windowing, tray, the relay.
@@ -241,7 +241,7 @@ it, and [`REWORK.md`](REWORK.md) makes one page serve web, Windows and Android.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/lib.rs` | 616 | `Device` (identity, credential, signer, MLS provider), `Group` (one conversation), `Sealed` (`sealObject` / `openObject` for attachments and stories), `peek`, and `deriveVerifier`. Also the MLS state blob codec. |
+| `src/lib.rs` | 657 | `Device` (identity, credential, signer, MLS provider), `Group` (one conversation), `Sealed` (`sealObject` / `openObject` for attachments and stories; `openSegmentedObject` for what the Rust client sealed in segments, and `sealSegmentedObject`, which only the tests call), `peek`, and `deriveVerifier`. Also the MLS state blob codec. |
 
 Three things to know before touching it:
 
@@ -249,7 +249,7 @@ Three things to know before touching it:
   `[target.'cfg(target_arch = "wasm32")'.dependencies]` table. Cargo unifies
   features across a workspace build, so moving `getrandom/js` up into the
   ordinary `[dependencies]` would switch the JavaScript backend on for
-  `nexo-client` and `nexo-server` as well.
+  `nexo-server` and the desktop shell as well.
 - **getrandom 0.3 also needs a cfg**, not only a feature. It is in
   `.cargo/config.toml`, scoped to the wasm target. Without it the build fails
   at link time with a message about the `wasm_js` backend.
@@ -676,8 +676,8 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
-| `src/wasm.ts` | 48 | `bindWasm`: the twenty lines between the facade's static constructors and the seam above. |
-| tests | 2 448 | 110 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| `src/wasm.ts` | 126 | `bindWasm`, `bindObjectWasm` and `bindPasswordWasm`: the lines between the facade's static constructors and the seam above. |
+| tests | 2 490 | 113 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
@@ -703,12 +703,17 @@ story calls.
 ### `packages/crypto-wasm`
 
 ```
-scripts/build.mjs        cargo build --target wasm32 + wasm-bindgen, into pkg/
-src/conversation.test.ts Two devices, one real MLS conversation, in wasm
-pkg/                     Generated. Git-ignored; CI builds it and so does a clone.
+scripts/build.mjs          cargo build --target wasm32 + wasm-bindgen, into pkg/ and web/
+src/conversation.test.ts   Two devices, one real MLS conversation, in wasm
+src/orchestration.test.ts  packages/core driving the real module, nothing faked but the network
+src/segmented.test.ts      Segmented attachments opened whole, through core's reader
+pkg/, web/                 Generated. Git-ignored; CI builds them and so does a clone.
 ```
 
-`pnpm test:wasm` builds and runs it. Deliberately **not** part of `pnpm test`:
+`pnpm test:wasm` runs it, and builds `pkg/` **only when it is missing** —
+after changing `crates/crypto-wasm`, run `pnpm --filter @nexo/crypto-wasm
+build` first, or the tests run against the old module and a new function is
+simply not there. `check.ps1` builds before it tests. Deliberately **not** part of `pnpm test`:
 that runs in a CI job with no Rust toolchain, and a test that silently skips
 when its subject is missing is worse than one that is not run at all.
 
@@ -815,7 +820,7 @@ terminal — dot-source it, leading `. ` included:
 | `pnpm dev:server` | The API on `127.0.0.1:8080`. Needs `docker compose up -d` for Postgres on **5433**. |
 | `pnpm dev` | UI alone at `localhost:1420`. Nothing that calls Rust works. Layout work only. |
 | `pnpm typecheck` | `tsc --noEmit`. |
-| `pnpm test:wasm` | Builds `crates/crypto-wasm` and drives an MLS conversation through it. Needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the pinned version. |
+| `pnpm test:wasm` | Drives an MLS conversation and the object crypto through `crates/crypto-wasm`. Builds it only when `pkg/` is missing; after a facade change run `pnpm --filter @nexo/crypto-wasm build` first. Needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the pinned version. |
 | `pnpm test` | Vitest, both workspaces. |
 | `pnpm build` | Must run before `cargo build --release` — the binary embeds `apps/desktop/dist`. |
 | `pnpm build:tokens` | Regenerates `tokens.json` from `tokens.css`. |
@@ -871,7 +876,7 @@ failed silently.
   `Transport`, or one no `Session` owns, refreshes into nowhere. The Rust
   client had the same rule as a drain helper repeated in four modules, and the
   one that forgot it (`meet.rs`) could silently end somebody's session.
-- **An attachment has two encodings, and the page reads only one.**
+- **An attachment has two encodings; the page reads both and writes one.**
   `crates/crypto`'s `attachment.rs` seals a file whole under one GCM tag, or
   in 256 KiB segments whose AAD binds each segment's index and the total, so a
   byte range can be opened alone and a reordered or truncated stream fails
@@ -879,10 +884,13 @@ failed silently.
   the ciphertext, so `Payload::Attachment::segmented` says which — absent means
   whole, so every older message still reads. The Rust client sealed video
   segmented. **The page seals everything whole** (`sendAttachment` →
-  `ObjectCrypto.seal`), and `crates/crypto-wasm` exposes no segmented path, so
-  a segmented attachment an old client sent fails closed as "can't decrypt".
-  Adding streaming back means the facade, `ObjectCrypto` and the reader
-  together.
+  `ObjectCrypto.seal`) and opens a segmented one whole too:
+  `attachments.open` picks `openSegmented` from the payload's flag, because
+  opening it as a whole object fails its tag — which is how every such video
+  read as "can't decrypt" until it did. The declared `size` is the sender's
+  number, so `decrypt_segmented` checks it against the ciphertext's length
+  before allocating anything. Playing a range before the rest arrives needs a
+  ranged player the page does not have.
 - **Nothing in the page may reach a third party, and the CSP is what says so.**
   `img-src` names no remote host, and `connect-src` names only the two the
   page cannot work without — the API and the object store, added when the page

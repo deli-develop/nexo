@@ -1794,10 +1794,33 @@ Things the Rust client did that the page's port quietly did not.
   refused. `decodePayload` checks nothing past the kind, and a waveform is
   drawn one bar per entry.
 
+- **A video from a client that seals in segments could not be opened.** The
+  Rust client sealed video in 256 KiB segments (`encrypt_segmented`) and said
+  so in `Payload::Attachment::segmented`; the page only ever called
+  `openObject`, whose tag fails on that layout, so every such video read as
+  "can't decrypt". The server does not enforce `PROTOCOL_VERSION`, so a client
+  that has not updated can still send one. `crates/crypto-wasm` now exposes
+  `openSegmentedObject` over the existing `decrypt_segmented` — rule 1 is
+  untouched — and `attachments.open` picks it from the flag. The page still
+  downloads the whole object; there is no ranged player.
+
+  **`decrypt_segmented` trusted the declared size for its allocation.** It
+  called `Vec::with_capacity(size as usize)` with the sender's number before
+  checking anything, so a message could ask for any amount of memory, and on
+  wasm32 `as usize` truncated it besides. The size must now match the
+  ciphertext's length — every segment is its plaintext plus a 16-byte tag —
+  before anything is allocated.
+
 **Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
 cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
 ended-session case and the voice case each fail against the code before the
-fix. Not driven in a running app.
+fix. For segments: a `crates/crypto` test refuses `u64::MAX` and other sizes
+the ciphertext cannot hold; three core cases prove the reader picks the door
+from the flag; `packages/crypto-wasm/src/segmented.test.ts` seals four
+segments with the real module and opens them byte for byte through core's
+reader, and refuses a cut, an altered byte, sizes off by one, `2 ** 52` and a
+fraction, and opening it as a whole object. Not driven in a running app, and
+no video from an old client was at hand to open.
 
 ---
 

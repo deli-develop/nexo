@@ -157,6 +157,47 @@ pub fn open_object(
     Ok(plaintext.to_vec())
 }
 
+/// Opens a **segmented** object whole, and checks the hash.
+///
+/// The Rust client sealed video in 256 KiB segments so it could play a range
+/// before the rest arrived, and `Payload::Attachment::segmented` says which
+/// encoding a message used. The page has no ranged player, so it reads the
+/// whole object — but it has to be able to read it at all, or a video from a
+/// client that still seals this way is "can't decrypt" forever.
+///
+/// `size` is the sender's declared length. `decrypt_segmented` does not trust
+/// it: it must match the ciphertext's own length before anything is allocated.
+#[wasm_bindgen(js_name = "openSegmentedObject")]
+pub fn open_segmented_object(
+    ciphertext: &[u8],
+    key: &[u8],
+    nonce: &[u8],
+    sha256: &[u8],
+    size: u64,
+) -> Result<Vec<u8>, JsError> {
+    let plaintext =
+        nexo_crypto::attachment::decrypt_segmented(ciphertext, key, nonce, sha256, size)
+            .map_err(js_err)?;
+    Ok(plaintext.to_vec())
+}
+
+/// Seals bytes in the segmented encoding.
+///
+/// Nothing in the page sends this: it seals everything whole. It is here so
+/// the reader above can be driven against real segmented ciphertext of any
+/// length rather than a fixture, and for the day a ranged player exists.
+#[wasm_bindgen(js_name = "sealSegmentedObject")]
+pub fn seal_segmented_object(plaintext: &[u8]) -> Result<Sealed, JsError> {
+    let sealed = nexo_crypto::attachment::encrypt_segmented(plaintext).map_err(js_err)?;
+    Ok(Sealed {
+        ciphertext: sealed.ciphertext,
+        key: sealed.key.to_vec(),
+        nonce: sealed.nonce.to_vec(),
+        sha256: sealed.sha256.to_vec(),
+        size: sealed.size,
+    })
+}
+
 /// Turns a wasm panic into a message rather than `unreachable executed`.
 ///
 /// Called once, by the page, before anything else. Safe to call twice.

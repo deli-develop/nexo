@@ -24,6 +24,9 @@ const fakeCrypto: attachments.ObjectCrypto = {
     size: plaintext.byteLength,
   }),
   open: (ciphertext) => ciphertext.slice(1),
+  // Marked apart from `open`, so a test can tell which one a payload reached.
+  openSegmented: (ciphertext, _key, _nonce, _sha256, size) =>
+    Uint8Array.of(0x5e, size, ...ciphertext.slice(1)),
 };
 
 function harness(answers: Array<{ status: number; body: unknown }>) {
@@ -134,6 +137,45 @@ describe("attachments", () => {
 
     await expect(
       attachments.open(ctx, { s3_key: "k", key: "zz", nonce: "03", sha256: "04" }),
+    ).rejects.toMatchObject({ kind: "rejected" });
+  });
+
+  it("opens a segmented attachment as segmented, with its declared size", async () => {
+    const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
+
+    // Both encodings look the same from the ciphertext; only the payload
+    // says which. Opening a segmented object whole fails its tag, which is
+    // how every video an old client sent read as "can't decrypt".
+    const opened = await attachments.open(ctx, {
+      s3_key: "k",
+      key: "01",
+      nonce: "03",
+      sha256: "04",
+      segmented: true,
+      size: 2,
+    });
+    expect(opened).toEqual(Uint8Array.of(0x5e, 2, 7, 8));
+  });
+
+  it("opens everything else whole", async () => {
+    const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
+
+    const opened = await attachments.open(ctx, {
+      s3_key: "k",
+      key: "01",
+      nonce: "03",
+      sha256: "04",
+      segmented: false,
+      size: 2,
+    });
+    expect(opened).toEqual(Uint8Array.of(7, 8));
+  });
+
+  it("refuses a segmented attachment that does not say how large it is", async () => {
+    const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
+
+    await expect(
+      attachments.open(ctx, { s3_key: "k", key: "01", nonce: "03", sha256: "04", segmented: true }),
     ).rejects.toMatchObject({ kind: "rejected" });
   });
 

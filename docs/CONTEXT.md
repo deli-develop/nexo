@@ -1134,7 +1134,7 @@ Read cost matters. Sizes are approximate and current.
 |---|---|---|
 | [`CONTEXT.md`](CONTEXT.md) | 75 KB | This file. Where things are, and what not to break. |
 | [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
-| [`STATUS.md`](STATUS.md) | 110 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
+| [`STATUS.md`](STATUS.md) | 117 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
 | [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
 | [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `packages/core/src/pin.ts` and `THREAT-MODEL.md` §3. |
@@ -1143,14 +1143,14 @@ Read cost matters. Sizes are approximate and current.
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | 10 KB | Setup, prerequisites, the three builds (Windows, web, Android), troubleshooting. For humans on a new machine. |
-| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 34 KB | Adversaries in and out of scope; what is deliberately not protected. |
+| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 35 KB | Adversaries in and out of scope; what is deliberately not protected. |
 | [`TUTORIAL.md`](TUTORIAL.md) | 19 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
 | [`DEPLOY.md`](DEPLOY.md) | 22 KB | **The straight line from a fresh server to a live API, and from CI to the website.** Eight steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
 | [`OPS.md`](OPS.md) | 27 KB | The Hetzner runbook — the reasoning behind every step `DEPLOY.md` takes, plus TLS, backups and incidents. |
 | [`PLAN.md`](PLAN.md) | 23 KB | Milestones M0–M9 and the open risks. |
 | [`BRIEF.md`](BRIEF.md) | 27 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 29 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |
-| [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 38 KB | Why each technology decision beat its alternative. Background, not instruction. |
+| [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 39 KB | Why each technology decision beat its alternative. Background, not instruction. |
 | [`RELAY.md`](RELAY.md) | 9 KB | A user's device as a path past a block: why a volunteer relay works, what it sees (nothing), and the three hard parts — finding a relay, home routers, and relay location. **A design, not a status line; nothing here is built yet.** |
 
 Also under `docs/`: `design/` (two reference images) and `superpowers/plans/`

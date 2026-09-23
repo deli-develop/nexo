@@ -528,24 +528,35 @@ No messenger defends against this; claiming otherwise would be dishonest.
 keys, so a malicious one can hand you an attacker's key for a contact. The only
 defence is users actually comparing **safety numbers** out of band.
 
-> **Not yet true, and this is the gap that matters most.** This section used to
-> claim Nexo "warns loudly and non-dismissably when a key changes". It does not.
-> Nothing stores a peer's identity key, so nothing can notice that it changed:
-> the safety number is computed on demand from the live group, and the
-> "verified" mark is a boolean in WebView `localStorage` that is not bound to
-> any key. The ceremony is therefore **one-shot** — someone who compared digits
-> in week one is never told when the answer changes in week two, which is
-> exactly the attack this section is about.
+> **What Nexo does.** Every other device in a conversation is recorded with
+> the key it signs with (`recordMembership` in
+> `packages/core/src/conversations.ts`), and compared on every sync. The
+> verified mark is bound to the key that was compared, not a boolean: when a
+> recorded key changes, the mark is gone and "The safety number here has
+> changed" appears above the conversation. Ignoring it or restarting does not
+> clear it. Comparing the numbers again does, and so does pressing Dismiss —
+> which hides the banner and leaves the conversation unverified.
 >
-> Worse in combination: signing in on a machine with no local store generates a
-> **fresh identity keypair** (`crates/client/src/session.rs:199`), and the
-> server accepts it as an additional device. A reinstall therefore rotates the
-> account's cryptographic identity silently, and looks — correctly — like the
-> attack above to anyone who was checking.
+> **Where it stops: trust on first use.** The first key recorded for a device is
+> its baseline, not a change, and nothing checks it. A server that substituted
+> a key before this device first recorded it is not detected, by this or by any
+> scheme like it. That includes every conversation that existed before keys
+> were recorded at all: after the move to the page, nothing recorded them until
+> it was put right (`docs/STATUS.md`, *Since v0.1.27*), so whatever key a
+> device had on its first sync afterwards became the baseline. Only comparing
+> the digits over a channel you already trust catches a substitution that
+> predates the baseline — which is what the unverified state says: "Until you
+> do, nothing proves the keys belong to who you think."
 >
-> Tracked as B1 and S1 in `docs/RESEARCH-COMPARISON.md`. Until they land, treat
-> a key-substituting server as **in scope and undefended**, not as mitigated by
-> a ceremony the app does not support.
+> **A new device looks like the attack.** Signing in on a machine with no local
+> store generates a **fresh identity keypair** (`Session.login` in
+> `packages/core/src/session.ts`), and the server accepts it as an additional
+> device. So does signing out and back in on the same machine: sign-out wipes
+> the store, keys included. Both raise the warning for everyone who talks to
+> that person, correctly — Nexo cannot tell a new device from a substituted
+> key, and the banner says so.
+>
+> Tracked as B1 in `docs/RESEARCH-COMPARISON.md`.
 
 A user who never checks is vulnerable to this regardless.
 

@@ -1864,6 +1864,13 @@ Things the Rust client did that the page's port quietly did not.
   once — sync used to stop at "nothing new" before reading membership, so an
   existing chat would have shown no number until somebody wrote.
 
+  **What that baseline is worth.** It is trust on first use: whatever key a
+  device has when it is first recorded is accepted, and for every conversation
+  that existed before this, that moment is the first sync after upgrading. A
+  key substituted before then is not detected — only comparing the numbers
+  catches it, and every such conversation starts unverified.
+  `docs/THREAT-MODEL.md` §4 says so.
+
 **Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
 cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
 ended-session case and the voice case each fail against the code before the

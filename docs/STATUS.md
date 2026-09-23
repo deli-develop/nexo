@@ -1777,36 +1777,45 @@ check this.
 
 ## Relay (M5)
 
-**A volunteer relay that lets two blocked users talk through each other.** The
-core transport already supports a `relay` transport type (§4.3); the server
-returns it in `profile_info` when it sees an active relay connection on behalf
-of the peer.
+**A prototype, not a working feature.** [`RELAY.md`](RELAY.md) is the design;
+what exists is a first cut of its byte pipe, and nothing in the app calls it.
+The server and `crates/protocol` know nothing about a relay.
 
-### Rust side (apps/desktop/src-tauri/src/commands.rs)
+What is in the tree:
 
-- **`start_relay(port: u16)`** — opens a `TcpListener` on `127.0.0.1:<port>`,
-  stores the state (address + server URL) via `app.manage()`, and spawns the
-  accept loop. Returns the actual bound address so the TS side can read it back.
-- **`stop_relay()`** — closes the listener, drops the accept loop, and removes
-  the relay state. Returns `None` if no relay was active.
-- **`get_relay_info()`** — returns the current relay address or `null`.
-- **`relay_accept()`** — called by the accept loop; when a client connects, it
-  dials the server, runs a bidirectional `relay_forward` (two `tokio::spawn`
-  tasks, one per direction), and closes both streams on any error.
-- **`relay_forward(client, server_url, relay_addr)`** — reads 64-byte header
-  (`[u8; 64]`) from the client to build the encrypted envelope, appends relay
-  metadata (server IP, envelope size), dials the server, writes the header
-  first, then the body, and runs the bidirectional forwarding loop.
+- **`apps/desktop/src-tauri/src/commands.rs`** — `start_relay(port)` binds a
+  `TcpListener` on `127.0.0.1:<port>`, spawns an accept loop, and for each
+  connection dials the forwarding target and copies bytes both ways
+  (`relay_forward`, one task per direction, 60 s idle timeout). `stop_relay`
+  and `relay_status` look up the managed state. All three are registered in
+  `generate_handler!`. `tokio` was added to the shell for this.
+- **`packages/core/src/relay.ts`** — `RelayTransport`: a WebSocket to that
+  listener, a JSON-RPC `relay_connect` handshake, a ping timer, and up to five
+  reconnects.
+- **`apps/desktop/src/lib/runtime.ts`** — `startRelay()` / `stopRelay()` start
+  the listener and connect a `RelayTransport` to the URL it answers.
+- **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
+  `getRelayInfo`.
 
-### Cargo.toml
+Why it does not work yet, each checked against the code:
 
-- Added `tokio` dependency with `net`, `rt`, `sync`, `time` features.
+- The forwarding target is the placeholder `wss://relay.example.com`, and
+  `TcpStream::connect` wants `host:port`, not a URL — every forward fails.
+- `start_relay(0)` asks for a free port and answers `ws://127.0.0.1:0`: the
+  requested address, not `listener.local_addr()`.
+- `RelayInfo` serialises as `ws_url`; `native.ts` reads `wsUrl`, which is
+  `undefined`.
+- The state is managed as `Arc<RelayState>` and looked up as `RelayState`, so
+  `stop_relay` always answers `false` and `relay_status` always `None`. Even
+  found, `stop_relay` would not end the accept loop, and a second
+  `start_relay` spawns a second listener.
+- `getRelayInfo()` invokes `get_relay_info`; the command is `relay_status`.
+- The listener is a raw TCP pipe, but `RelayTransport` speaks WebSocket and
+  waits for a JSON-RPC answer to `relay_connect` that nothing sends.
+- `runtime.startRelay()` connects this device's own client to its own local
+  listener. In `RELAY.md` a volunteer forwards *other* people's traffic,
+  reached across a NAT, and the open questions there are still open.
 
-### Tauri registration (apps/desktop/src-tauri/src/lib.rs)
-
-- Registered `start_relay`, `stop_relay`, `get_relay_info` in the
-  `generate_handler!` list.
-
-**Checked:** `cargo check -p nexo-desktop` passes clean (zero errors, seven
-warnings — expected: commands not yet called from the TS side, which is the
-next step).
+**Checked:** `pnpm build`, `cargo fmt --check` and `cargo clippy -p
+nexo-desktop --all-targets -- -D warnings` pass. Nothing above has been run
+end to end.

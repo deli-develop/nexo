@@ -147,18 +147,16 @@ async function build(): Promise<Runtime> {
         // Already running — just connect the transport if needed.
         return;
       }
-      _relay = new RelayTransport({
-        relayUrl: "ws://127.0.0.1:0", // port resolved by Rust
-        deviceId: (await context()).device.id,
-      });
+      // The session answers "am I signed in"; the store only supplies the
+      // device id once it has said yes. `Device` is the MLS seam and has none.
+      await context();
+      const identity = await store.identity();
+      if (!identity) throw new Error("You are not signed in.");
 
-      // Start the Rust listener and get the actual port back.
+      // Start the Rust listener first: its URL is what the transport dials.
       const info = await startRelay(0);
-      if (!info) {
-        _relay = undefined;
-        throw new Error("Could not start relay listener on this machine.");
-      }
-      (_relay as any)._actualUrl = info.wsUrl;
+      if (!info) throw new Error("Could not start relay listener on this machine.");
+      _relay = new RelayTransport({ relayUrl: info.wsUrl, deviceId: identity.deviceId });
       await _relay.connect();
     },
     stopRelay: async () => {

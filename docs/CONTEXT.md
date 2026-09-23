@@ -135,7 +135,7 @@ crates/crypto         2 449 ln   MLS, the identity keypair, safety numbers, obje
 crates/crypto-wasm      616 ln   The same, through wasm-bindgen, for a browser engine.
 apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      1 421 ln   The desktop shell: 12 Tauri commands, windowing, tray.
+                      1 607 ln   The desktop shell: 15 Tauri commands, windowing, tray, relay listener.
 apps/desktop/src     23 035 ln   React 19 page (TypeScript, Tailwind, Zustand). Every host runs this.
 packages/core         7 293 ln   The client's brain in TypeScript. Session, transport, store, MLS.
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
@@ -165,8 +165,8 @@ src-tauri  →  nothing of ours. It is a window, a tray and an updater.
 **Nothing in `src` knows about Rust any more.** It imports `@nexo/core`, which
 imports `@nexo/crypto-wasm`, which is `crates/crypto` compiled for a browser
 engine. `invoke()` survives in exactly one file — `lib/native.ts` — for the
-twelve shell things a page cannot do: a tray icon, a toast, a startup entry,
-an updater.
+fifteen shell things a page cannot do: a tray icon, a toast, a startup entry,
+an updater, a listening socket for the relay.
 
 ### One page, three hosts
 
@@ -435,28 +435,28 @@ rule 2 lived here — what crossed into the WebView was already decrypted and
 nothing else did. That arrangement cannot exist in a browser, which has no
 other side, so all of it moved to `packages/core`.
 
-What is left is 1 421 lines and **twelve commands**: a window, a tray, toasts,
-autostart, a link preview and an updater. `src-tauri/Cargo.toml` depends on no
+What is left is 1 607 lines and **fifteen commands**: a window, a tray, toasts,
+autostart, a link preview, an updater and the relay listener. `src-tauri/Cargo.toml` depends on no
 Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it.
 
 | File | Ln | Cmds | Owns |
 |---|---|---|---|
-| `src/lib.rs` | 130 | — | The builder: plugins, `WindowPrefs`, and the `generate_handler!` list. **Every new command is registered here.** Desktop-only plugins sit behind `cfg(desktop)`. |
+| `src/lib.rs` | 133 | — | The builder: plugins, `WindowPrefs`, and the `generate_handler!` list. **Every new command is registered here.** Desktop-only plugins sit behind `cfg(desktop)`. |
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
-| `src/commands.rs` | 243 | 12 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater. `cfg(mobile)` variants answer honestly where Android owns the feature. |
+| `src/commands.rs` | 426 | 15 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater, and the relay listener ([`RELAY.md`](RELAY.md); a prototype, see [`STATUS.md`](STATUS.md#relay-m5)). `cfg(mobile)` variants answer honestly where Android owns the feature. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
 | `src/windows.rs` | 507 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
 
 #### Every IPC command
 
-**Twelve.** A command needs a `#[tauri::command]` attribute *and* an entry in
+**Fifteen.** A command needs a `#[tauri::command]` attribute *and* an entry in
 `generate_handler!` in `lib.rs`; missing the second is a runtime rejection, not
 a compile error.
 
 `app_version` · `notify_message` · `set_unread` · `focus_window` ·
 `set_close_to_tray` · `set_window_backdrop` · `forget_account` ·
 `preview_link` · `get_autostart` · `set_autostart` · `check_update` ·
-`install_update`
+`install_update` · `start_relay` · `stop_relay` · `relay_status`
 
 Four went when the page took over what they did: `lock` and `is_unlocked` (the
 lock is now `lib/auth.ts`, and there is no SQLCipher handle to close),
@@ -671,6 +671,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
+| `src/relay.ts` | 160 | `RelayTransport`: a WebSocket to the shell's relay listener, with a JSON-RPC `relay_connect` handshake. Exported, wired into `lib/runtime.ts`, called by nothing yet. Its errors use the five `TransportError` kinds — `unreachable` — not new ones. |
 | `src/wasm.ts` | 48 | `bindWasm`: the twenty lines between the facade's static constructors and the seam above. |
 | tests | 2 378 | 104 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
@@ -740,7 +741,7 @@ it is expensive.
 | Add or change an **encrypted-path endpoint** (messages, groups, key packages) | `crates/protocol/src/lib.rs` (the type first — both sides follow it) → `apps/server/src/delivery/` → `packages/core/src/types.ts` → `packages/core/src/conversations.ts` → `apps/desktop/src/lib/conversations.ts` | `BRIEF.md` |
 | Add or change a **feed / profile endpoint** | `apps/server/src/posts.rs` or `profiles.rs` → `packages/core/src/feed.ts` → `apps/desktop/src/lib/feed.ts` | `BRIEF.md` |
 | Add a **route the server already has** but nothing calls | `apps/server/src/` first — check [the route table](#every-route). `/v1/stream` sat unused for months, and `follows` was the opposite case | — |
-| Add a **new IPC command** | Ask first whether it belongs in the page. Only twelve things are the shell's: `apps/desktop/src-tauri/src/commands.rs` → **register it in `lib.rs`'s `generate_handler!`** → `apps/desktop/src/lib/native.ts` | — |
+| Add a **new IPC command** | Ask first whether it belongs in the page. Only fifteen things are the shell's: `apps/desktop/src-tauri/src/commands.rs` → **register it in `lib.rs`'s `generate_handler!`** → `apps/desktop/src/lib/native.ts` | — |
 | A **UI-only change** | the `features/*` file → `components/ui` → `packages/design-tokens/tokens.css` | Rust, always |
 | Change **what is stored on the client** | `packages/core/src/idb.ts` (the `STORES` table) → `packages/core/src/store.ts` → bump `SCHEMA_VERSION` and add a rung | — |
 | Change **what is stored on the server** | `apps/server/migrations/` (a **new** file) → the module → regenerate `.sqlx/` | — |

@@ -309,11 +309,8 @@ async fn relay_forward(
     let client_task = tokio::spawn(async move {
         let mut buf = vec![0u8; 65536];
         loop {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                client_rd.read(&mut buf),
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_secs(60), client_rd.read(&mut buf))
+                .await
             {
                 Ok(Ok(0)) => break, // client closed
                 Ok(Ok(n)) => {
@@ -326,18 +323,15 @@ async fn relay_forward(
             }
         }
         // Shut down server write side so server knows we're done.
-        let _ = server_wr.shutdown();
+        let _ = server_wr.shutdown().await;
     });
 
     // Server → client
     let server_task = tokio::spawn(async move {
         let mut buf = vec![0u8; 65536];
         loop {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                server_rd.read(&mut buf),
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_secs(60), server_rd.read(&mut buf))
+                .await
             {
                 Ok(Ok(0)) => break, // server closed
                 Ok(Ok(n)) => {
@@ -349,7 +343,7 @@ async fn relay_forward(
                 _ => break,
             }
         }
-        let _ = client_wr.shutdown();
+        let _ = client_wr.shutdown().await;
     });
 
     // Wait for both directions; if either panics, the other is cleaned up.
@@ -366,11 +360,10 @@ async fn relay_forward(
 
 /// Starts the relay listener on a random port, forwarding to the real server.
 #[tauri::command]
-pub async fn start_relay(
-    app: AppHandle,
-    port: u16,
-) -> Result<RelayInfo, String> {
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().map_err(|_| "bad relay bind address")?;
+pub async fn start_relay(app: AppHandle, port: u16) -> Result<RelayInfo, String> {
+    let addr: SocketAddr = format!("127.0.0.1:{port}")
+        .parse()
+        .map_err(|_| "bad relay bind address")?;
 
     let state = Arc::new(RelayState {
         addr,

@@ -55,7 +55,7 @@ export class RelayTransport {
   /** Start the WebSocket connection. Rejects on handshake failure. */
   async connect(): Promise<void> {
     if (this.#ws) return;
-    if (this.#closed) throw new TransportError("unavailable", "RelayTransport is closed.");
+    if (this.#closed) throw new TransportError("unreachable", "RelayTransport is closed.");
 
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(this.relayUrl);
@@ -85,7 +85,7 @@ export class RelayTransport {
           ws.close();
           reject(
             new TransportError(
-              "relay_handshake",
+              "unreachable",
               `Relay handshake failed: ${data.error.message}`,
             ),
           );
@@ -109,7 +109,7 @@ export class RelayTransport {
         // Will be followed by onclose; reject the connect promise.
         reject(
           new TransportError(
-            "relay_connect",
+            "unreachable",
             "Failed to connect to relay.",
           ),
         );
@@ -133,9 +133,9 @@ export class RelayTransport {
   }
 
   /** Send binary data through the relay. */
-  send(data: Uint8Array): void {
+  send(data: Uint8Array<ArrayBuffer>): void {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
-      throw new TransportError("unavailable", "Relay transport is not connected.");
+      throw new TransportError("unreachable", "Relay transport is not connected.");
     }
     this.#ws.send(data);
   }

@@ -160,6 +160,18 @@ export interface Preferences {
    */
   closeToTray: boolean;
   /**
+   * Whether this machine relays Nexo traffic for people who cannot reach it
+   * (`docs/RELAY.md`). Off by default, and nothing but the person turns it
+   * on: it opens a port to the internet, and it can be noticed. `App` starts
+   * the relay at launch when this is on; the shell holds whether it runs.
+   */
+  relay: boolean;
+  /**
+   * The port the relay listens on. Kept while the relay is off, so turning it
+   * back on reuses the port the router was already told about.
+   */
+  relayPort: number;
+  /**
    * Whether Home keeps the most recent conversation beside the feed.
    *
    * On by default: the feed column is 660px wide, so on any window that fits
@@ -202,6 +214,8 @@ export const defaultPreferences: Preferences = {
   lockTimeout: "15",
   pinOfferAnswered: false,
   closeToTray: false,
+  relay: false,
+  relayPort: 41731,
   homeChat: true,
   homeChatWidth: 380,
 };

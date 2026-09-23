@@ -28,11 +28,13 @@ import { useSignOut } from "../auth/useSignOut";
 import { UnlockPin } from "./UnlockPin";
 import { BlockedList } from "./BlockedList";
 import { PrivacyTable } from "./PrivacyTable";
+import { RunRelay, ViaRelay } from "./Relay";
 
 type Section =
   | "appearance"
   | "notifications"
   | "system"
+  | "connection"
   | "privacy"
   | "security"
   | "storage"
@@ -75,6 +77,7 @@ const sections: { id: Section; label: string; icon: IconName }[] = [
   { id: "appearance", label: "Appearance", icon: "moon" },
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "system", label: "System", icon: "panel" },
+  { id: "connection", label: "Connection", icon: "globe" },
   { id: "privacy", label: "Privacy", icon: "eye" },
   { id: "security", label: "Security", icon: "shield" },
   { id: "storage", label: "Storage", icon: "database" },
@@ -119,6 +122,7 @@ export function SettingsPage({ now }: { now: Date }) {
             {section === "appearance" ? <Appearance /> : null}
             {section === "notifications" ? <Notifications /> : null}
             {section === "system" ? <System /> : null}
+            {section === "connection" ? <Connection /> : null}
             {section === "privacy" ? <Privacy now={now} /> : null}
             {section === "security" ? <Security /> : null}
             {section === "storage" ? <Storage /> : null}
@@ -485,6 +489,34 @@ function System() {
               : "Unavailable in this preview — there is no registry to write."
           }
         />
+      </Group>
+    </>
+  );
+}
+
+/**
+ * Relays (`docs/RELAY.md`): reaching Nexo through somebody else's computer
+ * when it is blocked, and letting others reach it through this one.
+ *
+ * Both say what a relay can see, because both ask somebody to trust a
+ * stranger's machine or lend their own: rule 5 is about exactly this kind of
+ * sentence.
+ */
+function Connection() {
+  return (
+    <>
+      <Group
+        title="Connect through a relay"
+        description="If Nexo is blocked where you are, someone outside the block can relay for you. Your messages stay end-to-end encrypted, and your connection to Nexo stays encrypted through the relay: it sees that you use Nexo and how much, never what. Anyone watching your own connection can still tell it leads to Nexo."
+      >
+        <ViaRelay />
+      </Group>
+
+      <Group
+        title="Help others connect"
+        description="Let people who can't reach Nexo connect through this computer. It passes along bytes it cannot read, to Nexo's servers and nowhere else, and keeps no record of who connected."
+      >
+        <RunRelay />
       </Group>
     </>
   );

@@ -25,7 +25,7 @@ for you. They list every file in the repository with one line about what it
 owns, so finding the right one costs a scan rather than a `grep` over the whole
 tree.
 
-`docs/` holds ~480 KB of prose, and this file is ~72 KB of it. The rule it
+`docs/` holds ~480 KB of prose, and this file is ~77 KB of it. The rule it
 teaches applies to itself: scan the one section you need, skip the rest.
 
 ## How to keep it
@@ -601,9 +601,10 @@ it, because nothing readable may sit in the DOM behind a gate.
 one tile per story; **posting lives here, never in the strip**),
 `VisibilityControls.tsx` (119).
 
-**`settings/`**: `SettingsPage.tsx` (763), `DeleteAccount.tsx` (147),
-`UnlockPin.tsx` (134), `ChangePassword.tsx` (113), `BlockedList.tsx` (107),
-`PrivacyTable.tsx` (74).
+**`settings/`**: `SettingsPage.tsx` (842), `Relay.tsx` (214 — the Connection
+section: `ViaRelay` and `RunRelay`, both halves of [`RELAY.md`](RELAY.md)),
+`DeleteAccount.tsx` (147), `UnlockPin.tsx` (134), `ChangePassword.tsx` (113),
+`BlockedList.tsx` (107), `PrivacyTable.tsx` (81).
 
 #### `lib/` — the typed wrappers around `invoke()`
 
@@ -761,6 +762,7 @@ it is expensive.
 | **Anything about width** | `app/useLayout.ts` — the three breakpoints and nothing else has any | A media query in a component |
 | **Colours, spacing, motion** | `packages/design-tokens/tokens.css`, then regenerate the JSON | Never hardcode a value in a component |
 | **Tray, notifications, window chrome, autostart** | `apps/desktop/src-tauri/src/windows.rs` → `apps/desktop/src-tauri/src/commands.rs` → `app/useWindow.ts`, `app/useChrome.ts` | — |
+| **Relays** — running one, or connecting through one | [`RELAY.md`](RELAY.md) → `apps/desktop/src-tauri/src/relay.rs` (running one) or `via_relay.rs` (connecting through one) → `features/settings/Relay.tsx`. A new host in the CSP's `connect-src` goes into `NEXO_HOSTS` too | — |
 | **Link previews** | `apps/desktop/src-tauri/src/preview.rs` → `app/useLinkPreview.ts`. Read `THREAT-MODEL.md` §2.3 first — the refusals are the feature | — |
 | **Offline behaviour** | `packages/core/src/conversations.ts` (`sendPayload`, `flushOutbox`) → `packages/core/src/store.ts` (the outbox) → `app/syncAgent.ts` | — |
 | **Which host am I on** | `apps/desktop/src/lib/runtime.ts` — `inTauri()` is the only test, and it lives in one file for a reason | A `window.__TAURI__` check in a component |
@@ -1127,9 +1129,9 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 72 KB | This file. Where things are, and what not to break. |
+| [`CONTEXT.md`](CONTEXT.md) | 77 KB | This file. Where things are, and what not to break. |
 | [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
-| [`STATUS.md`](STATUS.md) | 102 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
+| [`STATUS.md`](STATUS.md) | 110 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
 | [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
 | [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `packages/core/src/pin.ts` and `THREAT-MODEL.md` §3. |

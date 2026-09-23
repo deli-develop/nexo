@@ -21,7 +21,7 @@ import { OfferPin } from "./features/auth/OfferPin";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { pinStatus, restoreSession, type Account } from "./lib/auth";
 import { myProfile } from "./lib/feed";
-import { notify, setCloseToTray } from "./lib/native";
+import { notify, setCloseToTray, startRelay } from "./lib/native";
 import { DialogHost } from "./components/ui/DialogHost";
 import { useAutoUpdate } from "./app/useAutoUpdate";
 import { useChrome } from "./app/useChrome";
@@ -187,6 +187,16 @@ export function App() {
   // Only once the session gate has answered: an install restarts the process,
   // and doing that mid-sign-in would throw away a half-typed password.
   useAutoUpdate(checked);
+
+  // A volunteer's relay comes back with the app if they left it on. Here, not
+  // in the signed-in shell: it carries other people's traffic and has no use
+  // for this account, so signing out is no reason to stop it. Settings starts
+  // and stops it after this; the shell answers a second start with the relay
+  // already running.
+  useEffect(() => {
+    const { relay, relayPort } = useApp.getState().preferences;
+    if (relay) void startRelay(relayPort);
+  }, []);
   const locked = useApp((s) => s.locked);
   const setMyAvatarKey = useApp((s) => s.setMyAvatarKey);
   const setLocked = useApp((s) => s.setLocked);

@@ -4,8 +4,9 @@ A volunteer turns on *help others connect* in their Nexo app, and their
 computer starts passing traffic between blocked users and the real server. It
 is the same local proxy Nexo already carries, run in the other direction, in
 the Rust shell. This document is the design: why it works, what it costs, and
-what makes it work at all. It is a proposal, not a status line — nothing
-described here is built yet. [`STATUS.md`](STATUS.md) does not list it.
+what makes it work at all. It is the design, not a status line: the relay
+itself and connecting through one are built, desktop only, and
+[`STATUS.md`](STATUS.md#relay-m5) says what is and what is still open.
 
 The closest relatives are Tor's Snowflake and Psiphon's Conduit. Both do
 exactly this: a fleet of ordinary home machines, each forwarding encrypted

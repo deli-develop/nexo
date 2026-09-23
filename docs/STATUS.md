@@ -1777,9 +1777,9 @@ check this.
 
 ## Relay (M5)
 
-**Built in the shell, not yet in Settings.** [`RELAY.md`](RELAY.md) is the
-design. Both halves exist — running a relay for other people, and connecting
-through one — and nothing in the app's screens reaches either yet. The server and `crates/protocol` know nothing about a
+**Built, desktop only.** [`RELAY.md`](RELAY.md) is the design. Both halves
+exist — running a relay for other people, and connecting through one — and
+Settings → Connection reaches both. The server and `crates/protocol` know nothing about a
 relay, and do not need to.
 
 **The decision.** A relay is an HTTP `CONNECT` proxy that forwards only to the
@@ -1815,15 +1815,34 @@ What is in the tree:
   refuses.
 - **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
   `getRelayInfo`, `getViaRelay`, `setViaRelay`.
+- **`apps/desktop/src/features/settings/Relay.tsx`** — Settings → Connection.
+  *Connect through a relay*: what is in force now, an address field, *Save and
+  restart*, *Connect directly*; the shell's refusal is shown under the field.
+  *Help others connect*: a toggle and a port (1024–65535), a callout with the
+  port and the router and firewall steps when — and only when — the shell says
+  the relay runs, and a standing warning that relaying can be noticed where
+  Nexo is blocked (`RELAY.md` §3). Both halves say what a relay can see.
+- **Preferences** — `relay` (off by default) and `relayPort` (41731), in
+  `app/store.ts`. `App.tsx` starts the relay at launch when `relay` is on,
+  whether or not anybody is signed in: it carries other people's traffic and
+  has no use for this account.
 
 `RelayTransport` (a WebSocket tunnel with a JSON-RPC handshake that nothing
 answered) and `runtime.startRelay()` (which routed this device's own client
 through its own listener) are gone: neither fits the shape above.
 
-Still missing:
+Still missing, and each is a decision rather than a bug:
 
-- **Settings.** Nothing turns a relay on, points the app at one, or tells a
-  volunteer what doing so costs them.
+- **Finding a relay.** Addresses are passed by hand. `RELAY.md`'s lookup
+  service is an open question.
+- **Volunteers behind a NAT.** A relay is reachable only through a port
+  forward or an IPv6 address the router lets through. The outbound-only shape
+  needs a broker.
+- **The first leg is not disguised.** The TLS handshake to the relay names
+  `api.delidev.net`, so a block that reads SNI rather than addresses still
+  sees Nexo. `RELAY.md` describes an address block.
+- **Web and Android.** A browser tab cannot choose its proxy; the phone's
+  command refuses.
 
 **Checked:** `cargo test -p nexo-desktop` drives the relay over real sockets:
 a tunnel to an allowed host carries bytes both ways, including bytes sent
@@ -1836,4 +1855,15 @@ flake. `via_relay.rs`'s tests cover the address rules and the file. A debug
 build was started twice: with no `via-relay` file it made its window and
 WebView2 ran with no proxy; with `127.0.0.1:41731` saved it made its window and
 the WebView2 browser process ran with `--proxy-server=http://127.0.0.1:41731`.
-Not yet run with real traffic through a relay.
+A throwaway test (not committed) started the real `Relay` on loopback and
+sent real HTTPS through it with `ureq` as the `CONNECT` client:
+`https://api.delidev.net/v1/health` answered `200`
+`{"status":"ok","protocol_version":5}`, the bucket host was tunnelled (its own
+`403` for an unsigned request came back through it), and `example.com` was
+refused by the relay. Settings → Connection was driven in a browser against a
+stand-in for the shell: turning the relay on called `start_relay` with 41731
+and showed the port; a port the shell refused showed the error and no
+"Relaying" callout; port 80 was refused before any call; an address the shell
+refused showed its reason under the field; a good one called `set_via_relay`
+and locked the form. Not driven: the real app's Settings screen, and a
+WebView's traffic through a relay on another machine.

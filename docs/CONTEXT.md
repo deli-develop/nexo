@@ -17,7 +17,7 @@ Do not read it end to end. It is a switchboard, not a chapter.
    whole file only when you are changing its structure.
 4. Check [Conventions that will trip you up](#conventions-that-will-trip-you-up)
    if your change touches the CSP, `sqlx`, the store schema, attachments,
-   refresh tokens, or the client lock. Every entry there is something that has
+   refresh tokens, or locking. Every entry there is something that has
    already gone wrong once, silently.
 
 The tables in [The map](#the-map) exist for the case where step 2 has no row
@@ -25,7 +25,7 @@ for you. They list every file in the repository with one line about what it
 owns, so finding the right one costs a scan rather than a `grep` over the whole
 tree.
 
-`docs/` holds ~480 KB of prose, and this file is ~77 KB of it. The rule it
+`docs/` holds ~480 KB of prose, and this file is ~75 KB of it. The rule it
 teaches applies to itself: scan the one section you need, skip the rest.
 
 ## How to keep it
@@ -789,9 +789,8 @@ it is expensive.
 |---|---|
 | An IPC call rejects with nothing useful | Is the command in `generate_handler!` in `src-tauri/src/lib.rs`? That omission is a runtime rejection, not a compile error |
 | Something in the page silently does not load — a font, a video, an image, a fetch | The **CSP** in `tauri.conf.json`. It fails silently and has been wrong three times. The only way to see it is the WebView console of a real run |
-| Every command answers "You are not signed in" | `ClientState` is `None` — the app is locked, signed out, or opened offline (`restore_session`'s `Offline` path reports an account without installing a client) |
-| The session ends by itself | A rotated refresh token that never reached the store. See the drain rule in [Conventions](#conventions-that-will-trip-you-up) |
-| The app stutters while a video plays | Something is holding the client lock across the network. See the lock rule in [Conventions](#conventions-that-will-trip-you-up) |
+| Every call answers "You are not signed in" | `Session.context` found no account or no device: the app is locked (`lockSession` reset the runtime) or signed out. After a lock, a PIN (`Session.resume`) or a sign-in puts it back |
+| The session ends by itself | A rotated refresh token that never reached the store. See the rotation rule in [Conventions](#conventions-that-will-trip-you-up) |
 | A server test passes locally and fails for somebody else | It asserted on a global listing in a shared database, or `.sqlx/` was not regenerated |
 | Nothing in the app works at all — sign-in, feed, messages | Ask `api.delidev.net` itself: `curl -i https://api.delidev.net/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.delidev.net` answers 502* |
 | Every upload fails — profile picture, banner, feed image, chat attachment — while sign-in, messages and posts work; the message is "Can't reach the server: Failed to fetch" | The **buckets' CORS**, not the API's. `curl -si -X OPTIONS https://fsn1.your-objectstorage.com/nexo-enc/probe -H "Origin: http://tauri.localhost" -H "Access-Control-Request-Method: PUT" -H "Access-Control-Request-Headers: content-type"` — a `403` means no rule matches that origin. [`OPS.md`](OPS.md) Phase 8, *Bucket CORS* |
@@ -861,32 +860,29 @@ failed silently.
 
 - **Pinned dependencies, everywhere.** `=1.0.229`, not `^1.0`. Rule 8. A bump is
   a deliberate act that goes through `cargo deny` and `cargo audit`.
-- **Every authenticated call must write down a rotated refresh token.** The
-  access token ages on the clock, so `HttpTransport` trades the refresh token
-  for a fresh pair mid-call and parks the new one in `rotated`. The transport
-  cannot persist it — it has no store — so each shell helper drains it with
-  `take_rotated_refresh_token` and writes it to the store. Skipping that leaves
-  a **spent** token on disk; the next resume replays it, and the server reads a
-  reused refresh token as theft: it revokes every session for the account. Four
-  places do it — `conversations.rs`, `feed.rs` and `people.rs`'s `with_client`,
-  `media.rs`'s `persist_rotated`, and `auth.rs`'s key-package publish. The old
-  `meet.rs` did not, which is how one of its calls could silently end
-  somebody's session; `stories.rs` avoids the risk entirely by borrowing
-  `conversations.rs`'s helper rather than copying it.
-  `grep -rn "take_rotated_refresh_token"` finds them all; anything new that
-  reaches the network under a bearer token joins the list.
-- **An attachment has two encodings, and the reader must know which.**
-  `attachment::encrypt` seals a whole file under one GCM tag; `encrypt_segmented`
-  seals it in 256 KiB segments whose AAD binds each segment's index and the
-  total, so a byte range can be opened without the rest — and so a reordered or
-  truncated stream fails authentication instead of playing short. **Video is
-  sealed segmented; everything else is sealed whole**, decided by MIME in
-  `send_attachment`. The two are not distinguishable from the ciphertext, so
-  `Payload::Attachment::segmented` carries the answer — defaulting to false, so
-  every message sent before this stays byte-identical and still reads.
-  A consequence worth knowing: anything that reaches `send_attachment` claiming
-  a `video/` type gets the segmented encoding, which is why the voice command
-  forces `audio/` even though `MediaRecorder` sometimes says `video/webm`.
+- **A rotated refresh token must reach the store before the next bearer call.**
+  Every refresh issues a new refresh token and spends the old one; a spent one
+  replayed on the next start reads as theft, and the server revokes every
+  session for the account. In `packages/core` the `Transport` hands each
+  rotation to the handler `Session` installs in its constructor
+  (`setRotationHandler` → `Store.setRefreshToken`) and awaits it before the
+  next authenticated request. So every authenticated call goes through the one
+  `Transport` that `lib/runtime.ts` builds and hands to `Session`: a second
+  `Transport`, or one no `Session` owns, refreshes into nowhere. The Rust
+  client had the same rule as a drain helper repeated in four modules, and the
+  one that forgot it (`meet.rs`) could silently end somebody's session.
+- **An attachment has two encodings, and the page reads only one.**
+  `crates/crypto`'s `attachment.rs` seals a file whole under one GCM tag, or
+  in 256 KiB segments whose AAD binds each segment's index and the total, so a
+  byte range can be opened alone and a reordered or truncated stream fails
+  authentication instead of playing short. The two are not distinguishable from
+  the ciphertext, so `Payload::Attachment::segmented` says which — absent means
+  whole, so every older message still reads. The Rust client sealed video
+  segmented. **The page seals everything whole** (`sendAttachment` →
+  `ObjectCrypto.seal`), and `crates/crypto-wasm` exposes no segmented path, so
+  a segmented attachment an old client sent fails closed as "can't decrypt".
+  Adding streaming back means the facade, `ObjectCrypto` and the reader
+  together.
 - **Nothing in the page may reach a third party, and the CSP is what says so.**
   `img-src` names no remote host, and `connect-src` names only the two the
   page cannot work without — the API and the object store, added when the page
@@ -959,48 +955,38 @@ failed silently.
   MapLibre left with the map — so this is a rule for the next one rather than a
   description of anything here. Use `?worker&url` for anything with imports of
   its own.
-- **The client lock covers the store and MLS, never the network.** One mutex
-  in `apps/desktop/src-tauri/src/client.rs` guards the store, the MLS provider
-  and the transport together, because neither the `rusqlite::Connection` nor
-  the provider is `Sync`. Holding it across a download is what made opening a
-  photo delay an unrelated draft save by a second, and a playing video stutter
-  the whole app once per range request. The transport is therefore an `Arc`,
-  and the media paths take the lock only to read the payload and clone that
-  handle before letting go. Anything added later follows the same rule: hold
-  it for the store and MLS work, release it before the network.
-- **Locking clears the client, not the session.** `commands.rs::lock` drops
-  `ClientState` — the SQLCipher connection and the MLS provider — and leaves
-  `SessionState` alone, so the tokens are still in the process. That is what
-  lets `unlock_with_pin` rebuild everything from disk with no server round
-  trip, which is what the lock screen promises. Anything that reopens after a
-  lock should reach for the tokens in memory before it reaches for the network.
-- **An open store cannot be deleted on Windows, and the wipe erases keys
-  first.** `nexo_store::delete` unlinks the database, and Windows refuses while
-  any handle is open — so anything wiping the store must drop `LoggedIn` (which
-  owns the `EncryptedStore`) *before* calling it. Sign-out did not, the unlink
-  failed with `os error 32`, and because the wipe was written as a chain of
-  `?`s that failure also skipped erasing the store key and the unlock PIN: the
-  app reported a successful sign-out with the database, its key and the PIN all
-  still on disk. `session::wipe_local` now erases the PIN and the key before it
-  touches the file, so an unlink that still fails leaves ciphertext nobody can
-  open, and no step can skip the ones after it. `delete_account` is split into
-  `delete_account_on_server` and `wipe_local` for the same reason: the server
-  has to answer first, and the handles have to close before the wipe, and the
-  only moment that satisfies both is between the two.
+- **Locking drops the session from memory, and each piece by hand.**
+  `lockSession` in `lib/auth.ts` closes the live socket (`closeStream`),
+  clears the transport's tokens, and resets the runtime so the MLS provider
+  goes with it. Nothing leaves the disk: the refresh token, the identity and
+  the messages stay in IndexedDB, unencrypted, so the lock guards the screen —
+  and every screen that mentions it says exactly that. Unlocking always needs
+  the server: a PIN is checked on this machine and then `Session.resume`
+  refreshes; a password is a sign-in. The socket is the piece that was missed
+  once: the Rust `lock` left an authenticated WebSocket open behind the lock
+  screen for months. Anything that adds a long-lived connection joins
+  `lockSession`.
+- **Signing out wipes in a `finally`, and the wipe is one transaction.** The
+  Rust client once reported a successful sign-out with the database, its key
+  and the PIN all still on disk, because one failed step skipped the ones after
+  it. `Session.logout` asks the server to end the session and wipes in a
+  `finally`, and `Store.wipe` clears every object store in one transaction, so
+  no step can skip another. `Session.deleteAccount` is the other way round,
+  server first: a refusal must leave this device able to reach the account.
 - **A conversation's title is not a handle.** `title` is a label — for a DM
   with no member list yet it is literally `"Unnamed conversation"` — and
   looking it up as an account sends a doomed request on every render.
   `features/messages/peer.ts::peerHandle` reads the member list and answers
   `undefined` rather than guessing. The core records fixing the same
   conflation once for groups; it survived in the UI for the untitled DM.
-- **The local store's schema version is one constant.**
-  `packages/core/src/idb.ts` `SCHEMA_VERSION` and the last rung of the
-  user_version` in `migrate()` must agree; a test fails if they drift. Add a
-  column with the `add_column` helper, never a bare `ALTER TABLE ... ADD
-  COLUMN`: the helper checks `PRAGMA table_info` first, so a step that runs
-  twice is harmless. Rollback tests still put the shape back along with the
-  version — a test claiming to be a v9 store while carrying v11's columns is
-  testing something that never existed.
+- **The local store's schema version is one constant, and a rung is never
+  rewritten.** `SCHEMA_VERSION` in `packages/core/src/idb.ts` is what
+  `openDatabase` asks for, and `onupgradeneeded` climbs one
+  `if (event.oldVersion < N)` rung per version. A rung a released build has
+  climbed is never edited — add one. A rung that adds an index over existing
+  rows backfills them, as rung 2 does for `searchTerms`, or older data is
+  invisible to the new read. No test checks that the constant and the last rung
+  agree: bump both in the same change.
 - **`sqlx` is compile-time checked, offline by default.** `.cargo/config.toml`
   sets `SQLX_OFFLINE = "true"` for every cargo invocation, so `query!` macros
   check themselves against the committed `.sqlx/` cache and the Windows CI job
@@ -1034,12 +1020,12 @@ failed silently.
   than a page of pins. CI never saw it because CI is always fresh, which is
   exactly what makes this class of test wrong in the direction nobody
   notices.
-- **A `Transport` trait method needs an implementation everywhere the trait is
-  implemented**, not just in `http.rs`. **Five** places today: the real
-  `HttpTransport`, `lib.rs`'s in-crate `FakeTransport`, and three purpose-built
-  the doubles in `packages/core/src/conversations.test.ts` (`FakeCrypto`,
-  `CutNetwork` in `offline_queue.rs`, `Listing` in `stories.rs`). `grep -rn "impl Transport
-  for"` finds all of them; missing one is a compile error, not a silent gap.
+- **A method added to a seam needs every implementation, and the compiler
+  finds them.** `CryptoModule` is implemented by `bindWasm` in
+  `packages/core/src/wasm.ts` and by the doubles in `conversations.test.ts` and
+  `session.test.ts`; `pnpm typecheck` covers the tests, so a missing method is
+  an error, not a silent gap. `Transport` is a class, not an interface: tests
+  inject `fetch` rather than replacing it.
 - **Two different questions decide what an attachment is**, and only one of
   them is about safety. `lib/media.ts` reads the sender's declared MIME to pick
   a *layout* — that value is guessed from a file extension and is not evidence.
@@ -1068,34 +1054,23 @@ failed silently.
   answered. That is why `useSignOut` puts its busy flag around the question and
   not only around the answer.
 - **A server refusal must be JSON, or its message is thrown away.**
-  `HttpTransport`'s `refusal` parses the body as `{error, message}` and falls
-  back to `"the server returned {status}"` when it cannot. So a handler that
-  answers `(StatusCode::SERVICE_UNAVAILABLE, "some prose")` — which compiles,
-  reads fine, and looks right — turns a considered sentence into a generic
-  failure at the last moment. The old `calls.rs` shipped that way and it was
-  found by driving the app, not by review: "Calls are not available on this
-  server." arrived as "Something went wrong. Try again.", which is exactly the
-  honesty rule 5 asks for, lost in translation. Every module defines its own private
-  `ErrorBody` for this; a new one joins them.
-- **A `--release` build ignores `NEXO_API_BASE` and talks to production.**
-  `base_url()` in `stream.rs` and `HttpTransport::new` both read the override
-  only under `cfg!(debug_assertions)`, deliberately, so a shipped binary cannot
-  be pointed elsewhere by an environment variable. The consequence when
-  *testing*: a release build driven against a local server is not talking to it,
-  and a route that only exists locally comes back 404 — which maps to
-  `NotFound` and then to a generic error, so it looks like a bug in the feature
-  rather than a binary aimed at the wrong host.
-- **Locking clears the client and the socket, and it has to do the second one
-  by hand.** `commands.rs::lock` drops `ClientState` *and* `StreamState`. The
-  second is not redundant: `follow_session` closes the socket when there is no
-  **session**, and locking deliberately keeps `SessionState` so
-  `unlock_with_pin` can rebuild from disk with no server round trip. So a locked
-  app still has a session, `follow_session` would hold the connection open, and
-  nothing calls it anyway — `drain_stream` is driven by the sync agent, which
-  unmounts with the app shell. `stream.rs` claimed for months that locking
-  closed the socket; it did not, and an authenticated WebSocket stayed open
-  behind the lock screen collecting events nobody could decrypt. Anything that
-  adds a long-lived connection or an open device joins that line in `lock`.
+  `classify` in `packages/core/src/transport.ts` parses the body as
+  `{error, message}` and falls back to "The server returned {status}." when it
+  cannot. So a handler that answers `(StatusCode::SERVICE_UNAVAILABLE, "some
+  prose")` — which compiles, reads fine, and looks right — turns a considered
+  sentence into a generic failure at the last moment. The old `calls.rs`
+  shipped that way and it was found by driving the app, not by review. Every
+  server module defines its own private `ErrorBody` for this; a new one joins
+  them.
+- **A production bundle ignores `VITE_NEXO_API_BASE` and talks to production.**
+  `baseUrl()` in `lib/runtime.ts` reads the override only when
+  `import.meta.env.DEV`, so a shipped bundle contains the literal and nothing
+  can point it elsewhere; the live socket derives its URL from the same
+  transport. The consequence when *testing*: `pnpm build`, or any
+  `tauri build`, driven against a local server is not talking to it, and a
+  route that only exists locally comes back 404 — `not_found`, then a generic
+  error — so it looks like a bug in the feature rather than a bundle aimed at
+  the wrong host.
 - **Two `cargo deny` passes, never one.** The Windows client and the Linux
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.
@@ -1129,7 +1104,7 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 77 KB | This file. Where things are, and what not to break. |
+| [`CONTEXT.md`](CONTEXT.md) | 75 KB | This file. Where things are, and what not to break. |
 | [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
 | [`STATUS.md`](STATUS.md) | 110 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |

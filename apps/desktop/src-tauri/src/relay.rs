@@ -74,6 +74,9 @@ const EVERY_INTERFACE: &[IpAddr] = &[
 const HEAD_LIMIT: usize = 8 * 1024;
 const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a refused connection is read from after its answer, so the close
+/// is not a reset (see `refuse`).
+const LINGER: Duration = Duration::from_secs(1);
 /// A WebView keeps a handful of tunnels per person: the API, the live socket,
 /// the bucket. This is room for a few dozen people, and a ceiling on handles.
 const MAX_TUNNELS: usize = 128;
@@ -338,7 +341,24 @@ async fn refuse(client: &mut TcpStream, why: Refusal) -> io::Result<()> {
         why.status()
     );
     client.write_all(response.as_bytes()).await?;
-    client.shutdown().await
+    client.shutdown().await?;
+    // Closing a socket with input still unread sends a reset, and a reset can
+    // overtake the answer just written: a busy relay, which refuses before it
+    // reads the request, was heard as a dropped connection rather than a 503.
+    // So read what the client already sent before letting go — briefly, and
+    // no more than a head's worth, because this client has no tunnel coming.
+    let mut sink = [0u8; 1024];
+    let _ = timeout(LINGER, async {
+        let mut drained = 0;
+        while drained <= HEAD_LIMIT {
+            match client.read(&mut sink).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => drained += n,
+            }
+        }
+    })
+    .await;
+    Ok(())
 }
 
 #[cfg(test)]

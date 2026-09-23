@@ -135,7 +135,7 @@ crates/crypto         1 894 ln   MLS, the identity keypair, safety numbers, obje
 crates/crypto-wasm      657 ln   The same, through wasm-bindgen, for a browser engine.
 apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      2 353 ln   The desktop shell: 17 Tauri commands, windowing, tray, the relay.
+                      2 373 ln   The desktop shell: 17 Tauri commands, windowing, tray, the relay.
 apps/desktop/src     23 035 ln   React 19 page (TypeScript, Tailwind, Zustand). Every host runs this.
 packages/core         7 293 ln   The client's brain in TypeScript. Session, transport, store, MLS.
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
@@ -435,7 +435,7 @@ rule 2 lived here — what crossed into the WebView was already decrypted and
 nothing else did. That arrangement cannot exist in a browser, which has no
 other side, so all of it moved to `packages/core`.
 
-What is left is 2 353 lines and **seventeen commands**: a window, a tray, toasts,
+What is left is 2 373 lines and **seventeen commands**: a window, a tray, toasts,
 autostart, a link preview, an updater, a relay for other people and a relay to
 connect through. `src-tauri/Cargo.toml` depends on no
 Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it.
@@ -446,7 +446,7 @@ Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
 | `src/commands.rs` | 295 | 17 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater, start/stop/status for the relay, and get/set for the relay to connect through. `cfg(mobile)` variants answer honestly where Android owns the feature. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
-| `src/relay.rs` | 645 | — | The volunteer's relay ([`RELAY.md`](RELAY.md)): an HTTP `CONNECT` proxy on every interface that forwards to `NEXO_HOSTS` and nowhere else — `403` for any other host, `405` for any other method, a ceiling on tunnels. Logs no client address. Stopping it ends every tunnel. [`STATUS.md`](STATUS.md#relay-m5) says what is still missing. |
+| `src/relay.rs` | 665 | — | The volunteer's relay ([`RELAY.md`](RELAY.md)): an HTTP `CONNECT` proxy on every interface that forwards to `NEXO_HOSTS` and nowhere else — `403` for any other host, `405` for any other method, a ceiling on tunnels. Logs no client address. Stopping it ends every tunnel. [`STATUS.md`](STATUS.md#relay-m5) says what is still missing. |
 | `src/via_relay.rs` | 194 | — | The blocked user's half: the relay this app's WebView uses as its proxy, as `host:port` in `via-relay` in the app config dir. Read before the window is built; changing it restarts the app. Refuses port 80, which Tauri would drop. |
 | `src/windows.rs` | 532 | — | Tray, notifications, single instance, autostart, window creation (`create_main_window`, with the proxy), DWM backdrop, `close_action`, `forget_account`. |
 

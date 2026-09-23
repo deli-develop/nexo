@@ -1850,7 +1850,11 @@ What is in the tree:
   `connect-src` — or it is answered `403` (another host, never dialled),
   `405` (another method, never fetched), `400` (garbage, or a head over 8 KiB),
   `408` (no head in 10 s), `502` (the host did not answer) or `503` (128
-  tunnels already open). Otherwise `200`, and bytes both ways. `stop_relay`
+  tunnels already open). Every refusal reads what the client already sent
+  before closing — at most a second and a head's worth — because closing with
+  input unread is a reset on Windows, and a reset could overtake the answer:
+  a busy relay, which refuses before reading, was heard as a dropped
+  connection rather than a `503`. Otherwise `200`, and bytes both ways. `stop_relay`
   ends the listeners and every tunnel; `relay_status` answers the port or
   `None`. No client address is logged.
 - **`apps/desktop/src-tauri/src/via_relay.rs`** — the blocked user's half.

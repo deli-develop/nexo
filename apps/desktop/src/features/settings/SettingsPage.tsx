@@ -1,6 +1,14 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
-import { useApp, type LockTimeout, type Preferences, type Theme } from "../../app/store";
+import {
+  useApp,
+  type LockTimeout,
+  type Preferences,
+  type SettingsSection,
+  type Theme,
+} from "../../app/store";
+import { useLayout } from "../../app/useLayout";
+import { PageTitleCell } from "../../components/chrome/TopBar";
 import { cn } from "../../lib/cn";
 import { fileSize } from "../../lib/format";
 import {
@@ -17,7 +25,7 @@ import {
   type StorageInfo,
 } from "../../lib/native";
 import { inTauri } from "../../lib/runtime";
-import { Button } from "../../components/ui/Button";
+import { Button, IconButton } from "../../components/ui/Button";
 import { FactRow, Select, Toggle, type SelectOption } from "../../components/ui/Controls";
 import { Callout } from "../../components/ui/Feedback";
 import { Icon, type IconName } from "../../components/ui/Icon";
@@ -30,15 +38,7 @@ import { BlockedList } from "./BlockedList";
 import { PrivacyTable } from "./PrivacyTable";
 import { RunRelay, ViaRelay } from "./Relay";
 
-type Section =
-  | "appearance"
-  | "notifications"
-  | "system"
-  | "connection"
-  | "privacy"
-  | "security"
-  | "storage"
-  | "about";
+type Section = SettingsSection;
 
 /** Whether the OS is currently asking for a dark interface. */
 function useSystemDark(): boolean {
@@ -84,41 +84,95 @@ const sections: { id: Section; label: string; icon: IconName }[] = [
   { id: "about", label: "About", icon: "info" },
 ];
 
+/**
+ * Settings: the list of sections, and the one that is open.
+ *
+ * **On a phone they are two screens**, the way the conversation list and a
+ * conversation are. The list used to stay beside the section at every width,
+ * and at 375px that left the section 160px: the theme cards were 30px each
+ * and their labels were drawn on top of one another. Now the list is the
+ * screen until a section is chosen, and the top row carries the way back
+ * (`SettingsHeader`).
+ */
 export function SettingsPage({ now }: { now: Date }) {
-  const [section, setSection] = useState<Section>("appearance");
+  const chosen = useApp((s) => s.settingsSection);
+  const open = useApp((s) => s.openSettingsSection);
   const theme = useApp((s) => s.preferences.theme);
+  const layout = useLayout();
   // "System" resolves to whatever the OS is asking for right now, and follows
   // it if that changes while Settings is open.
   const systemIsDark = useSystemDark();
 
+  // Wider than a phone the list is always there, so there is no "nothing
+  // chosen" to show — the first section stands in.
+  const section = chosen ?? (layout.phone ? null : "appearance");
+
+  if (layout.phone && section === null) {
+    return (
+      <Panel tone="content" edge={false} className="flex min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
+          <nav
+            aria-label="Settings sections"
+            className="rounded-panel divide-y divide-[var(--hairline)] overflow-hidden border border-line bg-fill"
+          >
+            {sections.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => open(item.id)}
+                // 48px: a row a thumb can hit without aiming.
+                className="text-text-hi active:bg-fill-hover flex min-h-12 w-full items-center gap-3 px-4 text-left text-body transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]"
+              >
+                <Icon
+                  name={iconFor(item.id, theme, systemIsDark)}
+                  size={18}
+                  className="text-text-mid shrink-0"
+                />
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <Icon name="chevronLeft" size={14} className="text-text-lo shrink-0 rotate-180" />
+              </button>
+            ))}
+          </nav>
+        </div>
+      </Panel>
+    );
+  }
+
   return (
     <Panel tone="content" edge={false} className="flex min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1">
-        <nav
-          aria-label="Settings sections"
-          className="w-[212px] shrink-0 space-y-0.5 overflow-y-auto border-r border-[var(--hairline)] p-3"
-        >
-          {sections.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setSection(item.id)}
-              aria-current={section === item.id ? "page" : undefined}
-              className={cn(
-                "rounded-control flex w-full items-center gap-2.5 px-3 py-2 text-left text-body transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
-                section === item.id
-                  ? "bg-accent/16 text-accent-soft font-medium"
-                  : "text-text-mid hover:bg-fill-hover hover:text-text-hi",
-              )}
-            >
-              <Icon name={iconFor(item.id, theme, systemIsDark)} size={16} />
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        {layout.phone ? null : (
+          <nav
+            aria-label="Settings sections"
+            className="w-[212px] shrink-0 space-y-0.5 overflow-y-auto border-r border-[var(--hairline)] p-3"
+          >
+            {sections.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => open(item.id)}
+                aria-current={section === item.id ? "page" : undefined}
+                className={cn(
+                  "rounded-control flex w-full items-center gap-2.5 px-3 py-2 text-left text-body transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
+                  section === item.id
+                    ? "bg-accent/16 text-accent-soft font-medium"
+                    : "text-text-mid hover:bg-fill-hover hover:text-text-hi",
+                )}
+              >
+                <Icon name={iconFor(item.id, theme, systemIsDark)} size={16} />
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[720px] px-6 py-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <div
+            className={cn(
+              "mx-auto w-full max-w-[720px]",
+              layout.phone ? "px-4 py-5" : "px-6 py-6",
+            )}
+          >
             {section === "appearance" ? <Appearance /> : null}
             {section === "notifications" ? <Notifications /> : null}
             {section === "system" ? <System /> : null}
@@ -131,6 +185,33 @@ export function SettingsPage({ now }: { now: Date }) {
         </div>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * The Settings cell of the top row.
+ *
+ * Just the title, except on a phone with a section open: then it is the way
+ * back to the list and the name of where you are, which is what the Messages
+ * cell does for a conversation.
+ */
+export function SettingsHeader() {
+  const section = useApp((s) => s.settingsSection);
+  const open = useApp((s) => s.openSettingsSection);
+  const layout = useLayout();
+
+  if (!layout.phone || section === null) return <PageTitleCell title="Settings" />;
+
+  const label = sections.find((s) => s.id === section)?.label ?? "Settings";
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1 px-2">
+      <div className="no-drag">
+        <IconButton name="chevronLeft" label="Back to Settings" onClick={() => open(null)} />
+      </div>
+      <h1 className="font-display text-text-hi text-title truncate font-semibold tracking-[-0.01em]">
+        {label}
+      </h1>
+    </div>
   );
 }
 
@@ -173,6 +254,7 @@ function Appearance() {
   const contrast = useApp((s) => s.preferences.contrast);
   const theme = useApp((s) => s.preferences.theme);
   const set = useApp((s) => s.setPreference);
+  const layout = useLayout();
 
   const themes: { id: Theme; label: string; description: string; icon: IconName }[] = [
     {
@@ -191,7 +273,9 @@ function Appearance() {
         title="Theme"
         description="One accent and one grey scale, in two sets of values. Colour in this interface means the accent or a status — never decoration."
       >
-        <div className="grid grid-cols-3 gap-2 py-3">
+        {/* One per row on a phone: three across left each card under 100px,
+            and a description that broke after every other word. */}
+        <div className={cn("grid gap-2 py-3", layout.phone ? "grid-cols-1" : "grid-cols-3")}>
           {themes.map((option) => (
             <button
               key={option.id}

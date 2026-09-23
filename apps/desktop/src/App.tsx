@@ -18,7 +18,7 @@ import { PublicProfile } from "./features/profile/PublicProfile";
 import { AuthPage } from "./features/auth/AuthPage";
 import { LockScreen } from "./features/auth/LockScreen";
 import { OfferPin } from "./features/auth/OfferPin";
-import { SettingsPage } from "./features/settings/SettingsPage";
+import { SettingsHeader, SettingsPage } from "./features/settings/SettingsPage";
 import { pinStatus, restoreSession, type Account } from "./lib/auth";
 import { myProfile } from "./lib/feed";
 import { notify, setCloseToTray, startRelay } from "./lib/native";
@@ -129,7 +129,7 @@ function AppShell({ account }: { account: Account }) {
             />
           ) : null}
           {route === "profile" ? <PageTitleCell title="Profile" /> : null}
-          {route === "settings" ? <PageTitleCell title="Settings" /> : null}
+          {route === "settings" ? <SettingsHeader /> : null}
         </TopBar>
 
         {/* The rail runs down the side of the content; the bottom bar runs

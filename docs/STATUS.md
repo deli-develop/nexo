@@ -1882,6 +1882,32 @@ reader, and refuses a cut, an altered byte, sizes off by one, `2 ** 52` and a
 fraction, and opening it as a whole object. Not driven in a running app, and
 no video from an old client was at hand to open.
 
+### Since v0.1.27: the shell, seen at phone width
+
+The mobile-first section above ends by saying the shell had never been
+*seen* at phone width. It has been now, with screenshots from a phone, the web
+build and the Windows app, and it was broken in ways the breakpoint checks
+could not have caught.
+
+- **Nothing is wider than its column.** On a phone the Messages pane ran about
+  40px past the screen's edge. A textarea's minimum width is its `cols`, the
+  page root had no `min-w-0`, and so the composer widened everything: your own
+  avatars and the microphone were cut off. In Home's 280px side panel the same
+  box was one letter wide. The composer now stacks below 20rem of its own
+  width (a container query, because the window's width cannot tell those two
+  panes apart). The profile's tabs scroll inside their own row instead of
+  pushing the page sideways.
+
+- **Settings is two screens on a phone**, the list and the open section, with
+  the way back in the top row. The 212px list used to stay beside the section
+  at every width, which left the theme cards 30px wide with their labels drawn
+  over each other.
+
+**Verified** at 375 and 1440 CSS px in a browser, with the shell and the
+Messages pane mounted on fixture data. Not driven on a device, and not signed
+in: the dev page cannot reach the production API, so everything that needs a
+server was checked by layout rather than by use.
+
 ---
 
 ## Relay (M5)

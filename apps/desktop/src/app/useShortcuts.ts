@@ -80,6 +80,15 @@ export function useShortcuts(conversationIds: string[]): void {
         // Back to the list, where the list is not already beside you. On a
         // desktop the conversation stays open, because Escape closing it would
         // mean losing your place for a keypress that had no target.
+        //
+        // A Settings section is its own screen on a phone too, and asked first:
+        // a conversation left open behind Settings is not what Escape is
+        // looking at.
+        if (state.route === "settings" && state.settingsSection && layoutNow().phone) {
+          event.preventDefault();
+          state.openSettingsSection(null);
+          return;
+        }
         if (state.activeConversationId && !layoutNow().canShowList) {
           event.preventDefault();
           state.closeConversation();

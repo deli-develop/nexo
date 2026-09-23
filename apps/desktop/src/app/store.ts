@@ -6,6 +6,17 @@ import type { BackdropReport } from "../lib/native";
 
 export type Route = "home" | "messages" | "profile" | "settings";
 
+/** The sections of Settings, in the order the list draws them. */
+export type SettingsSection =
+  | "appearance"
+  | "notifications"
+  | "system"
+  | "connection"
+  | "privacy"
+  | "security"
+  | "storage"
+  | "about";
+
 /**
  * What a person has decided about one conversation.
  *
@@ -269,6 +280,15 @@ interface AppState {
    * somebody forgot about.
    */
   conversationSearchOpen: boolean;
+  /**
+   * Which section of Settings is open.
+   *
+   * Here rather than in the page because the top row draws the way back to
+   * the list, the same as a conversation's. `null` is the list itself on a
+   * phone; wider, the list is always beside the section and `null` shows the
+   * first one. Not persisted.
+   */
+  settingsSection: SettingsSection | null;
   activeConversationId: string;
   /** User intent for the context panel, before the viewport gets a say. */
   contextPanelOpen: boolean;
@@ -327,6 +347,8 @@ interface AppState {
   /** Close the open conversation. On a phone this is what Back does. */
   closeConversation: () => void;
   toggleContextPanel: () => void;
+  /** `null` goes back to the list of sections. */
+  openSettingsSection: (section: SettingsSection | null) => void;
   setConversationSearch: (open: boolean) => void;
   setHomeSearchQuery: (query: string) => void;
   setBackdropReport: (report: BackdropReport) => void;
@@ -349,6 +371,7 @@ export const useApp = create<AppState>()(
       route: "messages",
       viewingHandle: null,
       conversationSearchOpen: false,
+      settingsSection: null,
       activeConversationId: "",
       contextPanelOpen: true,
       homeSearchQuery: "",
@@ -393,6 +416,7 @@ export const useApp = create<AppState>()(
       closeConversation: () =>
         set({ activeConversationId: "", conversationSearchOpen: false }),
       toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
+      openSettingsSection: (settingsSection) => set({ settingsSection }),
       setConversationSearch: (open) => set({ conversationSearchOpen: open }),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),
       toggleConversationFlag: (id, flag) =>

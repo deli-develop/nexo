@@ -135,7 +135,7 @@ crates/crypto         2 449 ln   MLS, the identity keypair, safety numbers, obje
 crates/crypto-wasm      616 ln   The same, through wasm-bindgen, for a browser engine.
 apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      2 095 ln   The desktop shell: 15 Tauri commands, windowing, tray, the relay.
+                      2 353 ln   The desktop shell: 17 Tauri commands, windowing, tray, the relay.
 apps/desktop/src     23 035 ln   React 19 page (TypeScript, Tailwind, Zustand). Every host runs this.
 packages/core         7 293 ln   The client's brain in TypeScript. Session, transport, store, MLS.
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
@@ -165,8 +165,8 @@ src-tauri  →  nothing of ours. It is a window, a tray and an updater.
 **Nothing in `src` knows about Rust any more.** It imports `@nexo/core`, which
 imports `@nexo/crypto-wasm`, which is `crates/crypto` compiled for a browser
 engine. `invoke()` survives in exactly one file — `lib/native.ts` — for the
-fifteen shell things a page cannot do: a tray icon, a toast, a startup entry,
-an updater, a relay for other people.
+seventeen shell things a page cannot do: a tray icon, a toast, a startup entry,
+an updater, a relay for other people, a proxy for its own WebView.
 
 ### One page, three hosts
 
@@ -435,29 +435,32 @@ rule 2 lived here — what crossed into the WebView was already decrypted and
 nothing else did. That arrangement cannot exist in a browser, which has no
 other side, so all of it moved to `packages/core`.
 
-What is left is 2 095 lines and **fifteen commands**: a window, a tray, toasts,
-autostart, a link preview, an updater and a relay for other people. `src-tauri/Cargo.toml` depends on no
+What is left is 2 353 lines and **seventeen commands**: a window, a tray, toasts,
+autostart, a link preview, an updater, a relay for other people and a relay to
+connect through. `src-tauri/Cargo.toml` depends on no
 Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it.
 
 | File | Ln | Cmds | Owns |
 |---|---|---|---|
-| `src/lib.rs` | 135 | — | The builder: plugins, the managed state (`WindowPrefs`, `Relay`), and the `generate_handler!` list. **Every new command is registered here.** Desktop-only plugins sit behind `cfg(desktop)`. |
+| `src/lib.rs` | 146 | — | The builder: plugins, the managed state (`WindowPrefs`, `Relay`), `setup` — which **builds the main window** — and the `generate_handler!` list. **Every new command is registered here.** Desktop-only plugins sit behind `cfg(desktop)`. |
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
-| `src/commands.rs` | 267 | 15 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater, and start/stop/status for the relay. `cfg(mobile)` variants answer honestly where Android owns the feature. |
+| `src/commands.rs` | 295 | 17 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater, start/stop/status for the relay, and get/set for the relay to connect through. `cfg(mobile)` variants answer honestly where Android owns the feature. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
 | `src/relay.rs` | 645 | — | The volunteer's relay ([`RELAY.md`](RELAY.md)): an HTTP `CONNECT` proxy on every interface that forwards to `NEXO_HOSTS` and nowhere else — `403` for any other host, `405` for any other method, a ceiling on tunnels. Logs no client address. Stopping it ends every tunnel. [`STATUS.md`](STATUS.md#relay-m5) says what is still missing. |
-| `src/windows.rs` | 507 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
+| `src/via_relay.rs` | 194 | — | The blocked user's half: the relay this app's WebView uses as its proxy, as `host:port` in `via-relay` in the app config dir. Read before the window is built; changing it restarts the app. Refuses port 80, which Tauri would drop. |
+| `src/windows.rs` | 532 | — | Tray, notifications, single instance, autostart, window creation (`create_main_window`, with the proxy), DWM backdrop, `close_action`, `forget_account`. |
 
 #### Every IPC command
 
-**Fifteen.** A command needs a `#[tauri::command]` attribute *and* an entry in
+**Seventeen.** A command needs a `#[tauri::command]` attribute *and* an entry in
 `generate_handler!` in `lib.rs`; missing the second is a runtime rejection, not
 a compile error.
 
 `app_version` · `notify_message` · `set_unread` · `focus_window` ·
 `set_close_to_tray` · `set_window_backdrop` · `forget_account` ·
 `preview_link` · `get_autostart` · `set_autostart` · `check_update` ·
-`install_update` · `start_relay` · `stop_relay` · `relay_status`
+`install_update` · `start_relay` · `stop_relay` · `relay_status` ·
+`get_via_relay` · `set_via_relay`
 
 Four went when the page took over what they did: `lock` and `is_unlocked` (the
 lock is now `lib/auth.ts`, and there is no SQLCipher handle to close),
@@ -741,7 +744,7 @@ it is expensive.
 | Add or change an **encrypted-path endpoint** (messages, groups, key packages) | `crates/protocol/src/lib.rs` (the type first — both sides follow it) → `apps/server/src/delivery/` → `packages/core/src/types.ts` → `packages/core/src/conversations.ts` → `apps/desktop/src/lib/conversations.ts` | `BRIEF.md` |
 | Add or change a **feed / profile endpoint** | `apps/server/src/posts.rs` or `profiles.rs` → `packages/core/src/feed.ts` → `apps/desktop/src/lib/feed.ts` | `BRIEF.md` |
 | Add a **route the server already has** but nothing calls | `apps/server/src/` first — check [the route table](#every-route). `/v1/stream` sat unused for months, and `follows` was the opposite case | — |
-| Add a **new IPC command** | Ask first whether it belongs in the page. Only fifteen things are the shell's: `apps/desktop/src-tauri/src/commands.rs` → **register it in `lib.rs`'s `generate_handler!`** → `apps/desktop/src/lib/native.ts` | — |
+| Add a **new IPC command** | Ask first whether it belongs in the page. Only seventeen things are the shell's: `apps/desktop/src-tauri/src/commands.rs` → **register it in `lib.rs`'s `generate_handler!`** → `apps/desktop/src/lib/native.ts` | — |
 | A **UI-only change** | the `features/*` file → `components/ui` → `packages/design-tokens/tokens.css` | Rust, always |
 | Change **what is stored on the client** | `packages/core/src/idb.ts` (the `STORES` table) → `packages/core/src/store.ts` → bump `SCHEMA_VERSION` and add a rung | — |
 | Change **what is stored on the server** | `apps/server/migrations/` (a **new** file) → the module → regenerate `.sqlx/` | — |
@@ -791,6 +794,7 @@ it is expensive.
 | Nothing in the app works at all — sign-in, feed, messages | Ask `api.delidev.net` itself: `curl -i https://api.delidev.net/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.delidev.net` answers 502* |
 | Every upload fails — profile picture, banner, feed image, chat attachment — while sign-in, messages and posts work; the message is "Can't reach the server: Failed to fetch" | The **buckets' CORS**, not the API's. `curl -si -X OPTIONS https://fsn1.your-objectstorage.com/nexo-enc/probe -H "Origin: http://tauri.localhost" -H "Access-Control-Request-Method: PUT" -H "Access-Control-Request-Headers: content-type"` — a `403` means no rule matches that origin. [`OPS.md`](OPS.md) Phase 8, *Bucket CORS* |
 | `nexo-server` restart-loops after an edit to `/etc/nexo/nexo.env` | It refuses a half-finished deployment by design: the S3 block and `NEXO_CORS_ORIGINS` are each all-or-nothing and checked at startup. `journalctl -u nexo-server -n 60` names the one that failed |
+| The app starts with no window, or a window property in `tauri.conf.json` is ignored | The main window says `"create": false` and is built by `windows::create_main_window` in `lib.rs`'s `setup`, found by `"label": "main"`. A `setup` that returns early, or a renamed label, is no window at all |
 | The UI looks stale after a `cargo build --release` | `pnpm build` was not run first; the binary embeds `apps/desktop/dist` |
 
 ---
@@ -1094,6 +1098,17 @@ failed silently.
   server have disjoint dependency graphs; a single union graph judges each
   against the other's dependencies. See the comment at the top of `deny.toml`.
 - **`.ps1` files are CRLF**, everything else LF — `.gitattributes` enforces it.
+- **The main window is built in code, not by config.** It says `"create": false`
+  in `tauri.conf.json` because a WebView's proxy is fixed when it is made, and
+  the relay to connect through (`via_relay.rs`) is chosen at runtime. The
+  config entry still describes the window — `from_config` reads it — but
+  `lib.rs`'s `setup` makes it, on every platform.
+- **`app.restart()` only from an `async` command.** Called on the main thread —
+  where a sync command runs — Tauri spawns the new process before the
+  single-instance lock is released, and the new process hands itself to the
+  dying one and exits: the app just closes. From another thread it goes through
+  `RunEvent::Exit` first, which releases the lock. `install_update` and
+  `set_via_relay` are both `async` for this reason.
 - **`pnpm build` before `cargo build --release`.** The binary embeds the built
   frontend; skipping it ships a stale UI.
 - **Design values live in tokens**, not in components. A hex code in a `.tsx` is

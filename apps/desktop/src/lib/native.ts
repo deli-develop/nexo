@@ -501,3 +501,25 @@ export async function getRelayInfo(): Promise<RelayInfo | null> {
     return null;
   }
 }
+
+/**
+ * The relay this app connects through, as `host:port`, or `null` for direct.
+ * Always `null` in a browser, which cannot choose its own proxy.
+ */
+export async function getViaRelay(): Promise<string | null> {
+  if (!inTauri()) return null;
+  try {
+    return await invoke<string | null>("get_via_relay");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Connects through `address` — `null` to go direct — and restarts the app,
+ * because a WebView's proxy is fixed when it is made. Settles only when the
+ * address is refused, rejecting with a human-readable reason.
+ */
+export async function setViaRelay(address: string | null): Promise<void> {
+  await invoke("set_via_relay", { address });
+}

@@ -31,6 +31,7 @@
 mod commands;
 mod preview;
 mod relay;
+mod via_relay;
 mod windows;
 
 /// Start the app.
@@ -76,8 +77,15 @@ pub fn run() {
         // §8: manifests signed with the minisign key whose public half is
         // pinned in tauri.conf.json. The plugin refuses anything the key did
         // not sign, so the update server is not trusted, only the key.
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    let builder = builder.setup(|app| {
+        // `"create": false` in tauri.conf.json: the window is built here, so
+        // it can be given the relay to connect through, which config cannot
+        // know. Every platform, or a phone would start with no window.
+        windows::create_main_window(app.handle(), via_relay::proxy_url(app.handle()))?;
+        #[cfg(desktop)]
+        {
             windows::install_tray(app.handle())?;
             // Close-to-tray defaults off (see `WindowPrefs`). Someone who
             // closes a window and finds the app still running has been
@@ -85,8 +93,9 @@ pub fn run() {
             // Settings once they know it exists, and the WebView pushes the
             // stored preference across at startup.
             windows::install_close_to_tray(app.handle());
-            Ok(())
-        });
+        }
+        Ok(())
+    });
 
     builder
         // Commands are added one at a time, and each one needs a matching
@@ -108,6 +117,8 @@ pub fn run() {
             commands::start_relay,
             commands::stop_relay,
             commands::relay_status,
+            commands::get_via_relay,
+            commands::set_via_relay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nexo");

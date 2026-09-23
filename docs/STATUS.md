@@ -1777,9 +1777,9 @@ check this.
 
 ## Relay (M5)
 
-**Half built.** [`RELAY.md`](RELAY.md) is the design. The volunteer's side
-exists and is tested; nothing yet lets a blocked user use one, and nothing in
-the app turns one on. The server and `crates/protocol` know nothing about a
+**Built in the shell, not yet in Settings.** [`RELAY.md`](RELAY.md) is the
+design. Both halves exist — running a relay for other people, and connecting
+through one — and nothing in the app's screens reaches either yet. The server and `crates/protocol` know nothing about a
 relay, and do not need to.
 
 **The decision.** A relay is an HTTP `CONNECT` proxy that forwards only to the
@@ -1804,8 +1804,17 @@ What is in the tree:
   tunnels already open). Otherwise `200`, and bytes both ways. `stop_relay`
   ends the listeners and every tunnel; `relay_status` answers the port or
   `None`. No client address is logged.
+- **`apps/desktop/src-tauri/src/via_relay.rs`** — the blocked user's half.
+  `set_via_relay(address)` checks `host:port` (a name, IPv4, or bracketed
+  IPv6; not port 80, which Tauri drops on the way to WebView2), writes it to
+  `via-relay` in the app config dir — or removes the file for `null` — and
+  restarts. At startup `lib.rs` builds the main window itself
+  (`"create": false` in `tauri.conf.json`) and gives it that address as its
+  proxy. `get_via_relay` answers what is saved. A file that no longer parses
+  is ignored, and the app starts direct. Desktop only; the mobile command
+  refuses.
 - **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
-  `getRelayInfo`, over the three commands.
+  `getRelayInfo`, `getViaRelay`, `setViaRelay`.
 
 `RelayTransport` (a WebSocket tunnel with a JSON-RPC handshake that nothing
 answered) and `runtime.startRelay()` (which routed this device's own client
@@ -1813,9 +1822,8 @@ through its own listener) are gone: neither fits the shape above.
 
 Still missing:
 
-- **Using a relay.** Nothing points a WebView at one.
-- **Settings.** Nothing turns a relay on, or tells a volunteer what doing so
-  costs them.
+- **Settings.** Nothing turns a relay on, points the app at one, or tells a
+  volunteer what doing so costs them.
 
 **Checked:** `cargo test -p nexo-desktop` drives the relay over real sockets:
 a tunnel to an allowed host carries bytes both ways, including bytes sent
@@ -1824,5 +1832,8 @@ for it is never dialled; a plain `GET` is `405`; an oversized head is `400`; a
 host that does not answer is `502`; past the ceiling is `503`; stopping ends
 the listener and an open tunnel. A test reads the CSP out of `tauri.conf.json`
 and fails if `NEXO_HOSTS` disagrees with it. Run six times in a row without a
-flake. Not yet run against the real API through a real WebView — that needs
-the user's half.
+flake. `via_relay.rs`'s tests cover the address rules and the file. A debug
+build was started twice: with no `via-relay` file it made its window and
+WebView2 ran with no proxy; with `127.0.0.1:41731` saved it made its window and
+the WebView2 browser process ran with `--proxy-server=http://127.0.0.1:41731`.
+Not yet run with real traffic through a relay.

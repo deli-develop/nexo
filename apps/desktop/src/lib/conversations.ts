@@ -8,6 +8,7 @@ import {
   voiceMeta,
   type Payload,
   type StoredMessage,
+  type StoredViewOnce,
 } from "@nexo/core";
 
 import { saveFile } from "./native";
@@ -221,12 +222,14 @@ export async function listConversations(): Promise<Conversation[]> {
 
 export async function conversationMessages(conversationId: string): Promise<Message[]> {
   const { store } = await runtime();
-  const [rows, reactions, pinned] = await Promise.all([
+  const [rows, reactions, pinned, onceRows] = await Promise.all([
     store.messages(conversationId),
     store.reactions(conversationId),
     store.pinnedMessages(conversationId),
+    store.viewOnceIn(conversationId),
   ]);
   const pins = new Set(pinned.map((row) => row.id));
+  const once = new Map(onceRows.map((row) => [row.clientId, row]));
   const byTarget = new Map<string, MessageReaction[]>();
   for (const reaction of reactions) {
     const list = byTarget.get(reaction.target) ?? [];
@@ -240,7 +243,7 @@ export async function conversationMessages(conversationId: string): Promise<Mess
     }
     byTarget.set(reaction.target, list);
   }
-  return rows.map((row) => toMessage(row, byTarget, pins, rows));
+  return rows.map((row) => toMessage(row, byTarget, pins, rows, once));
 }
 
 /**
@@ -255,6 +258,7 @@ function toMessage(
   reactions: Map<string, MessageReaction[]>,
   pins: Set<number>,
   all: StoredMessage[],
+  once: Map<string, StoredViewOnce> = new Map(),
 ): Message {
   const payload: Payload | null = row.payload ? decodePayload(row.payload) : null;
   const outgoing = row.senderDeviceId === null;
@@ -318,7 +322,11 @@ function toMessage(
       break;
     case "view_once":
       message.view_once = {
-        openable: true,
+        // Openable while the key is still in its table, and not a moment
+        // after: `openViewOnce` burns it there. The payload's kind said
+        // nothing about that, and every one used to be drawn as openable.
+        openable:
+          !outgoing && row.clientId !== undefined && (once.get(row.clientId)?.encKey ?? null) !== null,
         outgoing,
         kind: payload.mime.startsWith("video/") ? "video" : "image",
       };
@@ -607,15 +615,13 @@ export async function attachmentBytes(
   const row = await it.store.message(envelopeId);
   if (!row?.payload) throw new TransportError("not_found", "That attachment is gone.");
   const payload = decodePayload(row.payload);
-  if (payload.kind !== "attachment" && payload.kind !== "view_once") {
+  // Not a view-once, ever: saving one would be opening it with no burn. Its
+  // key is not in the message row any more, and this refuses it regardless.
+  if (payload.kind !== "attachment") {
     throw new TransportError("not_found", "That message has no attachment.");
   }
   const bytes = await coreAttachments.open(await it.attachments(), payload);
-  return {
-    bytes,
-    mime: payload.mime,
-    name: payload.kind === "attachment" ? payload.name : "view-once",
-  };
+  return { bytes, mime: payload.mime, name: payload.name };
 }
 
 /**

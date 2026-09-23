@@ -162,6 +162,17 @@ export type Payload =
   | UnsupportedPayload;
 
 /**
+ * What a view-once's message row keeps: enough to draw the bubble, no key.
+ *
+ * The key lives in the `viewOnce` table and nowhere else, because opening
+ * burns it there — a copy in the message row would outlive the burn, and
+ * "opened once" would be a sentence with nothing behind it.
+ */
+export function viewOnceBubble(payload: { id: string; mime: string; size: number }): string {
+  return JSON.stringify({ kind: "view_once", id: payload.id, mime: payload.mime, size: payload.size });
+}
+
+/**
  * A forward, as `Payload::forwarded` in `crates/protocol` builds one.
  *
  * New text with a name of its own. Spreading the original instead kept its

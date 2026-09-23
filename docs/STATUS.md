@@ -1835,6 +1835,20 @@ Things the Rust client did that the page's port quietly did not.
   no Forward (`hasAttachment` in the menu state) and `forwardMessage` refuses
   them; a reply's words go on as ordinary forwarded text.
 
+- **View-once could not be opened, and its key was never destroyed.** An
+  arriving view-once went through the ordinary path: the whole payload, key
+  included, into the message row — exactly where the design above says it must
+  not be — and nothing wrote the `viewOnce` table that `openViewOnce` reads.
+  So every view-once answered "That has already been opened" on the first tap,
+  was drawn as openable for ever, and kept a key nothing burned; the sender's
+  own copy kept its key too. Now it is split as designed: `appendViewOnce`
+  writes the key to `viewOnce` and a key-free bubble to `messages` in one
+  transaction, the sender's copy keeps no key, `openable` comes from whether
+  the key is still in the table, and `attachmentBytes` refuses a view-once.
+  Schema rung 3 repairs a database that already holds them: keys move out of
+  message rows, received ones become openable — none can have been opened —
+  and our own keep nothing.
+
 **Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
 cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
 ended-session case and the voice case each fail against the code before the

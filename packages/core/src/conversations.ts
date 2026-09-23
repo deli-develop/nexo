@@ -6,6 +6,7 @@ import {
   isReactionEmoji,
   payloadId,
   preview,
+  viewOnceBubble,
   type Payload,
 } from "./payload";
 import { Store, type StoredConversation, type StoredMessage } from "./store";
@@ -876,6 +877,40 @@ async function applyIncoming(
       await applyRevision(ctx, conversationId, payload, from, at);
       return false;
 
+    case "view_once": {
+      // Split in two, as the design has always said: the key in the table
+      // opening reads and burns, the bubble in history with no key. Both were
+      // one message row here, so nothing could open it and nothing burned it.
+      // The protocol always names one; a payload that does not still has to be
+      // written down now, so it is named after its envelope.
+      const name = payload.id ?? `envelope-${envelope.envelope_id}`;
+      await ctx.store.appendViewOnce(
+        {
+          id: envelope.envelope_id,
+          conversationId,
+          senderDeviceId: from,
+          body: preview(payload),
+          sentAtMs: at,
+          clientId: name,
+          payload: viewOnceBubble({ id: name, mime: payload.mime, size: payload.size }),
+        },
+        {
+          clientId: name,
+          conversationId,
+          s3Key: payload.s3_key,
+          encKey: payload.key,
+          nonce: payload.nonce,
+          sha256: payload.sha256,
+          mime: payload.mime,
+          size: payload.size,
+          receivedAtMs: at,
+          openedAtMs: null,
+        },
+        envelope.envelope_id,
+      );
+      return true;
+    }
+
     case "group_avatar":
       // The payload is kept, not the picture: it holds the key, and the bytes
       // are fetched when something actually needs to draw them.
@@ -959,6 +994,23 @@ async function applyOwn(
 
     case "group_avatar":
       await setAvatar(ctx, conversationId, JSON.stringify(payload));
+      return;
+
+    case "view_once":
+      // Ours to show, never ours to open: the bubble, and no key kept once
+      // the server has the envelope.
+      await ctx.store.appendMessage(
+        {
+          id: envelopeId,
+          conversationId,
+          senderDeviceId: null,
+          body: preview(payload),
+          sentAtMs: at,
+          clientId: clientMsgId,
+          payload: viewOnceBubble({ id: payload.id ?? clientMsgId, mime: payload.mime, size: payload.size }),
+        },
+        envelopeId,
+      );
       return;
 
     default: {

@@ -638,7 +638,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-23 vitest files, 160 tests, run by `pnpm test`. They cluster on the pure
+24 vitest files, 163 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -646,7 +646,7 @@ app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · use
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection
-lib/          auth · dialogs · format · forward · images · media
+lib/          auth · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```
 
@@ -667,17 +667,17 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/conversations.ts` | 905 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
-| `src/store.ts` | 898 | Everything this device keeps, over IndexedDB. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
-| `src/payload.ts` | 358 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
+| `src/conversations.ts` | 1 198 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
+| `src/store.ts` | 951 | Everything this device keeps, over IndexedDB. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
+| `src/payload.ts` | 369 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
-| `src/idb.ts` | 175 | A promise over IndexedDB and the schema ladder, written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
+| `src/idb.ts` | 301 | A promise over IndexedDB and the schema ladder, written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
 | `src/types.ts` | 140 | The wire, mirroring `crates/protocol`, which stays the authority. |
 | `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
 | `src/wasm.ts` | 126 | `bindWasm`, `bindObjectWasm` and `bindPasswordWasm`: the lines between the facade's static constructors and the seam above. |
-| tests | 2 538 | 117 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 2 624 | 120 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
@@ -974,6 +974,12 @@ failed silently.
   once: the Rust `lock` left an authenticated WebSocket open behind the lock
   screen for months. Anything that adds a long-lived connection joins
   `lockSession`.
+- **A view-once's key lives in `viewOnce` and nowhere else.** Opening burns it
+  there (`burnViewOnce`), so a copy anywhere else outlives the promise. The
+  message row keeps `viewOnceBubble` — id, type, size — and `appendViewOnce`
+  writes both rows in one transaction. The port once stored the whole payload
+  in `messages` and never filled `viewOnce`, so every view-once was unopenable
+  *and* unburnable; `openable` is read from the table, never from the payload.
 - **Signing out wipes in a `finally`, and the wipe is one transaction.** The
   Rust client once reported a successful sign-out with the database, its key
   and the PIN all still on disk, because one failed step skipped the ones after
@@ -993,8 +999,10 @@ failed silently.
   `if (event.oldVersion < N)` rung per version. A rung a released build has
   climbed is never edited — add one. A rung that adds an index over existing
   rows backfills them, as rung 2 does for `searchTerms`, or older data is
-  invisible to the new read. No test checks that the constant and the last rung
-  agree: bump both in the same change.
+  invisible to the new read; rung 3 rewrites rows, moving view-once keys out of
+  `messages` into `viewOnce`. `openDatabase` takes an optional version so a
+  test can build a database as an older build left it. No test checks that the
+  constant and the last rung agree: bump both in the same change.
 - **`sqlx` is compile-time checked, offline by default.** `.cargo/config.toml`
   sets `SQLX_OFFLINE = "true"` for every cargo invocation, so `query!` macros
   check themselves against the committed `.sqlx/` cache and the Windows CI job

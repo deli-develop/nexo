@@ -421,6 +421,24 @@ describe("sending", () => {
     expect(await store.mlsState()).not.toBeNull();
   });
 
+  it("keeps no key in the sender's own copy of a view-once", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: { envelope_id: 11 } }]);
+    crypto.createGroup();
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+
+    await conversations.sendPayload(ctx, "c1", {
+      kind: "view_once", s3_key: "obj/2", key: "sender-key", nonce: "nn", sha256: "hh",
+      mime: "video/mp4", size: 5, id: "once-2",
+    });
+
+    const [row] = await store.messages("c1");
+    expect(row).toMatchObject({ id: 11, clientId: "once-2", senderDeviceId: null });
+    expect(row!.payload).not.toContain("sender-key");
+    expect(await store.viewOnce("once-2")).toBeNull();
+  });
+
   it("writes to history only after the server has it", async () => {
     const { ctx, store, crypto } = await context([
       { status: 400, body: { error: "invalid_request", message: "no" } },
@@ -510,6 +528,37 @@ describe("syncing", () => {
       id: 42, authorHandle: "", authorDeviceId: "them", s3Key: "story/x",
       encKey: "aa", expiresAtMs: 1_000_010,
     }]);
+  });
+
+  it("keeps an arriving view-once's key in its own table, never in the message", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [envelope({ envelope_id: 9 })] }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    crypto.answers.push({
+      kind: "message",
+      sender: "them",
+      plaintext: new TextEncoder().encode(JSON.stringify({
+        kind: "view_once", s3_key: "obj/1", key: "the-key", nonce: "nn", sha256: "hh",
+        mime: "image/png", size: 3, id: "once-1",
+      })),
+      epoch: 1n,
+    });
+
+    await conversations.sync(ctx, "c1");
+
+    // Opening reads this table and nothing else, and burning it is what makes
+    // "once" true. A key in the message row outlives the burn.
+    const [row] = await store.messages("c1");
+    expect(row).toMatchObject({ id: 9, clientId: "once-1", senderDeviceId: "them" });
+    expect(row!.payload).not.toContain("the-key");
+    expect(JSON.parse(row!.payload!)).toEqual({ kind: "view_once", id: "once-1", mime: "image/png", size: 3 });
+    expect(await store.viewOnce("once-1")).toMatchObject({
+      conversationId: "c1", s3Key: "obj/1", encKey: "the-key", nonce: "nn", sha256: "hh",
+      mime: "image/png", size: 3, openedAtMs: null,
+    });
   });
 
   it("joins from a Welcome and skips everything at or before it", async () => {

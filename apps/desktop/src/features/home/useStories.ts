@@ -17,9 +17,9 @@ export interface StoriesRead {
  * Shared by the strip, and by every avatar that needs to answer "does this
  * person currently have a story" -- Home's strip, your own profile, and a
  * contact's. Each of those calls this independently rather than sharing one
- * cached copy: `listStories()` is a local read (SQLCipher, with an
- * unauthenticated-friendly `Ok(())` for "not signed in yet"), reading it
- * again is what runs the purge on every surface that opens, and the story
+ * cached copy: `listStories()` is a local read (`Store.liveStories`, which
+ * deletes what has expired as it reads), reading it again is what runs the
+ * purge on every surface that opens, and the story
  * listing route it now reconciles against carries no rate limit -- unlike
  * `create` and `download_url`, `list` in `apps/server/src/stories.rs` never
  * calls `state.limits.media.check`.

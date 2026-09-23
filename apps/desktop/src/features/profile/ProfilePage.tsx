@@ -712,9 +712,9 @@ function IdentityTab({
   profile: MyProfile;
   onVisibilityChange: (field: VisibilityField, value: Visibility) => void;
 }) {
-  // The real thing, from the identity keypair in the encrypted store. Only
-  // the public half leaves Rust, and `null` means there is no key yet rather
-  // than a value worth showing.
+  // The real thing, from this device's identity keypair (`deviceFingerprint`
+  // in `lib/auth.ts`). Only the public half is read, and `null` means there
+  // is no key yet rather than a value worth showing.
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
 

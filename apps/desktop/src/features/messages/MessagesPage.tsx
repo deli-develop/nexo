@@ -456,7 +456,7 @@ function ChatPane({
   return (
     <Panel tone="content" edge={false} className="flex min-w-0 flex-1 flex-col">
       {/* Not dismissable by ignoring it, and not by restarting: the flag lives
-          in the encrypted store, so closing the window does not clear it.
+          in the store, so closing the window does not clear it.
           THREAT-MODEL 4 names a key-substituting server as the adversary safety
           numbers exist to catch, and this is the only moment a user is told
           there is something to compare. */}

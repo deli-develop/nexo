@@ -37,7 +37,7 @@ export function ContextPanel({
   // rather than fetched: the list is the same messages, and a second source
   // would be a second thing to keep in step.
   const pinned = messages.filter((m) => m.pinned).reverse();
-  // Attachments live inside the messages in the encrypted store and nothing
+  // Attachments live inside the messages in the store and nothing
   // indexes them per conversation yet, so there is nothing to list. Empty is
   // the honest showing; the sections below already say so.
   const shared: Array<{ attachment: Attachment; at: Date }> = [];
@@ -331,7 +331,7 @@ function Encryption({
               "Only confirm this if you've actually compared these digits with the other side and they matched.",
             );
             if (ok) {
-              // Recorded in the encrypted store against the keys that are
+              // Recorded in the store against the keys that are
               // current right now, so a later change clears it by itself.
               await markVerified(conversation.id);
               await onVerified();

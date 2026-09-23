@@ -6,11 +6,11 @@ import { useApp } from "./store";
 /**
  * Auto-lock (§8): after N minutes without input, the app locks.
  *
- * The timer lives here, in the WebView, because idleness means "no keyboard
- * or pointer activity" and the window is the only place that is observable.
- * The locking itself happens in Rust — `lock` drops the SQLCipher connection
- * and the MLS state — and the WebView's part ends at reporting that the time
- * has come. See `lock.rs` for what locking does and does not guarantee.
+ * The timer lives here because idleness means "no keyboard or pointer
+ * activity" and the window is the only place that is observable. The locking
+ * itself is `lockSession` in `lib/auth.ts`, which drops the tokens and the
+ * MLS state from memory and says what that does not guarantee: the store on
+ * disk is not encrypted, so the lock guards the screen, not the disk.
  *
  * Activity is sampled, not handled: writing a timestamp on every mousemove is
  * cheap, but going through React state would re-render on every pixel, so the

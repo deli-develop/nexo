@@ -45,7 +45,7 @@ function toConversation(wire: WireConversation): Conversation {
     title: wire.title ?? "Unnamed conversation",
     memberIds: wire.members,
     unread: 0,
-    // From the encrypted store now, not from a browser boolean. The old one
+    // From the store now, not from a browser boolean. The old one
     // survived key changes it knew nothing about.
     verified: wire.verified,
     keyChanged: wire.key_changed,

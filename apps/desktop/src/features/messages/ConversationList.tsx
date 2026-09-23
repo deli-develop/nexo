@@ -120,7 +120,7 @@ function FolderChip({
  * The 300px conversation list (§7.3): own profile card, search, then the rows.
  *
  * Search covers conversation names and message bodies. Names are matched here;
- * bodies go through the FTS5 index inside the encrypted store, so the whole of
+ * bodies go through the `searchTerms` index in the store, so the whole of
  * history is searched rather than the one message each row happens to be
  * showing — and the term never reaches the network (§6.1).
  */
@@ -240,7 +240,7 @@ export function ConversationList({
           if (!chosen?.conversations.includes(conversation.id)) return false;
         }
         if (!lowered) return true;
-        // A name match needs no index; a body match comes from FTS5.
+        // A name match needs no index; a body match comes from `searchTerms`.
         return (
           conversation.title.toLowerCase().includes(lowered) ||
           (matching?.has(conversation.id) ?? false)

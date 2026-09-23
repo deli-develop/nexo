@@ -143,36 +143,32 @@ async function build(): Promise<Runtime> {
     // Relay: start a local TCP listener, get its ws:// URL, and hand the
     // caller a RelayTransport that connects through it.
     startRelay: async () => {
-      if (this._relay) {
+      if (_relay) {
         // Already running — just connect the transport if needed.
         return;
       }
-      const relay = new RelayTransport({
+      _relay = new RelayTransport({
         relayUrl: "ws://127.0.0.1:0", // port resolved by Rust
         deviceId: (await context()).device.id,
       });
-      this._relay = relay;
 
       // Start the Rust listener and get the actual port back.
       const info = await startRelay(0);
       if (!info) {
-        this._relay = undefined;
+        _relay = undefined;
         throw new Error("Could not start relay listener on this machine.");
       }
-      (relay as any)._actualUrl = info.wsUrl;
-      await relay.connect();
+      (_relay as any)._actualUrl = info.wsUrl;
+      await _relay.connect();
     },
     stopRelay: async () => {
-      const relay = this._relay;
-      this._relay = undefined;
+      const relay = _relay;
+      _relay = undefined;
       if (relay) relay.close();
       await stopRelay();
     },
   };
 }
-
-/** Holds the relay transport instance between startRelay and stopRelay calls. */
-let _relay: RelayTransport | undefined = undefined;
 
 /**
  * Bytes to and from the object store.

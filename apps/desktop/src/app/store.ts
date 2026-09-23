@@ -6,6 +6,17 @@ import type { BackdropReport } from "../lib/native";
 
 export type Route = "home" | "messages" | "profile" | "settings";
 
+/** The sections of Settings, in the order the list draws them. */
+export type SettingsSection =
+  | "appearance"
+  | "notifications"
+  | "system"
+  | "connection"
+  | "privacy"
+  | "security"
+  | "storage"
+  | "about";
+
 /**
  * What a person has decided about one conversation.
  *
@@ -269,11 +280,40 @@ interface AppState {
    * somebody forgot about.
    */
   conversationSearchOpen: boolean;
+  /**
+   * Which section of Settings is open.
+   *
+   * Here rather than in the page because the top row draws the way back to
+   * the list, the same as a conversation's. `null` is the list itself on a
+   * phone; wider, the list is always beside the section and `null` shows the
+   * first one. Not persisted.
+   */
+  settingsSection: SettingsSection | null;
   activeConversationId: string;
   /** User intent for the context panel, before the viewport gets a say. */
   contextPanelOpen: boolean;
+  /**
+   * The context panel below 1280px, where it cannot stand beside the chat.
+   *
+   * A phone draws it instead of the conversation, a tablet over the
+   * conversation's right edge. Below 1280 the Details button and "Compare
+   * safety numbers" used to set `contextPanelOpen` and nothing drew it. It is
+   * a separate flag because that one starts open, which is right for a column
+   * that fits and wrong for one that would cover every conversation the
+   * moment it opened. Closed again with the conversation.
+   */
+  contextSheetOpen: boolean;
   /** The feed's search box, opened from the Home title row. */
   homeSearchQuery: string;
+  /**
+   * Bumped by the Refresh button in Home's top row.
+   *
+   * A counter rather than a callback because the button is drawn by the
+   * shell and the feed lives in `HomePage`'s own `useFeed`: the page reloads
+   * whenever this changes. The button used to reload nothing and say "You're
+   * caught up — there's nothing new", which it had not checked.
+   */
+  feedRefreshRequest: number;
   /**
    * What Windows said when the desktop backdrop was last asked for.
    *
@@ -327,8 +367,12 @@ interface AppState {
   /** Close the open conversation. On a phone this is what Back does. */
   closeConversation: () => void;
   toggleContextPanel: () => void;
+  setContextSheet: (open: boolean) => void;
+  /** `null` goes back to the list of sections. */
+  openSettingsSection: (section: SettingsSection | null) => void;
   setConversationSearch: (open: boolean) => void;
   setHomeSearchQuery: (query: string) => void;
+  requestFeedRefresh: () => void;
   setBackdropReport: (report: BackdropReport) => void;
   toggleConversationFlag: (id: string, flag: "pinned" | "archived") => void;
   /** `until` is a timestamp, or `null` to unmute. `Infinity` never expires. */
@@ -349,9 +393,12 @@ export const useApp = create<AppState>()(
       route: "messages",
       viewingHandle: null,
       conversationSearchOpen: false,
+      settingsSection: null,
       activeConversationId: "",
       contextPanelOpen: true,
+      contextSheetOpen: false,
       homeSearchQuery: "",
+      feedRefreshRequest: 0,
       backdropReport: null,
       conversationOverrides: {},
       unread: {},
@@ -386,15 +433,19 @@ export const useApp = create<AppState>()(
           const { [id]: _gone, ...unreadMark } = s.unreadMark;
           return {
             activeConversationId: id,
-                  conversationSearchOpen: false,
+            conversationSearchOpen: false,
+            contextSheetOpen: false,
             unreadMark,
           };
         }),
       closeConversation: () =>
-        set({ activeConversationId: "", conversationSearchOpen: false }),
+        set({ activeConversationId: "", conversationSearchOpen: false, contextSheetOpen: false }),
       toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
+      setContextSheet: (contextSheetOpen) => set({ contextSheetOpen }),
+      openSettingsSection: (settingsSection) => set({ settingsSection }),
       setConversationSearch: (open) => set({ conversationSearchOpen: open }),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),
+      requestFeedRefresh: () => set((s) => ({ feedRefreshRequest: s.feedRefreshRequest + 1 })),
       toggleConversationFlag: (id, flag) =>
         set((s) => {
           const current = s.conversationOverrides[id] ?? {};

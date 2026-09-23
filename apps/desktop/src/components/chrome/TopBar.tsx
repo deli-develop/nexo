@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useLayout } from "../../app/useLayout";
 import { windowAction } from "../../app/useWindow";
 import { cn } from "../../lib/cn";
 import { inTauri } from "../../lib/runtime";
@@ -34,15 +35,25 @@ export function TopBar({
   children?: ReactNode;
   maximized: boolean;
 }) {
+  const layout = useLayout();
+  // The mark's cell is the rail's width, and its hairline is the rail's edge
+  // carried up into this row. A phone has no rail, so the cell had nothing to
+  // line up with and cost a sixth of the row — the conversation's title was
+  // what paid for it. Before there is an account there is nothing else in
+  // the row, so it stays there.
+  const mark = !(layout.phone && children);
+
   return (
     <header className="drag-region glass-1 flex h-[60px] shrink-0 items-stretch border-b border-[var(--hairline)]">
-      <div className="flex w-16 shrink-0 items-center justify-center border-r border-[var(--hairline)]">
-        {/* The mark, not a logo lockup: one letter and a full stop. Drawn as
-            paths rather than typeset, because no font is bundled and the
-            display face fell through to whatever the OS had — see
-            `BrandMark`. */}
-        <BrandMark className="text-text-hi" />
-      </div>
+      {mark ? (
+        <div className="flex w-16 shrink-0 items-center justify-center border-r border-[var(--hairline)]">
+          {/* The mark, not a logo lockup: one letter and a full stop. Drawn as
+              paths rather than typeset, because no font is bundled and the
+              display face fell through to whatever the OS had — see
+              `BrandMark`. */}
+          <BrandMark className="text-text-hi" />
+        </div>
+      ) : null}
 
       <div className="flex min-w-0 flex-1 items-stretch">{children}</div>
 
@@ -68,6 +79,23 @@ export function TopBar({
       ) : null}
     </header>
   );
+}
+
+/** One caption button's width. `CaptionButton`'s `w-[46px]` is this number. */
+const CAPTION_BUTTON_WIDTH = 46;
+
+/**
+ * How much of the row's right end the caption buttons take: three of them in
+ * the desktop app, none in a browser.
+ *
+ * A cell that has to line up with a column under this row needs it. The
+ * buttons sit to the right of every cell, so the last cell ends 138px short
+ * of the window edge while the column below it runs all the way to it — and
+ * the context panel's hairline and the one above it in this row were 138px
+ * apart in the desktop app and nowhere else.
+ */
+export function captionWidth(): number {
+  return inTauri() ? CAPTION_BUTTON_WIDTH * 3 : 0;
 }
 
 function CaptionButton({

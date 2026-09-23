@@ -122,8 +122,12 @@ function RailButton({
         active ? "text-accent-soft" : "text-text-lo hover:text-text-mid",
       )}
     >
+      {/* On the window edge: a 44px button centred in the 63px the rail has
+          inside its 1px border starts 9.5px in. This said 18, which drew the
+          marker 8px off the window, and the rail never showed where you
+          were. */}
       {active ? (
-        <span className="bg-accent absolute top-1/2 -left-[18px] h-5 w-[3px] -translate-y-1/2 rounded-r-full" />
+        <span className="bg-accent absolute top-1/2 -left-[9.5px] h-5 w-[3px] -translate-y-1/2 rounded-r-full" />
       ) : null}
       <Icon name={icon} size={20} />
       {dot ? (

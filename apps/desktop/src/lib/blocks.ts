@@ -1,5 +1,6 @@
 import { blocks as core } from "@nexo/core";
 
+import { confirm } from "./native";
 import { runtime } from "./runtime";
 
 /**
@@ -29,6 +30,21 @@ export async function listBlocks(): Promise<Block[]> {
 /** Blocks somebody. Doing it twice is not an error. */
 export async function block(handle: string): Promise<void> {
   return core.block((await runtime()).transport, handle);
+}
+
+/**
+ * Asks before blocking somebody, in the one wording every place that offers
+ * it shares: a profile, and a post's menu in the feed. The last sentence is
+ * the limit this header describes, and it stays in front of the decision.
+ */
+export function confirmBlock(name: string): Promise<boolean> {
+  return confirm(
+    `Block ${name}?`,
+    "Their posts leave your feed, yours leave theirs, and neither of you can start a " +
+      "conversation with the other. Messages already delivered stay where they are — they " +
+      "are on each other's machines and the server never had the keys. Blocking also " +
+      "cannot stop somebody making a second account.",
+  );
 }
 
 /** Unblocks somebody. Doing it twice is not an error. */

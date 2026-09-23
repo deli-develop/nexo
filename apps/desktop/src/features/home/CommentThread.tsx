@@ -14,6 +14,7 @@ import { Avatar } from "../../components/ui/Avatar";
 import { HandleAvatar } from "../../components/ui/HandleAvatar";
 import { Button, IconButton } from "../../components/ui/Button";
 import { Callout, Skeleton } from "../../components/ui/Feedback";
+import { ReportDialog } from "./ReportDialog";
 
 /** How deep the indent goes before it stops growing. */
 const MAX_INDENT = 6;
@@ -142,6 +143,7 @@ function CommentNode({
   onDelete: (id: number) => Promise<void>;
 }) {
   const [replying, setReplying] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const viewProfile = useApp((s) => s.viewProfile);
   const { comment } = node;
 
@@ -196,7 +198,27 @@ function CommentNode({
                 onClick={() => void onDelete(comment.id)}
               />
             ) : null}
+            {/* Somebody else's, and still there to be read. A word beside
+                Reply rather than a menu: a comment has one other thing to do
+                with it, and a menu for one entry is a click spent finding it. */}
+            {!comment.is_mine && !comment.deleted ? (
+              <button
+                type="button"
+                onClick={() => setReporting(true)}
+                className="text-text-lo hover:text-text-hi rounded-full px-1.5 py-0.5 text-[11px]"
+              >
+                Report
+              </button>
+            ) : null}
           </div>
+          {reporting ? (
+            <ReportDialog
+              subject="comment"
+              id={comment.id}
+              name={comment.author_display_name}
+              onClose={() => setReporting(false)}
+            />
+          ) : null}
 
           {replying ? (
             <CommentComposer

@@ -1,14 +1,26 @@
-import { markVerified } from "../../lib/conversations";
+import { useEffect, useMemo, useState } from "react";
+import {
+  asConversationError,
+  attachmentUrl,
+  markVerified,
+  saveAttachment,
+  type AttachmentEntry,
+} from "../../lib/conversations";
 import { fileSize, relativeTime, safetyNumber } from "../../lib/format";
-import { confirm, notify } from "../../lib/native";
-import { asConversationError, saveAttachment } from "../../lib/conversations";
+import { confirm, notify, openUrl } from "../../lib/native";
 import { fieldFor, fileTone } from "../../lib/palette";
-import type { Attachment, Conversation, Message } from "../../lib/types";
+import type { Conversation, Message } from "../../lib/types";
 import { IconButton } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { Panel } from "../../components/ui/Surface";
 import { cn } from "../../lib/cn";
+import { Lightbox } from "./Lightbox";
 import { pinnedLine } from "./pinned";
+import { sharedIn, type SharedAttachment } from "./shared";
+
+/** How many of each list stand before "See all". */
+const SHOWN = { media: 8, files: 3, links: 3 } as const;
+type List = keyof typeof SHOWN;
 
 /**
  * The 280px context panel (§6.1, §7.3).
@@ -25,6 +37,7 @@ export function ContextPanel({
   now,
   onRefresh,
   messages = [],
+  shape = "column",
 }: {
   conversation: Conversation;
   now: Date;
@@ -32,23 +45,54 @@ export function ContextPanel({
   onRefresh: () => Promise<void>;
   /// The open conversation, so pinned messages can be listed from it.
   messages?: Message[];
+  /**
+   * Where it is drawn. `column` is the 280px strip beside the chat, from
+   * 1280px up. `screen` replaces the chat on a phone. `sheet` lies over the
+   * chat's right edge in between, where a third column would squeeze the
+   * conversation below a readable measure.
+   */
+  shape?: "column" | "screen" | "sheet";
 }) {
   // Pinned on this device, newest first. Read from what is already loaded
   // rather than fetched: the list is the same messages, and a second source
   // would be a second thing to keep in step.
   const pinned = messages.filter((m) => m.pinned).reverse();
-  // Attachments live inside the messages in the store and nothing
-  // indexes them per conversation yet, so there is nothing to list. Empty is
-  // the honest showing; the sections below already say so.
-  const shared: Array<{ attachment: Attachment; at: Date }> = [];
-  const images = shared.filter(({ attachment }) => attachment.kind === "image");
-  const files = shared.filter(({ attachment }) => attachment.kind === "file");
+  // What was shared, from the history already loaded — see `sharedIn`.
+  const shared = useMemo(() => sharedIn(messages), [messages]);
+  // The lightbox steps oldest to newest, the way the conversation reads.
+  const gallery = useMemo(() => [...shared.media].reverse().map(toEntry), [shared.media]);
+  const [viewing, setViewing] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<Record<List, boolean>>(COLLAPSED);
+  useEffect(() => {
+    setExpanded(COLLAPSED);
+    setViewing(null);
+  }, [conversation.id]);
+
+  /** The part of a list that stands. */
+  function shown<T>(list: List, items: T[]): T[] {
+    return expanded[list] ? items : items.slice(0, SHOWN[list]);
+  }
+  /** The heading's way to the rest, when there is a rest. */
+  function more(list: List, length: number) {
+    if (length <= SHOWN[list]) return undefined;
+    return {
+      label: expanded[list] ? "Show fewer" : "See all",
+      onClick: () => setExpanded((current) => ({ ...current, [list]: !current[list] })),
+    };
+  }
 
   return (
     <Panel
-      tone="list"
+      tone={shape === "sheet" ? "raised" : "list"}
       edge={false}
-      className="flex w-[280px] shrink-0 flex-col border-l border-[var(--hairline)]"
+      aria-label="Details"
+      className={cn(
+        "flex flex-col",
+        shape === "column" && "w-[280px] shrink-0 border-l border-[var(--hairline)]",
+        shape === "screen" && "min-w-0 flex-1",
+        shape === "sheet" &&
+          "absolute inset-y-0 right-0 z-20 w-[300px] max-w-full border-l border-line-strong",
+      )}
     >
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
         {pinned.length > 0 ? (
@@ -57,7 +101,7 @@ export function ContextPanel({
                 enforceable cap -- the server may not read a payload, so it
                 cannot count -- so claiming everyone sees this would be a
                 promise nothing here can keep. */}
-            <SectionHead label="Pinned on this device" onSeeAll={false} />
+            <SectionHead label="Pinned on this device" />
             <ul className="space-y-2">
               {pinned.map((message) => {
                 const line = pinnedLine(message);
@@ -98,32 +142,19 @@ export function ContextPanel({
         <section className="space-y-3">
           <SectionHead
             label="Shared media"
-            onSeeAll={images.length > 5}
-            onClick={() =>
-              void notify(
-                "Shared media",
-                `${images.length} image${images.length === 1 ? "" : "s"} shared in this conversation. A dedicated gallery view arrives with the media milestone.`,
-              )
-            }
+            count={shared.media.length}
+            more={more("media", shared.media.length)}
           />
-          {images.length === 0 ? (
+          {shared.media.length === 0 ? (
             <p className="text-text-lo text-meta">Nothing shared yet.</p>
           ) : (
-            <div className="flex gap-2">
-              {images.slice(0, 5).map(({ attachment }) => (
-                <button
-                  key={attachment.id}
-                  type="button"
-                  aria-label={attachment.name}
-                  title={attachment.name}
-                  onClick={() =>
-                    void notify(
-                      attachment.name,
-                      "Full-size preview arrives with the media milestone.",
-                    )
-                  }
-                  className="size-11 shrink-0 rounded-[10px] ring-1 ring-line-strong transition-transform duration-[var(--motion-fast)] ease-[var(--ease-state)] hover:-translate-y-0.5"
-                  style={{ background: fieldFor(attachment.id) }}
+            <div className="grid grid-cols-4 gap-2">
+              {shown("media", shared.media).map((item, index) => (
+                <MediaTile
+                  key={item.attachment.id}
+                  item={item}
+                  // Newest first here, oldest first in the lightbox.
+                  onOpen={() => setViewing(shared.media.length - 1 - index)}
                 />
               ))}
             </div>
@@ -133,16 +164,11 @@ export function ContextPanel({
         <section className="space-y-2">
           <SectionHead
             label="Shared files"
-            onSeeAll={files.length > 3}
-            onClick={() =>
-              void notify(
-                "Shared files",
-                `${files.length} file${files.length === 1 ? "" : "s"} shared in this conversation.`,
-              )
-            }
+            count={shared.files.length}
+            more={more("files", shared.files.length)}
           />
           <ul>
-            {files.slice(0, 3).map(({ attachment, at }) => {
+            {shown("files", shared.files).map(({ attachment, at }) => {
               const tone = fileTone(attachment.name);
               return (
                 <li
@@ -173,26 +199,132 @@ export function ContextPanel({
                 </li>
               );
             })}
-            {files.length === 0 ? (
+            {shared.files.length === 0 ? (
               <li className="text-text-lo text-meta">Nothing shared yet.</li>
             ) : null}
           </ul>
         </section>
 
         <section className="space-y-2">
-          {/* Link collection has no source yet: previews are generated
-              client-side per message (§4.5) and nothing indexes them per
-              conversation. An empty section is the honest showing -- inventing
-              a list here would be the one thing rule 7 forbids. */}
-          <SectionHead label="Shared links" onSeeAll={false} />
+          <SectionHead
+            label="Shared links"
+            count={shared.links.length}
+            more={more("links", shared.links.length)}
+          />
           <ul>
-            <li className="text-text-lo text-meta">Nothing shared yet.</li>
+            {shown("links", shared.links).map(({ url, at }) => (
+              <li key={url}>
+                {/* Opened in the system browser, never here: a page loaded
+                    in this WebView would share an origin with the session. */}
+                <button
+                  type="button"
+                  onClick={() => void openUrl(url)}
+                  title={url}
+                  className="hover:bg-fill-hover rounded-control -mx-2 flex w-[calc(100%+1rem)] items-center gap-3 px-2 py-2 text-left transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]"
+                >
+                  <span className="bg-fill text-text-mid flex size-9 shrink-0 items-center justify-center rounded-[10px]">
+                    <Icon name="link" size={15} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="text-text-hi block truncate text-meta">{hostOf(url)}</span>
+                    <span className="text-text-lo block truncate text-[11px]">
+                      {relativeTime(at, now)} · {url.replace(/^https:\/\//, "")}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+            {shared.links.length === 0 ? (
+              <li className="text-text-lo text-meta">Nothing shared yet.</li>
+            ) : null}
           </ul>
         </section>
 
         <Encryption conversation={conversation} onVerified={onRefresh} />
       </div>
+
+      {viewing !== null && gallery.length > 0 ? (
+        <Lightbox items={gallery} startAt={viewing} now={now} onClose={() => setViewing(null)} />
+      ) : null}
     </Panel>
+  );
+}
+
+const COLLAPSED: Record<List, boolean> = { media: false, files: false, links: false };
+
+/** What the lightbox asks for, from what the panel lists. */
+function toEntry({ attachment, at, outgoing }: SharedAttachment): AttachmentEntry {
+  return {
+    envelope_id: Number(attachment.id),
+    kind: attachment.kind === "video" ? "video" : "image",
+    name: attachment.name,
+    mime: attachment.mime,
+    size: attachment.size,
+    sent_at_ms: at.getTime(),
+    outgoing,
+  };
+}
+
+/** The site a link goes to, which is what a list of them is read by. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * One picture or video, as a square in the grid.
+ *
+ * A picture is decrypted and drawn; a video is not, because a frame of it
+ * would mean fetching and decoding the file for a 56px square. It gets the
+ * field and a play mark instead, and the lightbox plays it. The object URL
+ * is revoked when the tile goes, since nothing else will.
+ */
+function MediaTile({ item, onOpen }: { item: SharedAttachment; onOpen: () => void }) {
+  const { attachment } = item;
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (attachment.kind !== "image") return;
+    let cancelled = false;
+    let made: string | null = null;
+    void attachmentUrl(Number(attachment.id))
+      .then((next) => {
+        if (cancelled) URL.revokeObjectURL(next);
+        else {
+          made = next;
+          setUrl(next);
+        }
+      })
+      .catch(() => {
+        // The field stands. A tile that will not decrypt is not worth an
+        // error in a list of what was shared.
+      });
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [attachment.id, attachment.kind]);
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Open ${attachment.name}`}
+      title={attachment.name}
+      className="rounded-control relative aspect-square w-full overflow-hidden bg-cover bg-center ring-1 ring-line-strong transition-opacity duration-[var(--motion-fast)] ease-[var(--ease-state)] hover:opacity-80"
+      style={url ? { backgroundImage: `url(${url})` } : { background: fieldFor(attachment.id) }}
+    >
+      {attachment.kind === "video" ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex size-6 items-center justify-center rounded-full bg-black/55 text-white">
+            <Icon name="play" size={12} />
+          </span>
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -203,23 +335,29 @@ export function ContextPanel({
  */
 function SectionHead({
   label,
-  onSeeAll,
-  onClick,
+  count,
+  more,
 }: {
   label: string;
-  onSeeAll: boolean;
-  onClick?: () => void;
+  /** How many there are, when the list below may show fewer. */
+  count?: number;
+  more?: { label: string; onClick: () => void } | undefined;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <h2 className="text-text-hi text-body font-medium">{label}</h2>
-      {onSeeAll ? (
+      <h2 className="text-text-hi text-body font-medium">
+        {label}
+        {count ? (
+          <span className="text-text-lo ml-1.5 font-mono text-[11px] font-normal">{count}</span>
+        ) : null}
+      </h2>
+      {more ? (
         <button
           type="button"
-          onClick={onClick}
-          className="text-accent-soft text-[11px] transition-opacity duration-[var(--motion-fast)] hover:opacity-80"
+          onClick={more.onClick}
+          className="text-accent-soft text-[11px] transition-opacity duration-[var(--motion-fast)] ease-[var(--ease-state)] hover:opacity-80"
         >
-          See all
+          {more.label}
         </button>
       ) : null}
     </div>
@@ -261,7 +399,7 @@ function Encryption({
   if (groups.length === 0) {
     return (
       <section className="space-y-3">
-        <SectionHead label="Encryption" onSeeAll={false} />
+        <SectionHead label="Encryption" />
         <p className="text-text-mid text-meta leading-relaxed">
           <Icon
             name="shield"
@@ -280,7 +418,7 @@ function Encryption({
 
   return (
     <section className="space-y-3">
-      <SectionHead label="Encryption" onSeeAll={false} />
+      <SectionHead label="Encryption" />
 
       <p className="text-text-mid text-meta leading-relaxed">
         {conversation.verified ? (

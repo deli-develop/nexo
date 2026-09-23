@@ -18,23 +18,29 @@ export type ReportReason =
   | "impersonation"
   | "other";
 
+/** What can be reported. The server accepts exactly these. */
+export type ReportSubject = "post" | "comment" | "user";
+
 /**
- * Report a person.
+ * Report a post, a comment or a person.
  *
  * Blocking answers "I do not want to see this person"; reporting answers "this
  * should not be here", and only the second asks somebody else to look. The
  * reporter is told it was received and nothing more — not whether others
  * reported the same account, which would make reporting a way of learning
- * about other people.
+ * about other people. Reporting the same thing twice is one report.
+ *
+ * Nothing in a conversation can be reported, and that is not an oversight:
+ * the server cannot read a message, so a report would have to carry the
+ * plaintext out of the conversation to be worth anything.
  */
-export function reportUser(
-  userId: number,
+export function report(
+  subject: ReportSubject,
+  id: number,
   reason: ReportReason,
   note?: string,
 ): Promise<void> {
-  return runtime().then((it) =>
-    core.report(it, "user", userId, reason, note ?? null),
-  );
+  return runtime().then((it) => core.report(it, subject, id, reason, note ?? null));
 }
 
 /** Why a people call failed. Match on `kind`, never on `message`. */

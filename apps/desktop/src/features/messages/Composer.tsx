@@ -7,6 +7,7 @@ import { pickFile, type PickedFile } from "../../lib/native";
 import { useApp } from "../../app/store";
 import { draft, setDraft } from "../../lib/conversations";
 import { sendTyping } from "../../lib/stream";
+import { cn } from "../../lib/cn";
 import { formatDuration, useRecorder, type Recording } from "./useRecorder";
 
 
@@ -18,6 +19,13 @@ import { formatDuration, useRecorder, type Recording } from "./useRecorder";
  * worth knowing roughly.
  */
 const TYPING_EVERY_MS = 3000;
+
+/** Grows the text box to what it holds, up to about six lines. */
+function fitToText(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "0px";
+  el.style.height = `${Math.min(el.scrollHeight, 148)}px`;
+}
 
 /**
  * The composer (§6.1).
@@ -40,6 +48,7 @@ export function Composer({
   onSendSticker,
   conversationId,
   conversationTitle,
+  bare = false,
 }: {
   onSend: (body: string, attachment?: PickedFile) => void;
   onSendVoice: (recording: Recording) => void;
@@ -62,6 +71,13 @@ export function Composer({
    */
   conversationId?: string | undefined;
   conversationTitle: string;
+  /**
+   * Without the hairline above it and its own side padding, for where it
+   * stands on its own rather than as the floor of a conversation — the empty
+   * conversation's invitation. There the hairline was a rule drawn across
+   * the middle of a blank pane, above nothing.
+   */
+  bare?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [attachment, setAttachment] = useState<PickedFile | null>(null);
@@ -133,12 +149,25 @@ export function Composer({
     return () => window.clearTimeout(timer);
   }, [conversationId, value]);
 
+  useEffect(() => fitToText(box.current), [value]);
+
+  // And again when the box changes width, which the text alone never says: a
+  // box measured while it was narrow — a panel being dragged wider, the row
+  // stacking or unstacking — kept the height of every line it wrapped onto,
+  // and stood 148px tall and empty. Width only; the height is ours to set.
+  const isRecording = recorder.state === "recording";
   useEffect(() => {
     const el = box.current;
-    if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${Math.min(el.scrollHeight, 148)}px`;
-  }, [value]);
+    if (!el || isRecording || typeof ResizeObserver === "undefined") return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fitToText(el);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isRecording]);
 
   useEffect(() => {
     if (!emojiOpen) return;
@@ -179,8 +208,17 @@ export function Composer({
     if (recording) onSendVoice(recording);
   };
 
+  // `@container`: the composer answers to its own width, not the window's. It
+  // is drawn in the Messages pane and in Home's side panel, and the second is
+  // 280px on a 1440px screen — no breakpoint in `useLayout` can tell the two
+  // apart. Below 20rem of its own width the text box gets a row to itself.
   return (
-    <div className="shrink-0 border-t border-[var(--hairline)] px-3 py-2">
+    <div
+      className={cn(
+        "@container shrink-0 py-2",
+        bare ? null : "border-t border-[var(--hairline)] px-3",
+      )}
+    >
       {replyingTo ? (
         <div className="rounded-control bg-fill mb-1.5 flex items-stretch gap-2 px-2.5 py-1.5">
           <span
@@ -260,7 +298,11 @@ export function Composer({
       // box grows to 148px when somebody writes a paragraph, and a 999px
       // radius on a tall box bows its sides. Sharing the bubble's radius also
       // says the right thing — what you are typing becomes one of those.
-      <div className="bg-fill rounded-bubble flex items-end gap-1 px-1.5 py-1">
+      //
+      // Below 20rem the text box takes a row of its own and the buttons
+      // sit under it: five 36px buttons beside it left the box one letter
+      // wide in Home's 280px panel.
+      <div className="bg-fill rounded-bubble flex items-end gap-1 px-1.5 py-1 @max-[20rem]:flex-wrap">
         <IconButton
           name="paperclip"
           label="Attach a file"
@@ -287,8 +329,15 @@ export function Composer({
           }}
           aria-label={`Message ${conversationTitle}`}
           placeholder="Write a message"
-          className="text-text-hi placeholder:text-text-lo max-h-[148px] min-h-9 flex-1 resize-none bg-transparent px-1 py-1.5 text-message leading-6 outline-none"
+          // `min-w-0`: a textarea's minimum width is its `cols`, about 190px,
+          // and a flex item will not shrink below its minimum. That pushed
+          // the Messages pane past a phone's edge and took the last button
+          // and your own avatars with it.
+          className="text-text-hi placeholder:text-text-lo max-h-[148px] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-1.5 text-message leading-6 outline-none @max-[20rem]:order-first @max-[20rem]:basis-full @max-[20rem]:px-2"
         />
+        {/* Stacked, this pushes the send side to the right edge; otherwise it
+            is not drawn. */}
+        <span aria-hidden className="hidden flex-1 @max-[20rem]:block" />
         {onSendSticker ? (
           <div className="relative" ref={stickerWrap}>
             <IconButton

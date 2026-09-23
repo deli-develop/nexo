@@ -398,7 +398,18 @@ export function Select<T extends string>({
 
 export function Tabs<T extends string>({ tabs, active, onChange, className }: TabsProps<T>) {
   return (
-    <div role="tablist" className={cn("flex items-center gap-1", className)}>
+    // A row that scrolls inside itself when it runs out of width. Five tabs
+    // with icons are about 480px; a phone has 320 to give, and a row that
+    // could not scroll widened the whole page instead, so the profile slid
+    // sideways under a thumb. A scroll box clips at its padding edge, and two
+    // things reach past a tab: the underline, 1px down onto the hairline
+    // below, and the focus outline, 4px all round. `p-1 -m-1` makes room for
+    // both inside the box and gives the room back outside it.
+    <div
+      role="tablist"
+      data-scrollbar="none"
+      className={cn("-m-1 flex items-center gap-1 overflow-x-auto p-1", className)}
+    >
       {tabs.map((tab) => {
         const selected = tab.id === active;
         return (
@@ -413,7 +424,7 @@ export function Tabs<T extends string>({ tabs, active, onChange, className }: Ta
               // thing in the app wears the 2px accent outline from tokens.css;
               // a tab that swapped it for a 1px inset ring was the only control
               // whose keyboard focus looked like a different product.
-              "group rounded-control relative flex items-center gap-2 px-3 py-2 text-body transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
+              "group rounded-control relative flex shrink-0 items-center gap-2 px-3 py-2 text-body whitespace-nowrap transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",
               selected ? "text-text-hi font-medium" : "text-text-mid hover:text-text-hi",
             )}
           >

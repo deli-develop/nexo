@@ -61,7 +61,7 @@ logged-in user, and the UI says so rather than implying otherwise. Conversation
 metadata (who, when, how big) is visible to the server. Android is a later port
 that must not require a rewrite, which is why the layering below is strict.
 
-Current version: `0.1.23`. The authority is `[workspace.package] version` in
+Current version: `0.1.30`. The authority is `[workspace.package] version` in
 `Cargo.toml`, and `apps/desktop/src-tauri/tauri.conf.json` has to agree with it
 — the release workflow refuses a tag that does not match.
 Current state: [`STATUS.md`](STATUS.md). Milestones: [`PLAN.md`](PLAN.md).
@@ -505,7 +505,7 @@ package, and `main.tsx` imports them.
 | `useShortcuts.ts` | 90 | **The whole keyboard, in one listener.** A chord is global by nature; spreading them lets two surfaces claim the same one with no way to see the collision. |
 | `useUserSearch.ts` | 88 | Debounced handle search, with the shortest term worth sending. |
 | `useTyping.ts` | 83 | Who is typing, right now. |
-| `useLinkPreview.ts` | 73 | The first https link in a body, when previews are on. |
+| `useLinkPreview.ts` | 81 | The first https link in a body, when previews are on — and `links`, every one of them, the same rule for the context panel's list. |
 | `useAutoLock.ts` | 63 | The idle timer. It lives in the WebView because idleness is only observable where the input events are; Rust does the locking. |
 | `useLayout.ts` | 91 | The three widths, in one place: phone below 768, list beside chat at 768, context panel at 1280. `matchMedia`, not a resize listener. Exports `layoutNow()` for `useShortcuts`, which is not in a render pass. |
 | `useWindow.ts` | 46 | The frameless window's own state and controls. |
@@ -513,7 +513,7 @@ package, and `main.tsx` imports them.
 
 #### `components/`
 
-`chrome/`: `TopBar.tsx` (100 ln — one top row across the whole app),
+`chrome/`: `TopBar.tsx` (121 ln — one top row across the whole app; on a phone it drops the mark's 64px cell, which only lines up with the rail),
 `IconRail.tsx` (134 ln — the 64px rail, at 768px and up), `BottomBar.tsx`
 (92 ln — the same destinations across the bottom, below 768px) and
 `destinations.ts` (27 ln — **the four destinations, shared by both**, so which
@@ -574,6 +574,7 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `compose.ts` | 77 | What a draft amounts to. **A post's kind is derived, never chosen** — see Conventions. |
 | `useStories.ts` | 46 | Every live story this device holds, read once and re-readable. |
 | `story.ts` | 32 | Picks a file and posts it as a story. |
+| `ReportDialog.tsx` | 156 | Reporting a post, a comment or a person, from all three places that offer it (a post's menu, beside a comment's Reply, a profile). One wording, because the promise is the server's: a person reads it, nothing is hidden automatically, the reporter hears nothing back. |
 
 **`messages/`** — the largest surface.
 
@@ -583,15 +584,16 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `ConversationList.tsx` | 962 | The list, the folders, the multi-selection. |
 | `MessagesPage.tsx` | 614 | Rail, list, chat, context panel. |
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |
-| `MessagesHeader.tsx` | 426 | The Messages cells of the top row. |
+| `MessagesHeader.tsx` | 489 | The Messages cells of the top row. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
 | `Composer.tsx` | 390 | Typing, attaching, recording. |
-| `ContextPanel.tsx` | 368 | The 280px panel. |
+| `ContextPanel.tsx` | 504 | The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
 | `useRecorder.ts` | 213 | Voice recording, and the waveform that describes it. |
 | `ConversationSearch.tsx` | 155 | Searching inside the conversation you are looking at. |
 | `ForwardPicker.tsx` | 127 | Choosing where a message goes next. |
 | `menu.ts` | 126 | What a right-click offers **and in what order** — a pure function whose order is asserted in `menu.test.ts` rather than read. Destructive entries sit last. |
 | `selection.ts` | 97 | What a click does to a multi-selection. |
 | `pinned.ts` | 76 | What the pinned list shows for one message. |
+| `shared.ts` | 78 | `sharedIn`: the context panel's shared media, files and links, read from the history already loaded. Leaves out taken-back and unreadable messages and voice notes; view-once never carries an attachment, so it cannot appear. |
 | `peer.ts` | 75 | `peerHandle` — reads the member list and answers `undefined` rather than guessing. **A conversation's title is not a handle.** |
 | `pan.ts` | 69 | The arithmetic behind zooming and dragging a picture. |
 | `jump.ts` | 40 | Landing on one message in a wall of them — quotes and search results both, so they land the same way. |
@@ -601,7 +603,11 @@ it, because nothing readable may sit in the DOM behind a gate.
 one tile per story; **posting lives here, never in the strip**),
 `VisibilityControls.tsx` (119).
 
-**`settings/`**: `SettingsPage.tsx` (843), `Relay.tsx` (214 — the Connection
+**`settings/`**: `SettingsPage.tsx` (927 — also `SettingsHeader`, its cell of
+the top row. On a phone the list of sections and the open section are two
+screens, like the conversation list and a conversation; which section is open
+is `settingsSection` in the store, because the top row draws the way back),
+`Relay.tsx` (214 — the Connection
 section: `ViaRelay` and `RunRelay`, both halves of [`RELAY.md`](RELAY.md)),
 `DeleteAccount.tsx` (147), `UnlockPin.tsx` (134), `ChangePassword.tsx` (113),
 `BlockedList.tsx` (107), `PrivacyTable.tsx` (81).
@@ -616,7 +622,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
 | `feed.ts` | 341 | Feed, posts, comments, profiles; uploading a picture, and fetching one as a `blob:` URL. |
 | `images.ts` | 102 | Pictures from object storage for `RemoteImage`: one `blob:` URL per key, shared and reference-counted, revoked once nothing draws it. |
-| `people.ts` | 127 | Search, invitations, reporting. |
+| `people.ts` | 129 | Search, invitations, reporting (`report`, for all three subjects the server takes). |
 | `stories.ts` | 75 | Stories. Its errors narrow with `asConversationError`, because that is what the Rust side answers in. |
 | `types.ts` | 270 | The shapes the UI renders. |
 | `auth.ts` | 181 | Register, login, restore, the PIN, password, sign-out, delete. |
@@ -626,7 +632,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
-| `blocks.ts` | 35 | Blocking. |
+| `blocks.ts` | 53 | Blocking, and `confirmBlock`: the one wording every place that offers it asks with (a profile, a post's menu). |
 | `cn.ts` | 5 | Class-name join. |
 
 #### `mock/`
@@ -638,14 +644,14 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-24 vitest files, 163 tests, run by `pnpm test`. They cluster on the pure
+25 vitest files, 168 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
 app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · useUserSearch
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
-              messages: grouping · menu · pan · peer · pinned · selection
+              messages: grouping · menu · pan · peer · pinned · selection · shared
 lib/          auth · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```
@@ -1119,6 +1125,29 @@ failed silently.
 - **Design values live in tokens**, not in components. A hex code in a `.tsx` is
   a bug. Tokens are authored in `packages/design-tokens/tokens.css`;
   `tokens.json` is generated from it and a test fails when the two drift.
+- **A pane's content needs `min-w-0`, or it widens the window.** A flex item
+  will not shrink below its content's minimum, and a `<textarea>`'s minimum is
+  its `cols` — about 190px. The Messages page had no `min-w-0`, so the
+  composer pushed the whole pane 40px past a phone's edge and your own avatars
+  went with it. Every page root and every `flex-1` that holds text gets one.
+- **The window's width is `useLayout`; a component's own width is a container
+  query.** The composer is drawn in the Messages pane and in Home's 280px side
+  panel, and no window breakpoint can tell those apart — so it carries
+  `@container` and stacks below `@max-[20rem]:`. Use a container query only for
+  a component that lives in panes of different widths. A choice between
+  layouts stays in `useLayout`.
+- **A top-row cell over a column that reaches the window edge is 138px short
+  in the desktop app.** The caption buttons come after every cell in
+  `TopBar`, so the last cell ends where they begin, while the column under it
+  runs under them to the edge. Size such a cell as the column less
+  `captionWidth()` (0 in a browser), as the Messages actions cell does over
+  the context panel. Before that, its hairline was 138px off the panel's in
+  the desktop app only, which is why it never showed in a browser.
+- **`tokens.css`'s global rules sit outside Tailwind's layers, and beat every
+  utility.** `* { scrollbar-width: thin }` wins over `[scrollbar-width:none]`
+  whatever the specificity, because unlayered CSS beats layered CSS. Answering
+  one of those rules takes another unlayered rule. The one there is
+  `[data-scrollbar="none"]`, used by `Tabs`.
 - **The commit rules in [`CLAUDE.md`](../CLAUDE.md) are not decoration.** No
   attribution trailers, no tool names, in commits or anywhere else. Run
   `git config core.hooksPath .githooks` after a fresh clone so the hook backs

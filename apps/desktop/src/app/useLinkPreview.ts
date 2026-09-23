@@ -11,10 +11,18 @@ import { useApp } from "./store";
  * policy it is. Exported for its test.
  */
 export function firstLink(body: string): string | null {
-  const match = body.match(/https:\/\/[^\s<>"']+/);
-  if (!match) return null;
+  return links(body)[0] ?? null;
+}
+
+/**
+ * Every https link in a message body, in order — the same rule as
+ * `firstLink`, for the context panel's list of what was shared.
+ */
+export function links(body: string): string[] {
   // Trailing punctuation is almost always the sentence's, not the URL's.
-  return match[0].replace(/[.,;:!?)\]]+$/, "");
+  return [...body.matchAll(/https:\/\/[^\s<>"']+/g)].map((match) =>
+    match[0].replace(/[.,;:!?)\]]+$/, ""),
+  );
 }
 
 /**

@@ -5,6 +5,13 @@
       "//": "Attaches to the Vite server that `pnpm tauri dev` already runs on 1420 rather than starting a second copy. Note that the page served here has no Tauri IPC, so every invoke() fails and the app renders the sign-in screen: this is for layout work only, exactly as docs/CONTEXT.md says of `pnpm dev`.",
       "name": "nexo-ui",
       "url": "http://localhost:1420"
+    },
+    {
+      "//": "Starts the Vite server itself, for when `pnpm tauri dev` is not running. Same page, same port, same limits.",
+      "name": "nexo-ui-vite",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "nexo-desktop", "dev"],
+      "port": 1420
     }
   ]
 }

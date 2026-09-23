@@ -16,8 +16,9 @@ import {
 } from "../../lib/feed";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button } from "../../components/ui/Button";
-import { block, listBlocks, unblock } from "../../lib/blocks";
-import { confirm, notify } from "../../lib/native";
+import { block, confirmBlock, listBlocks, unblock } from "../../lib/blocks";
+import { ReportDialog } from "../home/ReportDialog";
+import { notify } from "../../lib/native";
 import { Callout, EmptyState, Skeleton } from "../../components/ui/Feedback";
 import { Icon } from "../../components/ui/Icon";
 import { Panel } from "../../components/ui/Surface";
@@ -92,6 +93,7 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
   const storyGroup = storyGroupFor(stories ?? [], handle);
   const [blocked, setBlocked] = useState(false);
   const [blocking, setBlocking] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   // Read from the server rather than remembered locally: the block is the
   // server's state, and a button that showed this machine's guess would be
@@ -142,14 +144,7 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
   async function toggleBlock() {
     if (!profile || blocking) return;
     if (!blocked) {
-      const ok = await confirm(
-        `Block ${profile.display_name}?`,
-        "Their posts leave your feed, yours leave theirs, and neither of you can start a " +
-          "conversation with the other. Messages already delivered stay where they are — they " +
-          "are on each other's machines and the server never had the keys. Blocking also " +
-          "cannot stop somebody making a second account.",
-      );
-      if (!ok) return;
+      if (!(await confirmBlock(profile.display_name))) return;
     }
     setBlocking(true);
     try {
@@ -185,7 +180,7 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
   }
 
   return (
-    <Panel tone="content" edge={false} className="min-h-0 flex-1 overflow-y-auto">
+    <Panel tone="content" edge={false} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[840px] px-6 pb-12">
         <div className="relative pt-4">
           {profile?.banner_key ? (
@@ -242,8 +237,11 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
         {/* Neither action makes sense against yourself. The store already
             redirects your own handle to your own profile, so reaching here as
             `is_me` means something upstream missed -- and a Message button that
-            starts a conversation with your own account is the visible result. */}
-        <div className="flex items-start justify-end gap-2 pt-3">
+            starts a conversation with your own account is the visible result.
+
+            Wraps: four buttons are about 350px, more than a phone has, and a
+            row that cannot wrap widens the page instead. */}
+        <div className="flex flex-wrap items-start justify-end gap-2 pt-3">
           {profile?.is_me ? null : (
           <>
           <Button
@@ -257,6 +255,9 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
           <Button icon="messages" disabled={!profile || starting} onClick={() => void message()}>
             {starting ? "Opening…" : "Message"}
           </Button>
+          <Button disabled={!profile} onClick={() => setReporting(true)}>
+            Report
+          </Button>
           <Button
             variant={blocked ? "secondary" : "danger"}
             disabled={!profile || blocking}
@@ -266,6 +267,14 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
           </Button>
           </>
           )}
+          {reporting && profile ? (
+            <ReportDialog
+              subject="user"
+              id={profile.user_id}
+              name={profile.display_name}
+              onClose={() => setReporting(false)}
+            />
+          ) : null}
         </div>
 
         <div className="mt-6">

@@ -23,6 +23,9 @@ import { Button, IconButton } from "../../components/ui/Button";
 import { Callout, EmptyState, Skeleton } from "../../components/ui/Feedback";
 import { Field } from "../../components/ui/Controls";
 import { Icon } from "../../components/ui/Icon";
+import { ContextMenu } from "../../components/ui/ContextMenu";
+import { block, confirmBlock } from "../../lib/blocks";
+import { ReportDialog } from "./ReportDialog";
 import { Panel } from "../../components/ui/Surface";
 import { useLayout } from "../../app/useLayout";
 import { HomeChat } from "./HomeChat";
@@ -46,6 +49,17 @@ const MAX_POST = 2000;
  */
 export function HomePage({ now }: { now: Date }) {
   const live = useFeed();
+
+  // The top row's Refresh. Only a *new* request reloads: the count is still
+  // standing when Home is opened again, and `useFeed` loads on mount anyway.
+  const refreshRequest = useApp((s) => s.feedRefreshRequest);
+  const refreshFeed = live.refresh;
+  const seenRequest = useRef(refreshRequest);
+  useEffect(() => {
+    if (refreshRequest === seenRequest.current) return;
+    seenRequest.current = refreshRequest;
+    void refreshFeed();
+  }, [refreshRequest, refreshFeed]);
   const query = useApp((s) => s.homeSearchQuery);
   const setQuery = useApp((s) => s.setHomeSearchQuery);
   const layout = useLayout();
@@ -280,6 +294,19 @@ export function HomePage({ now }: { now: Date }) {
                         void live.toggleReaction(post.id, emoji)
                       }
                       onVote={(value) => void live.castVote(post.id, value)}
+                      onBlock={() =>
+                        void (async () => {
+                          if (!(await confirmBlock(post.author_display_name))) return;
+                          try {
+                            await block(post.author_handle);
+                            // The server drops their posts from the feed; the
+                            // reload is what takes them off this screen.
+                            await live.refresh();
+                          } catch (error) {
+                            await notify("Couldn't block", asFeedError(error).message);
+                          }
+                        })()
+                      }
                     />
                   </li>
                 ))}
@@ -546,6 +573,7 @@ function PostCard({
   onDelete,
   onReact,
   onVote,
+  onBlock,
 }: {
   post: Post;
   now: Date;
@@ -553,8 +581,11 @@ function PostCard({
   onDelete: () => void;
   onReact: (emoji: string) => void;
   onVote: (value: number) => void;
+  onBlock: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [reporting, setReporting] = useState(false);
   const [threadOpen, setThreadOpen] = useState(false);
   const viewProfile = useApp((s) => s.viewProfile);
   const pickerWrap = useRef<HTMLDivElement>(null);
@@ -613,18 +644,53 @@ function PostCard({
             onClick={onDelete}
           />
         ) : (
+          // What can be done about somebody else's post, from what exists.
+          // It used to say muting and reporting "arrive with the feed
+          // milestone" and offer nothing; blocking was already there, one
+          // profile away. Report sits above Block because it is not
+          // destructive, and Block is.
           <IconButton
             name="more"
             label="Post options"
             size={16}
-            onClick={() =>
-              void notify(
-                "Post options",
-                "Muting authors and reporting posts arrive with the feed milestone.",
-              )
-            }
+            active={menuAt !== null}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              setMenuAt({ x: box.right, y: box.bottom + 4 });
+            }}
           />
         )}
+        {menuAt ? (
+          <ContextMenu
+            at={menuAt}
+            onClose={() => setMenuAt(null)}
+            items={[
+              {
+                label: `View @${post.author_handle}`,
+                icon: "user",
+                onSelect: () => viewProfile(post.author_handle),
+              },
+              {
+                label: "Report this post",
+                icon: "alert",
+                onSelect: () => setReporting(true),
+              },
+              {
+                label: `Block ${post.author_display_name}`,
+                danger: true,
+                onSelect: onBlock,
+              },
+            ]}
+          />
+        ) : null}
+        {reporting ? (
+          <ReportDialog
+            subject="post"
+            id={post.id}
+            name={post.author_display_name}
+            onClose={() => setReporting(false)}
+          />
+        ) : null}
       </header>
 
       {post.title ? (

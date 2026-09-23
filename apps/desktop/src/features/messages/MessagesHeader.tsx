@@ -16,6 +16,10 @@ import { Field } from "../../components/ui/Controls";
 import { Callout } from "../../components/ui/Feedback";
 import { Modal } from "../../components/ui/Modal";
 import { Icon } from "../../components/ui/Icon";
+import { ContextMenu, type MenuItem } from "../../components/ui/ContextMenu";
+import { cn } from "../../lib/cn";
+import { useSignOut } from "../auth/useSignOut";
+import { captionWidth } from "../../components/chrome/TopBar";
 
 /**
  * The Messages cells of the top row: the account, the conversation, the panel
@@ -23,6 +27,12 @@ import { Icon } from "../../components/ui/Icon";
  * hairlines line up down the whole window — the account cell is exactly as
  * wide as the conversation list, the actions cell exactly as wide as the
  * context panel.
+ *
+ * **Each button is drawn only where it can act.** The actions cell used to
+ * stand with nothing open — add someone to no conversation, mute nothing — and
+ * on a phone the whole row did not fit: the title shrank to nothing and the
+ * lock landed on top of the search button. On a phone the conversation's
+ * actions other than search go into one menu, and there is no actions cell.
  */
 export function MessagesHeader({
   now,
@@ -37,6 +47,8 @@ export function MessagesHeader({
   const showPresence = useApp((s) => s.preferences.presence);
   const contextOpen = useApp((s) => s.contextPanelOpen);
   const toggleContext = useApp((s) => s.toggleContextPanel);
+  const sheetOpen = useApp((s) => s.contextSheetOpen);
+  const setSheet = useApp((s) => s.setContextSheet);
   const closeConversation = useApp((s) => s.closeConversation);
   const searchOpen = useApp((s) => s.conversationSearchOpen);
   const setConversationSearch = useApp((s) => s.setConversationSearch);
@@ -62,6 +74,34 @@ export function MessagesHeader({
 
   const [addOpen, setAddOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [accountMenuAt, setAccountMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const { signOut } = useSignOut();
+  const accountMenu: MenuItem[] = [
+    { label: "Your profile", icon: "user", onSelect: () => go("profile") },
+    { label: "Settings", icon: "settings", onSelect: () => go("settings") },
+    { label: "", separator: true },
+    { label: "Sign out", icon: "logout", danger: true, onSelect: () => void signOut() },
+  ];
+
+  // The column from 1280px up, the sheet or the phone's screen below it —
+  // the same button either way. See `contextSheetOpen`.
+  const detailsShown = layout.canShowContext ? contextOpen : sheetOpen;
+  const captions = captionWidth();
+  const columnWidth = contextOpen && layout.canShowContext ? 280 - captions : null;
+  const toggleDetails = () =>
+    layout.canShowContext ? toggleContext() : setSheet(!sheetOpen);
+  const toggleMute = () =>
+    conversation && mute(conversation.id, muted ? null : Number.POSITIVE_INFINITY);
+
+  // What the phone's menu offers: the actions the wider header draws as
+  // buttons. Search stays out in the row, because it is reached for mid-read.
+  const phoneMenu: MenuItem[] = [
+    { label: "Details", icon: "info", onSelect: () => setSheet(true) },
+    { label: "Rename", icon: "pencil", onSelect: () => setRenaming(true) },
+    { label: "Add someone", icon: "userPlus", onSelect: () => setAddOpen(true) },
+    { label: muted ? "Unmute" : "Mute", icon: "bell", onSelect: toggleMute },
+  ];
 
   const subtitle = !conversation
     ? ""
@@ -85,29 +125,44 @@ export function MessagesHeader({
             <span className="text-text-lo block truncate text-[11px]">@{account?.handle ?? ""}</span>
           </button>
           <div className="no-drag">
+            {/* What there is to do about your own account, from the top of
+                the list. It used to say account switching "arrives in a later
+                milestone" and offer nothing. Sign-out is here as well as on
+                the rail, because this is where people look for it. */}
             <IconButton
               name="more"
               label="Account options"
               size={16}
-              onClick={() =>
-                void notify("Account options", "Switching accounts and adding a second device arrive in a later milestone.")
-              }
+              active={accountMenuAt !== null}
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                setAccountMenuAt({ x: box.right, y: box.bottom + 4 });
+              }}
             />
           </div>
         </div>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 items-center gap-3 px-4">
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-center",
+          // Tighter on a phone, where the back arrow is the first thing in
+          // the row and 16px before it is 16px the title does not get.
+          layout.phone ? "gap-2 pr-2 pl-1" : "gap-3 px-4",
+        )}
+      >
         {/* Back, and only when there is something to go back from. This used
             to open a drawer over the conversation at every narrow width,
             including when no conversation was open — a button that slid a
             panel over nothing. */}
         {layout.phone && conversation ? (
           <div className="no-drag">
+            {/* Back out of the details first, when they are open: they
+                replaced the chat, and the chat is where back leads. */}
             <IconButton
               name="chevronLeft"
-              label="Back to conversations"
-              onClick={closeConversation}
+              label={sheetOpen ? "Back to the conversation" : "Back to conversations"}
+              onClick={sheetOpen ? () => setSheet(false) : closeConversation}
             />
           </div>
         ) : null}
@@ -119,7 +174,7 @@ export function MessagesHeader({
               kind={conversation.kind}
               title={conversation.title}
               hasAvatar={conversation.hasAvatar ?? false}
-              size={36}
+              size={layout.phone ? 32 : 36}
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
@@ -155,28 +210,64 @@ export function MessagesHeader({
                 active={searchOpen}
                 onClick={() => setConversationSearch(!searchOpen)}
               />
-              <IconButton
-                name="pencil"
-                label="Rename this conversation"
-                size={17}
-                onClick={() => setRenaming(true)}
-              />
+              {layout.phone ? (
+                <IconButton
+                  name="more"
+                  label="Conversation options"
+                  size={17}
+                  active={menuAt !== null}
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setMenuAt({ x: box.right, y: box.bottom + 4 });
+                  }}
+                />
+              ) : (
+                <IconButton
+                  name="pencil"
+                  label="Rename this conversation"
+                  size={17}
+                  onClick={() => setRenaming(true)}
+                />
+              )}
             </div>
           </>
+        ) : layout.phone ? (
+          // The list is the screen, so the row says which one, the way every
+          // other destination's does.
+          <h1 className="font-display text-text-hi text-title px-5 font-semibold tracking-[-0.01em]">
+            Messages
+          </h1>
         ) : null}
       </div>
 
+      {menuAt ? (
+        <ContextMenu items={phoneMenu} at={menuAt} onClose={() => setMenuAt(null)} />
+      ) : null}
+      {accountMenuAt ? (
+        <ContextMenu
+          items={accountMenu}
+          at={accountMenuAt}
+          onClose={() => setAccountMenuAt(null)}
+        />
+      ) : null}
+
+      {conversation && !layout.phone ? (
       <div
-        className={
-          "no-drag flex shrink-0 items-center gap-0.5 border-l border-[var(--hairline)] px-4" +
-          (contextOpen && layout.canShowContext ? " w-[280px]" : "")
-        }
+        className={cn(
+          "no-drag flex shrink-0 items-center gap-0.5 border-l border-[var(--hairline)]",
+          // 142px in the desktop app: three buttons fit, with less room at
+          // the end, where the caption buttons follow anyway.
+          columnWidth !== null && captions > 0 ? "pr-2 pl-4" : "px-4",
+        )}
+        // Exactly over the context panel. The caption buttons come after
+        // this cell and the panel runs under them, so the cell is the panel's
+        // width less theirs — see `captionWidth`.
+        style={columnWidth === null ? undefined : { width: columnWidth }}
       >
         <IconButton
           name="userPlus"
           label="Add someone to this conversation"
           size={17}
-          disabled={!conversation}
           onClick={() => setAddOpen(true)}
         />
         <IconButton
@@ -188,19 +279,17 @@ export function MessagesHeader({
           // the row's own menu, where a list of durations costs nothing; up
           // here it would be a menu hanging off a toolbar button for a choice
           // most people make once.
-          onClick={() =>
-            conversation && mute(conversation.id, muted ? null : Number.POSITIVE_INFINITY)
-          }
+          onClick={toggleMute}
         />
         <IconButton
           name="info"
-          label={contextOpen ? "Hide details" : "Show details"}
+          label={detailsShown ? "Hide details" : "Show details"}
           size={17}
-          active={contextOpen && layout.canShowContext}
-          onClick={toggleContext}
+          active={detailsShown}
+          onClick={toggleDetails}
         />
-
       </div>
+      ) : null}
 
       {addOpen && conversation ? (
         <AddSomeone

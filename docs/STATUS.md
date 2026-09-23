@@ -1882,6 +1882,102 @@ reader, and refuses a cut, an altered byte, sizes off by one, `2 ** 52` and a
 fraction, and opening it as a whole object. Not driven in a running app, and
 no video from an old client was at hand to open.
 
+### Since v0.1.30: the shell, seen at phone width
+
+The mobile-first section above ends by saying the shell had never been
+*seen* at phone width. It has been now, with screenshots from a phone, the web
+build and the Windows app, and it was broken in ways the breakpoint checks
+could not have caught.
+
+- **Nothing is wider than its column.** On a phone the Messages pane ran about
+  40px past the screen's edge. A textarea's minimum width is its `cols`, the
+  page root had no `min-w-0`, and so the composer widened everything: your own
+  avatars and the microphone were cut off. In Home's 280px side panel the same
+  box was one letter wide. The composer now stacks below 20rem of its own
+  width (a container query, because the window's width cannot tell those two
+  panes apart). The profile's tabs scroll inside their own row instead of
+  pushing the page sideways.
+
+- **Settings is two screens on a phone**, the list and the open section, with
+  the way back in the top row. The 212px list used to stay beside the section
+  at every width, which left the theme cards 30px wide with their labels drawn
+  over each other.
+
+- **The top row fits a phone, and its buttons act.** A conversation's row on a
+  phone gave its title zero width: the 64px mark cell (which only lines up
+  with the rail a phone does not have), three actions in their own cell, and
+  two more beside the title. The lock sat on top of the search button. Now the
+  mark goes on a phone, search stays, and rename, add someone, mute and details
+  are one menu. With no conversation open, the actions cell is not drawn at
+  any width; it used to offer to add someone to nothing.
+
+- **Details and "Compare safety numbers" work below 1280px.** Both set a flag
+  that only the desktop's third column read, so on a phone or a tablet the
+  key-change banner's own button did nothing. The panel now opens as a sheet
+  over the chat beside the list, and as a screen of its own on a phone, with
+  back and Escape returning to the chat (`contextSheetOpen`).
+
+- **An empty conversation's composer sits at the foot of a phone**, where the
+  keyboard comes up. Wider, it still sits with the invitation (N5), without the
+  hairline that used to float above it across a blank pane.
+
+- **The rail says where you are.** Its accent marker was placed 18px left of
+  a button that starts 9.5px in, so it was drawn off the window and the rail
+  had no active state beyond a tint on the icon. Beside it, "Saved messages"
+  sat on its own grid, 8px left of the rows with its text 20px left of
+  theirs, and the new-conversation button was a rounded square next to a
+  pill. The row now shares the rows' columns, and the button is round and
+  the pill's height.
+
+- **Home's Refresh refreshes.** It reloaded nothing and answered "You're
+  caught up — there's nothing new", which it had not checked. It now asks
+  `HomePage`'s feed to reload, through `feedRefreshRequest` in the store, and
+  says nothing: the feed changing is the answer, and a failure shows where
+  every feed failure already does.
+
+- **Two "⋯" buttons open menus instead of apologising.** The one beside your
+  name in Messages said account switching "arrives in a later milestone"; it
+  now offers your profile, Settings and sign-out. The one on somebody else's
+  post said muting and reporting "arrive with the feed milestone"; it now
+  offers their profile and blocking them, with the same confirmation the
+  profile page asks (`confirmBlock`), and reloads the feed after.
+
+- **Reporting, in the page at last.** `/v1/reports` had been on the server
+  since v0.1.3 and nothing in the page called it. A post's menu, a comment
+  (a word beside Reply) and a profile (beside Block) now open one
+  `ReportDialog`: five reasons, the server's own, and an optional note of up
+  to 1000 characters. It says what the server does with a report and no more:
+  a person reads it, nothing is hidden automatically, the person reported is
+  not told, and the reporter hears nothing back. Nothing in a conversation can
+  be reported, on purpose: the server cannot read a message, so a report
+  would have to carry the plaintext out.
+
+- **The context panel lists what was shared.** Its three lists said "Nothing
+  shared yet" in every conversation, however many photos were in it, because
+  nothing fed them; their "See all" and full-size buttons pointed at a "media
+  milestone" and could never appear. `sharedIn` now reads them from the
+  history the panel already has: pictures and video as a grid that opens the
+  lightbox, files with Save, and every https link, once each, opened in the
+  system browser. "See all" expands a list in place. Taken-back and unreadable
+  messages and voice notes stay out, and view-once media cannot get in.
+
+- **The top row lines up with the context panel in the desktop app.** The
+  actions cell above the panel was 280px wide and ended where the window's
+  caption buttons begin, while the panel runs under them to the edge, so the
+  two hairlines were 138px apart. The cell is now the panel's width less the
+  caption buttons' (`captionWidth()`), which is nothing in a browser.
+
+**Verified** at 375, 800, 1024, 1280 and 1440 CSS px in a browser, with the
+shell and the Messages pane mounted on fixture data, and the desktop app's
+caption buttons drawn by making `inTauri()` answer yes. Not driven on a
+device or in the desktop app itself, and not signed in: the dev page cannot
+reach the production API. So the feed's Refresh was followed as far as the
+request, and the post menu was not seen at all, since without a feed there
+is no post to open it on. The report dialog was seen on its own and refused
+for want of a session; a report has not been sent. The context panel's
+pictures were drawn as their placeholder fields, because nothing decrypts
+without a session.
+
 ---
 
 ## Relay (M5)

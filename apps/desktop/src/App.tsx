@@ -21,7 +21,7 @@ import { OfferPin } from "./features/auth/OfferPin";
 import { SettingsHeader, SettingsPage } from "./features/settings/SettingsPage";
 import { pinStatus, restoreSession, type Account } from "./lib/auth";
 import { myProfile } from "./lib/feed";
-import { notify, setCloseToTray, startRelay } from "./lib/native";
+import { setCloseToTray, startRelay } from "./lib/native";
 import { DialogHost } from "./components/ui/DialogHost";
 import { useAutoUpdate } from "./app/useAutoUpdate";
 import { useChrome } from "./app/useChrome";
@@ -55,6 +55,7 @@ function AppShell({ account }: { account: Account }) {
   const closeToTray = useApp((s) => s.preferences.closeToTray);
   const homeChat = useApp((s) => s.preferences.homeChat);
   const setPreference = useApp((s) => s.setPreference);
+  const requestFeedRefresh = useApp((s) => s.requestFeedRefresh);
   const unreadLedger = useApp((s) => s.unread);
   const maximized = useMaximized();
   const layout = useLayout();
@@ -110,7 +111,7 @@ function AppShell({ account }: { account: Account }) {
                     name="refresh"
                     label="Refresh the feed"
                     size={17}
-                    onClick={() => void notify("Feed refreshed", "You're caught up — there's nothing new.")}
+                    onClick={requestFeedRefresh}
                   />
                   {/* Only offered where it would fit. Below the breakpoint the
                       panel is hidden regardless, and a toggle that changes

@@ -1929,6 +1929,12 @@ could not have caught.
   pill. The row now shares the rows' columns, and the button is round and
   the pill's height.
 
+- **Home's Refresh refreshes.** It reloaded nothing and answered "You're
+  caught up — there's nothing new", which it had not checked. It now asks
+  `HomePage`'s feed to reload, through `feedRefreshRequest` in the store, and
+  says nothing: the feed changing is the answer, and a failure shows where
+  every feed failure already does.
+
 **Verified** at 375 and 1440 CSS px in a browser, with the shell and the
 Messages pane mounted on fixture data. Not driven on a device, and not signed
 in: the dev page cannot reach the production API, so everything that needs a

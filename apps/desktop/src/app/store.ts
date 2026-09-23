@@ -306,6 +306,15 @@ interface AppState {
   /** The feed's search box, opened from the Home title row. */
   homeSearchQuery: string;
   /**
+   * Bumped by the Refresh button in Home's top row.
+   *
+   * A counter rather than a callback because the button is drawn by the
+   * shell and the feed lives in `HomePage`'s own `useFeed`: the page reloads
+   * whenever this changes. The button used to reload nothing and say "You're
+   * caught up — there's nothing new", which it had not checked.
+   */
+  feedRefreshRequest: number;
+  /**
    * What Windows said when the desktop backdrop was last asked for.
    *
    * Session state, not a preference: it describes what happened, not what
@@ -363,6 +372,7 @@ interface AppState {
   openSettingsSection: (section: SettingsSection | null) => void;
   setConversationSearch: (open: boolean) => void;
   setHomeSearchQuery: (query: string) => void;
+  requestFeedRefresh: () => void;
   setBackdropReport: (report: BackdropReport) => void;
   toggleConversationFlag: (id: string, flag: "pinned" | "archived") => void;
   /** `until` is a timestamp, or `null` to unmute. `Infinity` never expires. */
@@ -388,6 +398,7 @@ export const useApp = create<AppState>()(
       contextPanelOpen: true,
       contextSheetOpen: false,
       homeSearchQuery: "",
+      feedRefreshRequest: 0,
       backdropReport: null,
       conversationOverrides: {},
       unread: {},
@@ -434,6 +445,7 @@ export const useApp = create<AppState>()(
       openSettingsSection: (settingsSection) => set({ settingsSection }),
       setConversationSearch: (open) => set({ conversationSearchOpen: open }),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),
+      requestFeedRefresh: () => set((s) => ({ feedRefreshRequest: s.feedRefreshRequest + 1 })),
       toggleConversationFlag: (id, flag) =>
         set((s) => {
           const current = s.conversationOverrides[id] ?? {};

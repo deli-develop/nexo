@@ -46,6 +46,17 @@ const MAX_POST = 2000;
  */
 export function HomePage({ now }: { now: Date }) {
   const live = useFeed();
+
+  // The top row's Refresh. Only a *new* request reloads: the count is still
+  // standing when Home is opened again, and `useFeed` loads on mount anyway.
+  const refreshRequest = useApp((s) => s.feedRefreshRequest);
+  const refreshFeed = live.refresh;
+  const seenRequest = useRef(refreshRequest);
+  useEffect(() => {
+    if (refreshRequest === seenRequest.current) return;
+    seenRequest.current = refreshRequest;
+    void refreshFeed();
+  }, [refreshRequest, refreshFeed]);
   const query = useApp((s) => s.homeSearchQuery);
   const setQuery = useApp((s) => s.setHomeSearchQuery);
   const layout = useLayout();

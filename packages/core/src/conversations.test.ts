@@ -590,6 +590,52 @@ describe("syncing", () => {
     ]);
   });
 
+  it("records a quiet conversation's keys once, with nothing new to sync", async () => {
+    // A conversation that existed before keys were recorded, and has had no
+    // message since: sync stopped at "nothing new" and never read membership,
+    // so it showed no safety number until somebody wrote.
+    const { ctx, store, crypto } = await context([
+      { status: 200, body: [] },
+      { status: 200, body: [] },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 5, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    crypto.group!.roster = [
+      { deviceId: "mine", identityKey: Uint8Array.of(1) },
+      { deviceId: "them", identityKey: Uint8Array.of(2) },
+    ];
+
+    await conversations.sync(ctx, "c1");
+    expect(await store.peers("c1")).toMatchObject([
+      { deviceId: "them", identityKey: Uint8Array.of(2), changedAtMs: null },
+    ]);
+
+    // Once recorded, a quiet pass leaves the group alone: it runs every few
+    // seconds for every conversation.
+    const load = vi.spyOn(crypto, "loadGroup");
+    await conversations.sync(ctx, "c1");
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("does not reload a conversation with yourself on every quiet pass", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [] }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "self", epoch: 1, syncedTo: 5, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    const load = vi.spyOn(crypto, "loadGroup");
+
+    await conversations.sync(ctx, "c1");
+
+    // Nobody else is in it, so nothing will ever be recorded, and "nothing
+    // recorded yet" would otherwise be true on every pass for ever.
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it("flags a changed key on a later sync, which is what the warning is for", async () => {
     const { ctx, store, crypto } = await context([
       { status: 200, body: [envelope({ envelope_id: 3 })] },

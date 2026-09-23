@@ -1859,7 +1859,10 @@ Things the Rust client did that the page's port quietly did not.
   caught. The facade's `Group` now has `members()` over the existing
   `Conversation::members`, and `recordMembership` records every other device's
   key after each sync and after starting a conversation or adding somebody, as
-  the Rust client did; the first sight of a device is its baseline.
+  the Rust client did; the first sight of a device is its baseline. A
+  conversation that has been quiet since is recorded on its first quiet sync,
+  once — sync used to stop at "nothing new" before reading membership, so an
+  existing chat would have shown no number until somebody wrote.
 
 **Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
 cases in `core/src/attachments.test.ts` and `payload.test.ts`; the

@@ -601,7 +601,17 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
   const envelopes = await ctx.transport.getAuth<Envelope[]>(
     `/v1/conversations/${conversationId}/sync?since_id=${since}`,
   );
-  if (envelopes.length === 0) return outcome;
+  if (envelopes.length === 0) {
+    // Nothing new, but maybe nothing known either: a conversation that
+    // predates recording, and has been quiet since, would otherwise show no
+    // safety number until somebody wrote. Once per conversation — after that
+    // there is a baseline and a quiet pass leaves the group alone. Never for
+    // a conversation with yourself, which has nobody to record.
+    if (before && before.kind !== "self" && (await ctx.store.peers(conversationId)).length === 0) {
+      await recordMembership(ctx, conversationId, ctx.crypto.loadGroup(ctx.device, conversationId, clock(ctx)));
+    }
+    return outcome;
+  }
 
   // A row has to exist before anything is applied, because everything that
   // records progress — the cursor, the last message, the epoch — is a field on

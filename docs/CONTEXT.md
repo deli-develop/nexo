@@ -667,7 +667,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/conversations.ts` | 1 239 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
+| `src/conversations.ts` | 1 249 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
 | `src/store.ts` | 951 | Everything this device keeps, over IndexedDB. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
 | `src/payload.ts` | 369 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
@@ -677,7 +677,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/crypto.ts` | 85 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
 | `src/wasm.ts` | 126 | `bindWasm`, `bindObjectWasm` and `bindPasswordWasm`: the lines between the facade's static constructors and the seam above. |
-| tests | 2 680 | 122 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 2 726 | 124 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
@@ -979,8 +979,10 @@ failed silently.
   key; `safetyNumber` is computed from it and a key that differs from it is the
   "safety number has changed" warning (`THREAT-MODEL.md` §4). `recordMembership`
   in `core/src/conversations.ts` reads `Group.members()` and records everyone
-  but this device — at the end of every `sync`, before the cursor moves, and
-  after `startWith`, `startGroup` and `addTo`. After the port nothing called
+  but this device — at the end of every `sync`, before the cursor moves; on a
+  quiet `sync` once, when nothing has been recorded for that conversation yet
+  (never for `self`, which has nobody to record); and after `startWith`,
+  `startGroup` and `addTo`. After the port nothing called
   `recordPeers` at all: no number could be shown and no change noticed. A new
   path that changes membership calls it too. The members come from wasm as
   getter classes, so copy their fields; a spread records nothing.

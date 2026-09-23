@@ -638,7 +638,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-21 vitest files, 151 tests, run by `pnpm test`. They cluster on the pure
+22 vitest files, 155 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -646,7 +646,7 @@ app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · use
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection
-lib/          dialogs · format · images · media
+lib/          auth · dialogs · format · images · media
 mock/         data
 ```
 

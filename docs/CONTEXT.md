@@ -1143,7 +1143,7 @@ Read cost matters. Sizes are approximate and current.
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | 10 KB | Setup, prerequisites, the three builds (Windows, web, Android), troubleshooting. For humans on a new machine. |
-| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 35 KB | Adversaries in and out of scope; what is deliberately not protected. |
+| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 36 KB | Adversaries in and out of scope; what is deliberately not protected. |
 | [`TUTORIAL.md`](TUTORIAL.md) | 19 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
 | [`DEPLOY.md`](DEPLOY.md) | 22 KB | **The straight line from a fresh server to a live API, and from CI to the website.** Eight steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
 | [`OPS.md`](OPS.md) | 27 KB | The Hetzner runbook — the reasoning behind every step `DEPLOY.md` takes, plus TLS, backups and incidents. |

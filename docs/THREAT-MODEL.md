@@ -7,9 +7,9 @@ the brief says be honest about what is and is not encrypted; a threat model that
 oversells is worse than none, because it makes people act on a protection they
 do not have.
 
-Status: written at M2, revised at M9. Everything described here is built and
-tested unless a line says otherwise; the "(planned)" markers from the M2 draft
-are gone because the mechanisms now exist.
+Status: written at M2, revised at M9, and corrected after the client moved into
+the page (v0.1.27 on), which took away the encrypted local store it described.
+Everything described here is built and tested unless a line says otherwise.
 
 ---
 
@@ -19,8 +19,8 @@ are gone because the mechanisms now exist.
 |---|---|---|
 | Direct and group message bodies | End-to-end encrypted with MLS (RFC 9420) via OpenMLS | **No** |
 | Message attachments | AES-256-GCM, key inside the MLS-encrypted message (M6; the round-trip test refetches the raw object and proves it is ciphertext) | **No** |
-| Private identity keys | Generated on device, never transmitted (M2) | **No** |
-| Local message history | SQLCipher, key wrapped by Windows DPAPI (M2; proven unreadable by an unkeyed connection) | n/a — never leaves the machine |
+| Private identity keys | Generated on device, never transmitted (M2). Kept in the same unencrypted local store as the history below | **No** |
+| Local message history | **Not encrypted at rest.** IndexedDB in the app's WebView profile — or the browser's, on the web — readable by anyone who can read this account's files. Windows disk encryption, where it is on, protects a powered-off machine; Nexo adds nothing to it. This was SQLCipher under a DPAPI-wrapped key until the client moved into the page, which has no keystore to hold a key (`docs/REWORK.md`) | n/a — never leaves the machine |
 | Passwords | Argon2id on the client; server stores a hash of a verifier | **No** — the server never sees the password |
 | App updates | Manifests minisign-signed; verified against the public key pinned in the app before anything installs (M9, `docs/RELEASING.md`) | n/a — the update *server* is untrusted by design |
 
@@ -98,28 +98,26 @@ time. It cannot learn the filename, the type, or the contents.
 
 ---
 
-### 2.5 The unlock PIN is a convenience, and the app now requires it
+### 2.5 The unlock PIN is a convenience, and it guards the screen
 
-A PIN is mandatory from this release: signing in on a machine that has none
-stops at a screen that asks for one, and Settings offers Change rather than
-Remove.
+A PIN is offered once after signing in, and can be skipped; Settings sets one
+at any time, and once set it can be changed but not removed.
 
 That is a usability decision doing security work, and it is worth being exact
 about which. The PIN protects nothing on its own. It is a salted Argon2id
-verifier in the DPAPI-wrapped keystore, so it is bound to this Windows account
-as well as to the digits — someone with the disk and not the account has
-nothing to try it against, and someone with both already has the store. Five
-wrong guesses and only the password will do.
+verifier in the local store, and that store is not encrypted: someone who can
+read this machine's files does not need the PIN, because the messages are
+there beside it. Five wrong guesses and only the password will do.
 
 What it actually buys is that **auto-lock stays switched on**. Locking drops
-the SQLCipher connection and the MLS state (see §3), and it only protects an
+the session and the MLS state from memory (see §3), and it only protects an
 unattended machine if people leave it enabled. Without a cheap way back in,
 every lock costs a full password, so timers get lengthened and the feature gets
 turned off — and a protection that everyone disables is worth less than one
 that is slightly weaker and stays on.
 
 It is not a second factor. The server has never heard of it and it cannot sign
-anyone in anywhere: it only ever re-opens a store that is already on this
+anyone in anywhere: it only ever resumes a session that is already on this
 machine.
 
 ### 2.6 Blocking is enforced by the server, and does not reach backwards
@@ -196,11 +194,11 @@ visibility settings, invitations and the uses recorded against them, reports,
 refresh tokens and conversation membership with it; the device row goes and takes its
 published KeyPackages and every envelope it sent that the server still held.
 Conversations left with nobody in them are removed rather than kept as
-unreachable rows. Locally, the SQLCipher store, the wrapped key and the unlock
-PIN are destroyed, the same wipe signing out performs.
+unreachable rows. Locally, the store is wiped — history, keys and the unlock
+PIN — the same wipe signing out performs, once the server has confirmed.
 
 **What it cannot reach is every message that was already delivered.** Those sit
-in other people's encrypted stores, and the server never held the keys to them
+on other people's devices, and the server never held the keys to them
 — it could not remove them if it wanted to, and neither can this app. The same
 is true of anything anyone screenshotted or copied. Deleting an account ends
 what happens next; it does not reach into what already happened.
@@ -391,9 +389,10 @@ Two smaller consequences, both deliberate:
   stricter one. The control is absent in a group rather than present and
   redefined.
 - **The sender's copy was never openable.** The sender keeps the file they
-  picked, so nothing is taken from them; but the key row is written already
-  spent, because a sender who could reopen what the recipient cannot would make
-  the bubble's own wording untrue on one side of the conversation.
+  picked, so nothing is taken from them; but their copy of the message keeps
+  no key at all once the server has it, because a sender who could reopen what
+  the recipient cannot would make the bubble's own wording untrue on one side
+  of the conversation.
 
 ### 2.14 A follow graph is a new social graph the server holds
 
@@ -492,19 +491,23 @@ two, and belongs in the shutdown checklist whichever way the decision goes.
 The decision itself has to be made **before the production server is built**:
 encrypting a root volume afterwards means rebuilding the machine.
 
-**Someone who steals the user's laptop, powered off.** The local store is
-SQLCipher-encrypted with a key wrapped by DPAPI under the user's Windows
-account. Without that account's credentials the database is unreadable — built
-at M2 and proven by a test that opens `store.db` with an unkeyed connection
-and fails.
+**Someone who steals the user's laptop, powered off.** **Not defended by
+Nexo.** The local store — history, identity keys, the unlock PIN's verifier —
+is IndexedDB, unencrypted, in the app's WebView profile. What stands between a
+thief and it is whatever the operating system does: Windows disk encryption
+(BitLocker, or Device Encryption), where it is switched on. Until the client
+moved into the page this was a SQLCipher store under a DPAPI-wrapped key; a
+page has no keystore to hold such a key (`docs/REWORK.md`), and nothing has
+replaced it.
 
 **Someone who sits down at an unattended, unlocked machine.** Auto-lock (M8):
-after a configurable idle period the SQLCipher connection is closed and the
-in-memory MLS state is dropped; unlocking is a full sign-in. What lock does
-*not* claim: it cannot guarantee freed memory is zeroed — the allocator and
-the OS decide that — so it defends against the person at the desk, not
-against someone who can already read this process's memory. `lock.rs` states
-the same limitation next to the code.
+after a configurable idle period the app's screen is replaced, the live socket
+closes, and the tokens and the MLS state are dropped from memory; getting back
+in takes the PIN or the password, and the server. What lock does *not* claim:
+it guards the app's screen, not the disk — someone at that desk, signed in as
+that user, can read the store's files without the app at all — and it cannot
+guarantee freed memory is zeroed. `lockSession` in
+`apps/desktop/src/lib/auth.ts` states the same limits next to the code.
 
 **A compromised or impersonated update server.** It can refuse updates
 (freeze attack — visible, since checks are user-initiated from the About
@@ -520,8 +523,9 @@ design. Listed here so it is never mistaken for a breach.
 
 ## 4. Adversaries explicitly OUT of scope
 
-**Malware running as the user on their own machine.** It can read decrypted
-messages out of the app's memory, key the DPAPI store, or screenshot the window.
+**Malware running as the user on their own machine.** It can read the store
+straight off the disk — it is not encrypted — read what is in the app's memory,
+or screenshot the window.
 No messenger defends against this; claiming otherwise would be dishonest.
 
 **A compromised server that swaps public keys.** The server distributes identity

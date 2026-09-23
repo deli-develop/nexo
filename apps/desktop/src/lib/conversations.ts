@@ -528,17 +528,18 @@ export async function forwardMessage(
   const payload: Payload = row.payload
     ? decodePayload(row.payload)
     : { kind: "text", body: row.body };
-  if (payload.kind !== "text" && payload.kind !== "attachment") {
-    throw new TransportError("rejected", "That cannot be forwarded.");
+  // Words only. A reply's words go on as plain text: the new readers do not
+  // have what it answered. A file does not go at all — the protocol has no way
+  // to mark one as forwarded, so it would arrive as the forwarder's own, and
+  // who owns the object in the bucket afterwards is a question with no answer
+  // yet. The menu does not offer it; this refuses it for any other caller.
+  if (payload.kind !== "text" && payload.kind !== "reply") {
+    throw new TransportError("rejected", "Only text can be forwarded.");
   }
   // A name of its own, never the original's: two messages in one
   // conversation answering to one name is an edit or a reaction landing on
   // the wrong one.
-  const id = globalThis.crypto.randomUUID();
-  const forwarded: Payload =
-    payload.kind === "text"
-      ? forwardedText(payload.body, id, forwardedFrom)
-      : { ...payload, forwarded: true, id, ...(forwardedFrom !== undefined ? { forwarded_from: forwardedFrom } : {}) };
+  const forwarded = forwardedText(payload.body, globalThis.crypto.randomUUID(), forwardedFrom);
   await core.sendPayload(await it.context(), toConversationId, forwarded);
 }
 

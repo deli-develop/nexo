@@ -57,6 +57,34 @@ describe("forwardMessage", () => {
     expect(new Set(names).size).toBe(2);
   });
 
+  it("forwards a reply's words as new text, not as a reply to something the reader lacks", async () => {
+    message.mockResolvedValue({
+      id: 9,
+      body: "yes",
+      payload: JSON.stringify({ kind: "reply", body: "yes", target: "t1", id: "r1" }),
+    });
+
+    await forwardMessage("from", 9, "to");
+
+    const sent = sendPayload.mock.calls[0]![2];
+    expect(sent).toMatchObject({ kind: "text", body: "yes", forwarded: true });
+    expect(sent).not.toHaveProperty("target");
+  });
+
+  it("refuses a file rather than sending it on unmarked", async () => {
+    message.mockResolvedValue({
+      id: 10,
+      body: "a.png",
+      payload: JSON.stringify({
+        kind: "attachment", s3_key: "k", key: "01", nonce: "02", sha256: "03",
+        name: "a.png", mime: "image/png", size: 1, id: "a1",
+      }),
+    });
+
+    await expect(forwardMessage("from", 10, "to")).rejects.toMatchObject({ kind: "rejected" });
+    expect(sendPayload).not.toHaveBeenCalled();
+  });
+
   it("names a forward of a message that never had a name", async () => {
     // Text stored without a payload predates names; its forward still gets one.
     message.mockResolvedValue({ id: 8, body: "old" });

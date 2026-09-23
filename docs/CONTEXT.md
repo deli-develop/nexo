@@ -638,7 +638,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-23 vitest files, 157 tests, run by `pnpm test`. They cluster on the pure
+23 vitest files, 160 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```

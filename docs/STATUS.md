@@ -1825,6 +1825,16 @@ Things the Rust client did that the page's port quietly did not.
   A forward is now new text with a name of its own — `forwardedText`, as
   `Payload::forwarded` builds it.
 
+- **Files could be forwarded, unmarked; replies could not be forwarded at
+  all.** The menu offers Forward on anything with a body, and a file's body is
+  its caption or its name, so every file had it — against the menu's own rule
+  that files are not forwarded. `forwardMessage` then sent the attachment
+  payload with a `forwarded` mark the protocol's attachment does not have and
+  the reader never draws, so it arrived as the forwarder's own file. Replies
+  had the entry and were refused ("That cannot be forwarded"). Now files have
+  no Forward (`hasAttachment` in the menu state) and `forwardMessage` refuses
+  them; a reply's words go on as ordinary forwarded text.
+
 **Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
 cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
 ended-session case and the voice case each fail against the code before the

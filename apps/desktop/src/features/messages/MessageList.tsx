@@ -717,6 +717,7 @@ function Bubble({
     messageMenuItems(
       {
         hasBody: !!message.body,
+        hasAttachment: (message.attachments?.length ?? 0) > 0,
         mine,
         clientId: message.clientId,
         retracted: !!message.retracted,

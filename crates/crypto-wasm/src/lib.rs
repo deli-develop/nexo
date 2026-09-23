@@ -521,6 +521,30 @@ pub struct Group {
     conversation: Conversation,
 }
 
+/// One member of a group, as `Group::members` answers.
+#[wasm_bindgen]
+pub struct Member {
+    device_id: String,
+    identity_key: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl Member {
+    /// The device, as the same string the server and `Decrypted::sender` use.
+    #[wasm_bindgen(getter, js_name = "deviceId")]
+    #[must_use]
+    pub fn device_id(&self) -> String {
+        self.device_id.clone()
+    }
+
+    /// The key that signs this device's messages in the group.
+    #[wasm_bindgen(getter, js_name = "identityKey")]
+    #[must_use]
+    pub fn identity_key(&self) -> Vec<u8> {
+        self.identity_key.clone()
+    }
+}
+
 #[wasm_bindgen]
 impl Group {
     /// A new conversation with this device as its only member.
@@ -571,6 +595,24 @@ impl Group {
     #[must_use]
     pub fn member_count(&self) -> usize {
         self.conversation.member_count()
+    }
+
+    /// Every member: which device, and the key that signs its messages.
+    ///
+    /// What safety numbers are computed from and what a changed key is noticed
+    /// by. Without it the page had no way to learn anyone's key, so neither
+    /// ever worked. A pass-through of `Conversation::members`, which skips a
+    /// credential this build did not put there rather than guessing at it.
+    #[must_use]
+    pub fn members(&self) -> Vec<Member> {
+        self.conversation
+            .members()
+            .into_iter()
+            .map(|member| Member {
+                device_id: member.device_id.to_string(),
+                identity_key: member.signature_key,
+            })
+            .collect()
     }
 
     /// Adds a device, from a KeyPackage it published.

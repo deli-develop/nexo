@@ -1849,6 +1849,18 @@ Things the Rust client did that the page's port quietly did not.
   message rows, received ones become openable — none can have been opened —
   and our own keep nothing.
 
+- **Safety numbers never worked, and a changed key could not be noticed.**
+  The key a safety number is computed from, and compared against to raise
+  "the safety number here has changed", is written by `Store.recordPeers` —
+  and after the port nothing called it, because `crates/crypto-wasm` gave the
+  page no way to read a group's members. So `safetyNumber` was always `null`,
+  "mark as verified" had nothing to mark, and a server substituting somebody's
+  key — the adversary `THREAT-MODEL.md` §4 names — would never have been
+  caught. The facade's `Group` now has `members()` over the existing
+  `Conversation::members`, and `recordMembership` records every other device's
+  key after each sync and after starting a conversation or adding somebody, as
+  the Rust client did; the first sight of a device is its baseline.
+
 **Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
 cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
 ended-session case and the voice case each fail against the code before the

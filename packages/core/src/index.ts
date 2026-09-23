@@ -85,7 +85,7 @@ export type {
   UnsupportedPayload,
   VoiceMeta,
 } from "./payload";
-export type { CryptoModule, Decrypted, Device, Group, Peeked, StagedCommit } from "./crypto";
+export type { CryptoModule, Decrypted, Device, Group, Member, Peeked, StagedCommit } from "./crypto";
 export { bindWasm } from "./wasm";
 export { bindPasswordWasm, bindObjectWasm } from "./wasm";
 export type { WasmModule } from "./wasm";

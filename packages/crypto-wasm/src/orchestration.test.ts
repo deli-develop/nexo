@@ -177,6 +177,33 @@ describe("core over the real MLS module", () => {
     expect((await alice.store.messages(id)).map((m) => m.body)).toContain("so they are");
   });
 
+  it("gives each device the other's key, and both the same safety number", async () => {
+    const server = new FakeServer();
+    const alice = await client(server, ALICE_DEVICE, "alice");
+    const bob = await client(server, BOB_DEVICE, "bob");
+    server.keyPackages.set("bob", []);
+    await conversations.publishKeyPackages(bob.ctx, 1);
+
+    const id = await conversations.startWith(alice.ctx, "bob");
+    await conversations.sync(bob.ctx, id);
+
+    // Nothing recorded a key before this, so there was no number to compare
+    // and no change a server could be caught making (THREAT-MODEL §4).
+    const onAlice = await alice.store.peers(id);
+    const onBob = await bob.store.peers(id);
+    expect(onAlice.map((peer) => peer.deviceId)).toEqual([BOB_DEVICE]);
+    expect(onBob.map((peer) => peer.deviceId)).toEqual([ALICE_DEVICE]);
+    // The key recorded is the one that device signs with, as a baseline.
+    expect(onAlice[0]!.identityKey).toEqual(bob.ctx.device.publicKey());
+    expect(onBob[0]!.identityKey).toEqual(alice.ctx.device.publicKey());
+    expect(onAlice[0]!.changedAtMs).toBeNull();
+    expect(onBob[0]!.changedAtMs).toBeNull();
+    // What the two people read to each other has to be one number.
+    expect(alice.ctx.device.safetyNumber(onAlice[0]!.identityKey)).toBe(
+      bob.ctx.device.safetyNumber(onBob[0]!.identityKey),
+    );
+  });
+
   it("does not report a sender's own envelopes as unreadable", async () => {
     const server = new FakeServer();
     const alice = await client(server, ALICE_DEVICE, "alice");

@@ -132,7 +132,7 @@ tables below.
 ```
 crates/protocol       1 608 ln   Wire types shared by client and server. No I/O, no crypto.
 crates/crypto         1 894 ln   MLS, the identity keypair, safety numbers, object crypto.
-crates/crypto-wasm      657 ln   The same, through wasm-bindgen, for a browser engine.
+crates/crypto-wasm      699 ln   The same, through wasm-bindgen, for a browser engine.
 apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
                       2 373 ln   The desktop shell: 17 Tauri commands, windowing, tray, the relay.
@@ -241,7 +241,7 @@ it, and [`REWORK.md`](REWORK.md) makes one page serve web, Windows and Android.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/lib.rs` | 657 | `Device` (identity, credential, signer, MLS provider), `Group` (one conversation), `Sealed` (`sealObject` / `openObject` for attachments and stories; `openSegmentedObject` for what the Rust client sealed in segments, and `sealSegmentedObject`, which only the tests call), `peek`, and `deriveVerifier`. Also the MLS state blob codec. |
+| `src/lib.rs` | 699 | `Device` (identity, credential, signer, MLS provider), `Group` (one conversation; `members()` answers each device and its signing key, for safety numbers), `Sealed` (`sealObject` / `openObject` for attachments and stories; `openSegmentedObject` for what the Rust client sealed in segments, and `sealSegmentedObject`, which only the tests call), `peek`, and `deriveVerifier`. Also the MLS state blob codec. |
 
 Three things to know before touching it:
 
@@ -667,17 +667,17 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/conversations.ts` | 1 198 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
+| `src/conversations.ts` | 1 239 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
 | `src/store.ts` | 951 | Everything this device keeps, over IndexedDB. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
 | `src/payload.ts` | 369 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
 | `src/idb.ts` | 301 | A promise over IndexedDB and the schema ladder, written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
 | `src/types.ts` | 140 | The wire, mirroring `crates/protocol`, which stays the authority. |
 | `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
-| `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
+| `src/crypto.ts` | 85 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
 | `src/wasm.ts` | 126 | `bindWasm`, `bindObjectWasm` and `bindPasswordWasm`: the lines between the facade's static constructors and the seam above. |
-| tests | 2 624 | 120 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 2 680 | 122 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
@@ -974,6 +974,16 @@ failed silently.
   once: the Rust `lock` left an authenticated WebSocket open behind the lock
   screen for months. Anything that adds a long-lived connection joins
   `lockSession`.
+- **Safety numbers rest on `recordMembership`, and it runs after every
+  membership change.** `Store.recordPeers` keeps each other device's signing
+  key; `safetyNumber` is computed from it and a key that differs from it is the
+  "safety number has changed" warning (`THREAT-MODEL.md` §4). `recordMembership`
+  in `core/src/conversations.ts` reads `Group.members()` and records everyone
+  but this device — at the end of every `sync`, before the cursor moves, and
+  after `startWith`, `startGroup` and `addTo`. After the port nothing called
+  `recordPeers` at all: no number could be shown and no change noticed. A new
+  path that changes membership calls it too. The members come from wasm as
+  getter classes, so copy their fields; a spread records nothing.
 - **A view-once's key lives in `viewOnce` and nowhere else.** Opening burns it
   there (`burnViewOnce`), so a copy anywhere else outlives the promise. The
   message row keeps `viewOnceBubble` — id, type, size — and `appendViewOnce`

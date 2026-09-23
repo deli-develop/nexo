@@ -3,7 +3,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as conversations from "./conversations";
-import type { CryptoModule, Decrypted, Device, Group, Peeked, StagedCommit } from "./crypto";
+import type { CryptoModule, Decrypted, Device, Group, Member, Peeked, StagedCommit } from "./crypto";
 import { Store } from "./store";
 import { Transport } from "./transport";
 import type { Envelope } from "./types";
@@ -33,6 +33,8 @@ class FakeGroup implements Group {
   abandoned = 0;
   staged: StagedCommit | null = null;
   encrypted: Uint8Array[] = [];
+  /** Who the group says is in it. A test sets this to change membership. */
+  roster: Member[] = [];
 
   /** Shared with the module, so a group made mid-sync still has its answers. */
   constructor(readonly answers: Array<Decrypted | "throw">) {}
@@ -49,6 +51,9 @@ class FakeGroup implements Group {
   }
   abandonCommit(): void {
     this.abandoned += 1;
+  }
+  members(): Member[] {
+    return this.roster;
   }
   encrypt(_device: Device, plaintext: Uint8Array): Uint8Array {
     this.encrypted.push(plaintext);
@@ -559,6 +564,57 @@ describe("syncing", () => {
       conversationId: "c1", s3Key: "obj/1", encKey: "the-key", nonce: "nn", sha256: "hh",
       mime: "image/png", size: 3, openedAtMs: null,
     });
+  });
+
+  it("records every other member's key on sync, and never this device's", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [envelope({ envelope_id: 3 })] }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    crypto.group!.roster = [
+      { deviceId: "mine", identityKey: Uint8Array.of(1) },
+      { deviceId: "them", identityKey: Uint8Array.of(2) },
+    ];
+    crypto.answers.push({
+      kind: "message", sender: "them", epoch: 1n,
+      plaintext: new TextEncoder().encode(JSON.stringify({ kind: "text", body: "hi" })),
+    });
+
+    await conversations.sync(ctx, "c1");
+
+    // The safety number is computed from this, and nothing wrote it before.
+    expect(await store.peers("c1")).toMatchObject([
+      { deviceId: "them", identityKey: Uint8Array.of(2), verifiedKey: null, changedAtMs: null },
+    ]);
+  });
+
+  it("flags a changed key on a later sync, which is what the warning is for", async () => {
+    const { ctx, store, crypto } = await context([
+      { status: 200, body: [envelope({ envelope_id: 3 })] },
+      { status: 200, body: [envelope({ envelope_id: 4 })] },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    const text = (body: string) => ({
+      kind: "message" as const, sender: "them", epoch: 1n,
+      plaintext: new TextEncoder().encode(JSON.stringify({ kind: "text", body })),
+    });
+    crypto.answers.push(text("first"), text("second"));
+
+    crypto.group!.roster = [{ deviceId: "them", identityKey: Uint8Array.of(2) }];
+    await conversations.sync(ctx, "c1");
+    // A key a server substituted between the two passes.
+    crypto.group!.roster = [{ deviceId: "them", identityKey: Uint8Array.of(9) }];
+    await conversations.sync(ctx, "c1");
+
+    const [peer] = await store.peers("c1");
+    expect(peer).toMatchObject({ deviceId: "them", identityKey: Uint8Array.of(9) });
+    expect(peer!.changedAtMs).not.toBeNull();
   });
 
   it("joins from a Welcome and skips everything at or before it", async () => {

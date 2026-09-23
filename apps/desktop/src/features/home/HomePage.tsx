@@ -23,6 +23,8 @@ import { Button, IconButton } from "../../components/ui/Button";
 import { Callout, EmptyState, Skeleton } from "../../components/ui/Feedback";
 import { Field } from "../../components/ui/Controls";
 import { Icon } from "../../components/ui/Icon";
+import { ContextMenu } from "../../components/ui/ContextMenu";
+import { block, confirmBlock } from "../../lib/blocks";
 import { Panel } from "../../components/ui/Surface";
 import { useLayout } from "../../app/useLayout";
 import { HomeChat } from "./HomeChat";
@@ -291,6 +293,19 @@ export function HomePage({ now }: { now: Date }) {
                         void live.toggleReaction(post.id, emoji)
                       }
                       onVote={(value) => void live.castVote(post.id, value)}
+                      onBlock={() =>
+                        void (async () => {
+                          if (!(await confirmBlock(post.author_display_name))) return;
+                          try {
+                            await block(post.author_handle);
+                            // The server drops their posts from the feed; the
+                            // reload is what takes them off this screen.
+                            await live.refresh();
+                          } catch (error) {
+                            await notify("Couldn't block", asFeedError(error).message);
+                          }
+                        })()
+                      }
                     />
                   </li>
                 ))}
@@ -557,6 +572,7 @@ function PostCard({
   onDelete,
   onReact,
   onVote,
+  onBlock,
 }: {
   post: Post;
   now: Date;
@@ -564,8 +580,10 @@ function PostCard({
   onDelete: () => void;
   onReact: (emoji: string) => void;
   onVote: (value: number) => void;
+  onBlock: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [threadOpen, setThreadOpen] = useState(false);
   const viewProfile = useApp((s) => s.viewProfile);
   const pickerWrap = useRef<HTMLDivElement>(null);
@@ -624,18 +642,40 @@ function PostCard({
             onClick={onDelete}
           />
         ) : (
+          // What can be done about somebody else's post, from what exists.
+          // It used to say muting and reporting "arrive with the feed
+          // milestone" and offer nothing; blocking was already there, one
+          // profile away. Reporting is not here because nothing in the page
+          // sends a report yet.
           <IconButton
             name="more"
             label="Post options"
             size={16}
-            onClick={() =>
-              void notify(
-                "Post options",
-                "Muting authors and reporting posts arrive with the feed milestone.",
-              )
-            }
+            active={menuAt !== null}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              setMenuAt({ x: box.right, y: box.bottom + 4 });
+            }}
           />
         )}
+        {menuAt ? (
+          <ContextMenu
+            at={menuAt}
+            onClose={() => setMenuAt(null)}
+            items={[
+              {
+                label: `View @${post.author_handle}`,
+                icon: "user",
+                onSelect: () => viewProfile(post.author_handle),
+              },
+              {
+                label: `Block ${post.author_display_name}`,
+                danger: true,
+                onSelect: onBlock,
+              },
+            ]}
+          />
+        ) : null}
       </header>
 
       {post.title ? (

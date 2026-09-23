@@ -18,6 +18,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Icon } from "../../components/ui/Icon";
 import { ContextMenu, type MenuItem } from "../../components/ui/ContextMenu";
 import { cn } from "../../lib/cn";
+import { useSignOut } from "../auth/useSignOut";
 
 /**
  * The Messages cells of the top row: the account, the conversation, the panel
@@ -73,6 +74,14 @@ export function MessagesHeader({
   const [addOpen, setAddOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [accountMenuAt, setAccountMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const { signOut } = useSignOut();
+  const accountMenu: MenuItem[] = [
+    { label: "Your profile", icon: "user", onSelect: () => go("profile") },
+    { label: "Settings", icon: "settings", onSelect: () => go("settings") },
+    { label: "", separator: true },
+    { label: "Sign out", icon: "logout", danger: true, onSelect: () => void signOut() },
+  ];
 
   // The column from 1280px up, the sheet or the phone's screen below it —
   // the same button either way. See `contextSheetOpen`.
@@ -113,13 +122,19 @@ export function MessagesHeader({
             <span className="text-text-lo block truncate text-[11px]">@{account?.handle ?? ""}</span>
           </button>
           <div className="no-drag">
+            {/* What there is to do about your own account, from the top of
+                the list. It used to say account switching "arrives in a later
+                milestone" and offer nothing. Sign-out is here as well as on
+                the rail, because this is where people look for it. */}
             <IconButton
               name="more"
               label="Account options"
               size={16}
-              onClick={() =>
-                void notify("Account options", "Switching accounts and adding a second device arrive in a later milestone.")
-              }
+              active={accountMenuAt !== null}
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                setAccountMenuAt({ x: box.right, y: box.bottom + 4 });
+              }}
             />
           </div>
         </div>
@@ -224,6 +239,13 @@ export function MessagesHeader({
 
       {menuAt ? (
         <ContextMenu items={phoneMenu} at={menuAt} onClose={() => setMenuAt(null)} />
+      ) : null}
+      {accountMenuAt ? (
+        <ContextMenu
+          items={accountMenu}
+          at={accountMenuAt}
+          onClose={() => setAccountMenuAt(null)}
+        />
       ) : null}
 
       {conversation && !layout.phone ? (

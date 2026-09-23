@@ -630,7 +630,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
-| `blocks.ts` | 35 | Blocking. |
+| `blocks.ts` | 53 | Blocking, and `confirmBlock`: the one wording every place that offers it asks with (a profile, a post's menu). |
 | `cn.ts` | 5 | Class-name join. |
 
 #### `mock/`

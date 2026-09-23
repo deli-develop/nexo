@@ -1935,6 +1935,15 @@ could not have caught.
   says nothing: the feed changing is the answer, and a failure shows where
   every feed failure already does.
 
+- **Two "⋯" buttons open menus instead of apologising.** The one beside your
+  name in Messages said account switching "arrives in a later milestone"; it
+  now offers your profile, Settings and sign-out. The one on somebody else's
+  post said muting and reporting "arrive with the feed milestone"; it now
+  offers their profile and blocking them, with the same confirmation the
+  profile page asks (`confirmBlock`), and reloads the feed after. **Reporting
+  is still not offered anywhere:** `reportUser` exists in `lib/people.ts` and
+  nothing in the page calls it.
+
 **Verified** at 375 and 1440 CSS px in a browser, with the shell and the
 Messages pane mounted on fixture data. Not driven on a device, and not signed
 in: the dev page cannot reach the production API, so everything that needs a

@@ -16,8 +16,8 @@ import {
 } from "../../lib/feed";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button } from "../../components/ui/Button";
-import { block, listBlocks, unblock } from "../../lib/blocks";
-import { confirm, notify } from "../../lib/native";
+import { block, confirmBlock, listBlocks, unblock } from "../../lib/blocks";
+import { notify } from "../../lib/native";
 import { Callout, EmptyState, Skeleton } from "../../components/ui/Feedback";
 import { Icon } from "../../components/ui/Icon";
 import { Panel } from "../../components/ui/Surface";
@@ -142,14 +142,7 @@ export function PublicProfile({ handle, now }: { handle: string; now: Date }) {
   async function toggleBlock() {
     if (!profile || blocking) return;
     if (!blocked) {
-      const ok = await confirm(
-        `Block ${profile.display_name}?`,
-        "Their posts leave your feed, yours leave theirs, and neither of you can start a " +
-          "conversation with the other. Messages already delivered stay where they are — they " +
-          "are on each other's machines and the server never had the keys. Blocking also " +
-          "cannot stop somebody making a second account.",
-      );
-      if (!ok) return;
+      if (!(await confirmBlock(profile.display_name))) return;
     }
     setBlocking(true);
     try {

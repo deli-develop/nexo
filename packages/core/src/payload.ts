@@ -162,6 +162,22 @@ export type Payload =
   | UnsupportedPayload;
 
 /**
+ * A forward, as `Payload::forwarded` in `crates/protocol` builds one.
+ *
+ * New text with a name of its own. Spreading the original instead kept its
+ * name, so forwarding one message twice into a conversation, or a forward back
+ * where it came from, left two messages there answering to one name — and an
+ * edit, a retraction or a reaction reached whichever the store found first.
+ * `from` is what the forwarding device believes the author to be, absent
+ * when it cannot tell.
+ */
+export function forwardedText(body: string, id: string, from?: string): TextPayload {
+  const payload: TextPayload = { kind: "text", body, id, forwarded: true };
+  if (from !== undefined) payload.forwarded_from = from;
+  return payload;
+}
+
+/**
  * A voice note's length and waveform, as `VoiceMeta` in `crates/protocol`.
  *
  * `duration_ms` is a `u32`; `peaks` is at most `MAX_PEAKS` bytes, `0`–`255`.

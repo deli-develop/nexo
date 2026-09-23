@@ -66,6 +66,7 @@ export {
   decodePayload,
   encodePayload,
   encodePayloadString,
+  forwardedText,
   isReactionEmoji,
   MAX_PEAKS,
   payloadId,

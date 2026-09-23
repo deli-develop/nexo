@@ -47,8 +47,10 @@ function harness(answers: Array<{ status: number; body: unknown }>) {
 
   const put = vi.fn(async (_url: string, _bytes: Uint8Array, _type: string) => {});
   const sent: Payload[] = [];
+  let next = 0;
   const ctx: attachments.AttachmentContext = {
     transport,
+    uuid: () => `uuid-${++next}`,
     crypto: fakeCrypto,
     objects: { put, get: async () => Uint8Array.of(0xff, 7, 8) },
     sendPayload: async (_id, payload) => {
@@ -124,6 +126,20 @@ describe("attachments", () => {
     expect(sent[0]).toMatchObject({ voice: { duration_ms: 4200, peaks: [3, 140, 255] } });
   });
 
+  it("names every file it sends, so it can be answered and reacted to", async () => {
+    const { ctx, sent } = harness([
+      { status: 200, body: { url: "https://s3/put", key: "k1" } },
+      { status: 200, body: { url: "https://s3/put", key: "k2" } },
+    ]);
+
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(1), { name: "a.png", mime: "image/png" });
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(2), { name: "b.png", mime: "image/png" });
+
+    // Reply, React and Edit all refer to a message by this name, and the menu
+    // offers none of them to a message without one. Each file its own.
+    expect(sent.map((payload) => (payload as { id?: string }).id)).toEqual(["uuid-1", "uuid-2"]);
+  });
+
   it("leaves voice off the wire for a file nobody recorded", async () => {
     const { ctx, sent } = harness([{ status: 200, body: { url: "https://s3/put", key: "k1" } }]);
 
@@ -179,6 +195,15 @@ describe("attachments", () => {
     ).rejects.toMatchObject({ kind: "rejected" });
   });
 
+  it("names every sticker it sends", async () => {
+    const { ctx, sent } = harness([]);
+
+    await attachments.sendSticker(ctx, "c1", "classic", "wave");
+
+    // `message_id`, because `id` on a sticker already means which sticker.
+    expect(sent[0]).toEqual({ kind: "sticker", pack: "classic", id: "wave", message_id: "uuid-1" });
+  });
+
   it("sends a sticker without uploading anything", async () => {
     const { ctx, put, sent } = harness([]);
 
@@ -187,6 +212,6 @@ describe("attachments", () => {
     // Stickers ship with the app. Sending the picture would be sending the
     // same fifty kilobytes every time anybody used it.
     expect(put).not.toHaveBeenCalled();
-    expect(sent[0]).toEqual({ kind: "sticker", pack: "classic", id: "wave" });
+    expect(sent[0]).toMatchObject({ kind: "sticker", pack: "classic", id: "wave" });
   });
 });

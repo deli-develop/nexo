@@ -4,6 +4,7 @@ import {
   attachments as coreAttachments,
   conversations as core,
   decodePayload,
+  forwardedText,
   voiceMeta,
   type Payload,
   type StoredMessage,
@@ -530,10 +531,14 @@ export async function forwardMessage(
   if (payload.kind !== "text" && payload.kind !== "attachment") {
     throw new TransportError("rejected", "That cannot be forwarded.");
   }
-  const forwarded = { ...payload, forwarded: true } as typeof payload & {
-    forwarded_from?: string;
-  };
-  if (forwardedFrom !== undefined) forwarded.forwarded_from = forwardedFrom;
+  // A name of its own, never the original's: two messages in one
+  // conversation answering to one name is an edit or a reaction landing on
+  // the wrong one.
+  const id = globalThis.crypto.randomUUID();
+  const forwarded: Payload =
+    payload.kind === "text"
+      ? forwardedText(payload.body, id, forwardedFrom)
+      : { ...payload, forwarded: true, id, ...(forwardedFrom !== undefined ? { forwarded_from: forwardedFrom } : {}) };
   await core.sendPayload(await it.context(), toConversationId, forwarded);
 }
 

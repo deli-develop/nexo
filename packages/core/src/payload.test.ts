@@ -5,6 +5,7 @@ import {
   decodePayload,
   encodePayload,
   encodePayloadString,
+  forwardedText,
   preview,
   voiceMeta,
 } from "./payload";
@@ -90,6 +91,28 @@ describe("payload", () => {
     expect(decodePayload(encodePayload(story))).toEqual(story);
     const { story_id: _newField, ...legacy } = story;
     expect(decodePayload(JSON.stringify(legacy))).toEqual(legacy);
+  });
+});
+
+/**
+ * A forward, as `Payload::forwarded` in `crates/protocol` builds it: new text
+ * with a name of its own, never a copy of the original's.
+ */
+describe("forwardedText", () => {
+  it("is text with a fresh name, the mark, and the author when known", () => {
+    expect(forwardedText("hello", "new-id", "ada")).toEqual({
+      kind: "text",
+      body: "hello",
+      id: "new-id",
+      forwarded: true,
+      forwarded_from: "ada",
+    });
+  });
+
+  it("leaves the author off when it cannot be told", () => {
+    const payload = forwardedText("hello", "new-id");
+    expect(payload).toEqual({ kind: "text", body: "hello", id: "new-id", forwarded: true });
+    expect(JSON.stringify(payload)).not.toContain("forwarded_from");
   });
 });
 

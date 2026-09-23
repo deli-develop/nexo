@@ -72,6 +72,8 @@ export interface AttachmentContext {
   transport: Transport;
   crypto: ObjectCrypto;
   objects: ObjectStore;
+  /** Injectable so a test can pin names. Defaults to `crypto.randomUUID`. */
+  uuid?: () => string;
   /** Wired to `conversations.sendPayload` by the session layer. */
   sendPayload(conversationId: string, payload: Payload): Promise<number | null>;
 }
@@ -115,6 +117,9 @@ export async function sendAttachment(
     name: meta.name,
     mime: meta.mime,
     size: sealed.size,
+    // The name Reply, React and Edit refer to. The Rust client always set it;
+    // the port did not, so no file sent from the page could be answered.
+    id: uuid(ctx),
   };
   // Absent rather than empty: adding a field must not change a byte of what a
   // message without it puts on the wire.
@@ -208,8 +213,9 @@ export function sendSticker(
   id: string,
   messageId?: string,
 ): Promise<number | null> {
-  const payload: Payload = { kind: "sticker", pack, id };
-  if (messageId !== undefined) payload.message_id = messageId;
+  // `message_id` is the message's name, as `id` is on text — `id` here
+  // already means which sticker. Without it nothing can refer to the message.
+  const payload: Payload = { kind: "sticker", pack, id, message_id: messageId ?? uuid(ctx) };
   return ctx.sendPayload(conversationId, payload);
 }
 
@@ -234,6 +240,9 @@ export async function setGroupAvatar(
 }
 
 // ------------------------------------------------------------------ internals
+
+const uuid = (ctx: AttachmentContext): string =>
+  (ctx.uuid ?? (() => globalThis.crypto.randomUUID()))();
 
 async function upload(
   ctx: AttachmentContext,

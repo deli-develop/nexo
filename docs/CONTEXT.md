@@ -638,7 +638,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-22 vitest files, 155 tests, run by `pnpm test`. They cluster on the pure
+23 vitest files, 157 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -646,7 +646,7 @@ app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · use
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection
-lib/          auth · dialogs · format · images · media
+lib/          auth · dialogs · format · forward · images · media
 mock/         data
 ```
 
@@ -669,7 +669,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 |---|---|---|
 | `src/conversations.ts` | 905 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
 | `src/store.ts` | 898 | Everything this device keeps, over IndexedDB. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
-| `src/payload.ts` | 342 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
+| `src/payload.ts` | 358 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
 | `src/idb.ts` | 175 | A promise over IndexedDB and the schema ladder, written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
 | `src/types.ts` | 140 | The wire, mirroring `crates/protocol`, which stays the authority. |
@@ -677,7 +677,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
 | `src/wasm.ts` | 126 | `bindWasm`, `bindObjectWasm` and `bindPasswordWasm`: the lines between the facade's static constructors and the seam above. |
-| tests | 2 490 | 113 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 2 538 | 117 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**

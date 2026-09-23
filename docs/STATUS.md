@@ -1811,6 +1811,20 @@ Things the Rust client did that the page's port quietly did not.
   ciphertext's length — every segment is its plaintext plus a 16-byte tag —
   before anything is allocated.
 
+- **Files and stickers sent from the page could not be answered.** The Rust
+  client named every attachment (`id`) and every sticker (`message_id`); the
+  port set neither, and Reply, React and Edit are only offered on a message
+  with a name — so no file, picture, voice note or sticker sent from the page
+  could be replied to or reacted to, by anybody. `sendAttachment` and
+  `sendSticker` name each one.
+
+- **A forward kept the original's name.** `forwardMessage` spread the original
+  payload, so forwarding one message twice into a conversation, or a forward
+  back where it came from, left two messages there answering to one name, and
+  an edit, a retraction or a reaction reached whichever the store found first.
+  A forward is now new text with a name of its own — `forwardedText`, as
+  `Payload::forwarded` builds it.
+
 **Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
 cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
 ended-session case and the voice case each fail against the code before the

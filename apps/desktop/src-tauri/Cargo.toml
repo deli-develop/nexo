@@ -39,8 +39,8 @@ thiserror.workspace = true
 ureq.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-# Relay: Tokio runtime and async I/O for the relay runner.
-tokio = { workspace = true, features = ["net", "rt", "sync", "time"] }
+# The relay listener (relay.rs): sockets, the accept loop, copying bytes.
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "time"] }
 # Windows integration (§8). Pinned exactly, like everything else (rule 8).
 tauri-plugin-notification = "=2.3.3"
 

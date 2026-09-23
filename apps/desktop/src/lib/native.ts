@@ -458,8 +458,10 @@ export interface RelayAddress {
 }
 
 /**
- * Starts the relay listener on a random port. Returns the WebSocket URL the
- * TypeScript side should connect to, or `null` when a relay is already running.
+ * Starts the relay listener on `127.0.0.1:<port>`, `0` for any free port, and
+ * answers the address it actually bound. A relay that is already running is
+ * answered as it is rather than started twice. `null` when it could not start:
+ * in a browser, or on a port something else holds.
  */
 export async function startRelay(port: number): Promise<RelayAddress | null> {
   try {
@@ -488,7 +490,7 @@ export async function stopRelay(): Promise<boolean> {
  */
 export async function getRelayInfo(): Promise<RelayAddress | null> {
   try {
-    const info = await invoke<RelayAddress | null>("get_relay_info");
+    const info = await invoke<RelayAddress | null>("relay_status");
     return info;
   } catch {
     return null;

@@ -1778,44 +1778,48 @@ check this.
 ## Relay (M5)
 
 **A prototype, not a working feature.** [`RELAY.md`](RELAY.md) is the design;
-what exists is a first cut of its byte pipe, and nothing in the app calls it.
-The server and `crates/protocol` know nothing about a relay.
+what exists is the listener half of its byte pipe, and nothing in the app calls
+it. The server and `crates/protocol` know nothing about a relay.
 
 What is in the tree:
 
-- **`apps/desktop/src-tauri/src/commands.rs`** — `start_relay(port)` binds a
-  `TcpListener` on `127.0.0.1:<port>`, spawns an accept loop, and for each
-  connection dials the forwarding target and copies bytes both ways
-  (`relay_forward`, one task per direction, 60 s idle timeout). `stop_relay`
-  and `relay_status` look up the managed state. All three are registered in
-  `generate_handler!`. `tokio` was added to the shell for this.
+- **`apps/desktop/src-tauri/src/relay.rs`** — the listener. `start_relay(port)`
+  binds `127.0.0.1:<port>` (`0` for any free port) *before* answering, so a
+  taken port is an error and the address answered is the one bound; a second
+  start answers the running relay instead of opening another. Each connection
+  dials the forwarding target and is copied both ways with
+  `copy_bidirectional`. Every connection is a task in one `JoinSet` owned by
+  the accept loop, so `stop_relay` closes the listener **and** what it
+  forwarded. `relay_status` answers the address or `None`. Managed from
+  startup in `lib.rs`; the three commands in `commands.rs` are one line each.
 - **`packages/core/src/relay.ts`** — `RelayTransport`: a WebSocket to that
   listener, a JSON-RPC `relay_connect` handshake, a ping timer, and up to five
   reconnects.
 - **`apps/desktop/src/lib/runtime.ts`** — `startRelay()` / `stopRelay()` start
   the listener and connect a `RelayTransport` to the URL it answers.
 - **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
-  `getRelayInfo`.
+  `getRelayInfo`, over the three commands, `wsUrl` in camelCase as the shell
+  now sends it.
 
-Why it does not work yet, each checked against the code:
+Why it does not carry traffic yet:
 
-- The forwarding target is the placeholder `wss://relay.example.com`, and
-  `TcpStream::connect` wants `host:port`, not a URL — every forward fails.
-- `start_relay(0)` asks for a free port and answers `ws://127.0.0.1:0`: the
-  requested address, not `listener.local_addr()`.
-- `RelayInfo` serialises as `ws_url`; `native.ts` reads `wsUrl`, which is
-  `undefined`.
-- The state is managed as `Arc<RelayState>` and looked up as `RelayState`, so
-  `stop_relay` always answers `false` and `relay_status` always `None`. Even
-  found, `stop_relay` would not end the accept loop, and a second
-  `start_relay` spawns a second listener.
-- `getRelayInfo()` invokes `get_relay_info`; the command is `relay_status`.
-- The listener is a raw TCP pipe, but `RelayTransport` speaks WebSocket and
-  waits for a JSON-RPC answer to `relay_connect` that nothing sends.
-- `runtime.startRelay()` connects this device's own client to its own local
-  listener. In `RELAY.md` a volunteer forwards *other* people's traffic,
-  reached across a NAT, and the open questions there are still open.
+- **No target.** The forwarding target is the placeholder
+  `wss://relay.example.com`, which `TcpStream::connect` cannot dial — it wants
+  `host:port`, not a URL — so every forward fails.
+- **Two protocols.** The listener is a raw TCP pipe, but `RelayTransport`
+  speaks WebSocket and waits for a JSON-RPC answer to `relay_connect` that
+  nothing sends. And `fetch` from the page cannot be pointed at either: a
+  WebView has no per-request proxy.
+- **Two roles in one call.** `runtime.startRelay()` connects this device's own
+  client to its own listener. In `RELAY.md` a volunteer forwards *other*
+  people's traffic, reached across a NAT — which a loopback listener cannot
+  be — and the open questions there are still open.
 
-**Checked:** `pnpm build`, `cargo fmt --check` and `cargo clippy -p
-nexo-desktop --all-targets -- -D warnings` pass. Nothing above has been run
-end to end.
+Those three are one decision — how a blocked user's traffic reaches a relay —
+and not a bug each.
+
+**Checked:** `cargo test -p nexo-desktop` drives the listener for real: a port
+of `0` answers the port it got, starting twice answers one relay, a taken port
+is an error, bytes go both ways through it to an echo server, and stopping
+ends both the listener and a connection that was open through it.
+`cargo clippy -p nexo-desktop --all-targets -- -D warnings`, `pnpm build`.

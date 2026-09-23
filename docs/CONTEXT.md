@@ -135,7 +135,7 @@ crates/crypto         2 449 ln   MLS, the identity keypair, safety numbers, obje
 crates/crypto-wasm      616 ln   The same, through wasm-bindgen, for a browser engine.
 apps/server          11 565 ln   axum API + MLS Delivery Service (Linux aarch64).
 apps/desktop/src-tauri
-                      1 607 ln   The desktop shell: 15 Tauri commands, windowing, tray, relay listener.
+                      1 741 ln   The desktop shell: 15 Tauri commands, windowing, tray, relay listener.
 apps/desktop/src     23 035 ln   React 19 page (TypeScript, Tailwind, Zustand). Every host runs this.
 packages/core         7 293 ln   The client's brain in TypeScript. Session, transport, store, MLS.
 packages/design-tokens           Colour, type, radius, motion. CSS authored, JSON derived.
@@ -435,16 +435,17 @@ rule 2 lived here — what crossed into the WebView was already decrypted and
 nothing else did. That arrangement cannot exist in a browser, which has no
 other side, so all of it moved to `packages/core`.
 
-What is left is 1 607 lines and **fifteen commands**: a window, a tray, toasts,
+What is left is 1 741 lines and **fifteen commands**: a window, a tray, toasts,
 autostart, a link preview, an updater and the relay listener. `src-tauri/Cargo.toml` depends on no
 Nexo crate and no OpenMLS crate — it is a Tauri app with no cryptography in it.
 
 | File | Ln | Cmds | Owns |
 |---|---|---|---|
-| `src/lib.rs` | 133 | — | The builder: plugins, `WindowPrefs`, and the `generate_handler!` list. **Every new command is registered here.** Desktop-only plugins sit behind `cfg(desktop)`. |
+| `src/lib.rs` | 135 | — | The builder: plugins, the managed state (`WindowPrefs`, `Relay`), and the `generate_handler!` list. **Every new command is registered here.** Desktop-only plugins sit behind `cfg(desktop)`. |
 | `src/main.rs` | 7 | — | Calls into `lib.rs`. Nothing else. |
-| `src/commands.rs` | 426 | 15 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater, and the relay listener ([`RELAY.md`](RELAY.md); a prototype, see [`STATUS.md`](STATUS.md#relay-m5)). `cfg(mobile)` variants answer honestly where Android owns the feature. |
+| `src/commands.rs` | 267 | 15 | Version, toasts, tray count, focus, window backdrop, close-to-tray, autostart, `forget_account`, link preview, updater, and start/stop/status for the relay. `cfg(mobile)` variants answer honestly where Android owns the feature. |
 | `src/preview.rs` | 534 | — | Link previews. Off by default, on purpose (§4.5). |
+| `src/relay.rs` | 291 | — | The relay listener ([`RELAY.md`](RELAY.md)): one at a time, bound before it answers, and stopping it aborts every connection it forwarded. **A prototype** — its forwarding target is a placeholder and it listens on loopback only; [`STATUS.md`](STATUS.md#relay-m5) says what is missing. |
 | `src/windows.rs` | 507 | — | Tray, notifications, single instance, autostart, window creation, DWM backdrop, `close_action`, `forget_account`. |
 
 #### Every IPC command

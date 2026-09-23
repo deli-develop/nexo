@@ -30,6 +30,7 @@
 
 mod commands;
 mod preview;
+mod relay;
 mod windows;
 
 /// Start the app.
@@ -38,6 +39,7 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(windows::WindowPrefs::default())
+        .manage(relay::Relay::default())
         .plugin(tauri_plugin_dialog::init())
         // Writing one file, where the Save dialog just put it. Opening is an
         // ordinary <input type="file"> and needs no plugin at all -- which is

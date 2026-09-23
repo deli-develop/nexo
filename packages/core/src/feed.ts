@@ -355,19 +355,81 @@ export async function uploadBytes(
   doFetch: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<string> {
   const ticket = await uploadUrl(transport, bytes.byteLength, bucket);
+  await objectRequest(doFetch, ticket.url, {
+    method: "PUT",
+    body: bytes as unknown as BodyInit,
+    headers: { "content-type": contentType },
+  });
+  return ticket.key;
+}
+
+/**
+ * Reads one picture from the bucket, as bytes the page can draw.
+ *
+ * Fetched rather than handed to the page as a URL, because the CSP's `img-src`
+ * names no remote host and is not going to: the bytes arrive through
+ * `connect-src`, which already names the object store, and are drawn from a
+ * `blob:` URL.
+ *
+ * The type comes from the bytes, never from the response. Whoever uploaded
+ * the object chose its `Content-Type` — the presigned PUT signs only the host —
+ * and a `blob:` URL carries this page's origin, so a stored `text/html` handed
+ * on as-is would be a document the page vouches for. Anything that is not
+ * one of the four picture formats is refused.
+ */
+export async function downloadImage(
+  transport: Transport,
+  key: string,
+  bucket: Bucket = "media",
+  doFetch: typeof globalThis.fetch = globalThis.fetch,
+): Promise<{ bytes: Uint8Array; mime: string }> {
+  const url = await imageUrl(transport, key, bucket);
+  const response = await objectRequest(doFetch, url, { method: "GET" });
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const mime = sniffImage(bytes);
+  if (!mime) throw new TransportError("rejected", "That file is not a picture.");
+  return { bytes, mime };
+}
+
+/**
+ * Which picture format these bytes are, from their first few, or `null`.
+ *
+ * The four a browser draws everywhere and the only four a profile or a post
+ * carries. The same signatures the Rust client's `sniff_mime` used before the
+ * page became the client.
+ */
+export function sniffImage(bytes: Uint8Array): string | null {
+  const starts = (...signature: number[]) => signature.every((byte, at) => bytes[at] === byte);
+  const ascii = (from: number, text: string) =>
+    [...text].every((char, at) => bytes[from + at] === char.charCodeAt(0));
+
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (ascii(0, "GIF87a") || ascii(0, "GIF89a")) return "image/gif";
+  // RIFF is also WAV's container; the four bytes at 8 are what tell them apart.
+  if (bytes.length >= 12 && ascii(0, "RIFF") && ascii(8, "WEBP")) return "image/webp";
+  return null;
+}
+
+/**
+ * One request to object storage, with its failures as `TransportError`s.
+ *
+ * `credentials: "omit"` and no bearer token: the URL carries its own
+ * permission, and this is a third party.
+ */
+async function objectRequest(
+  doFetch: typeof globalThis.fetch,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
   let response: Response;
   try {
-    response = await doFetch(ticket.url, {
-      method: "PUT",
-      body: bytes as unknown as BodyInit,
-      headers: { "content-type": contentType },
-      credentials: "omit",
-    });
+    response = await doFetch(url, { ...init, credentials: "omit" });
   } catch (cause) {
     throw TransportError.unreachable(cause instanceof Error ? cause.message : String(cause));
   }
   if (!response.ok) {
     throw new TransportError("rejected", `The storage provider returned ${response.status}.`);
   }
-  return ticket.key;
+  return response;
 }

@@ -2,41 +2,26 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 
 import { cn } from "../../lib/cn";
-import { imageUrl } from "../../lib/feed";
+import { acquireImage } from "../../lib/images";
 import { fieldFor } from "../../lib/palette";
 
 /**
  * An image stored in object storage, rendered from its key.
  *
- * The bucket is private (§5.3), so there is no URL to put in a `src` — every
- * read goes through a presigned GET with a 60-minute life. This component asks
- * Rust for one, remembers it, and draws the image.
+ * The bucket is private (§5.3), so there is no public URL — every read goes
+ * through a presigned GET. And the presigned URL is not drawn either: the CSP's
+ * `img-src` names no remote host, so the bytes are fetched and drawn from a
+ * `blob:` URL. `lib/images.ts` owns that URL — it shares one per key between
+ * everything drawing the same picture and revokes it once nothing does, which
+ * is why this component holds a handle while it is mounted and gives it back
+ * when it is not.
  *
- * A generated field stands in while the URL is on its way and stays if it never
- * arrives, so a feed with a dead object still lays out correctly instead of
- * collapsing to zero height or showing a broken-image glyph.
- *
- * # A note on caching
- *
- * URLs are memoised per key for the process's lifetime, because a feed scrolled
- * back and forth would otherwise presign the same object repeatedly. They are
- * not persisted: a presigned URL is a bearer credential for one object, and
- * writing a pile of them to disk to save a few round trips would be trading a
- * real property for a small one.
+ * A generated field stands in while the picture is on its way and stays if it
+ * never arrives, so a feed with a dead object still lays out correctly instead
+ * of collapsing to zero height or showing a broken-image glyph. Nothing is
+ * persisted: a presigned URL is a bearer credential for one object, and the
+ * bytes are somebody's picture.
  */
-const urls = new Map<string, Promise<string>>();
-
-function presign(key: string): Promise<string> {
-  const existing = urls.get(key);
-  if (existing) return existing;
-  const pending = imageUrl(key);
-  urls.set(key, pending);
-  // A failure must not be cached: the next render should try again rather than
-  // inherit a rejected promise forever.
-  void pending.catch(() => urls.delete(key));
-  return pending;
-}
-
 export function RemoteImage({
   imageKey,
   alt,
@@ -65,7 +50,8 @@ export function RemoteImage({
   useEffect(() => {
     let cancelled = false;
     setUrl(null);
-    void presign(imageKey)
+    const image = acquireImage(imageKey);
+    void image.url
       .then((next) => {
         if (!cancelled) setUrl(next);
       })
@@ -76,6 +62,7 @@ export function RemoteImage({
       });
     return () => {
       cancelled = true;
+      image.release();
     };
   }, [imageKey]);
 

@@ -10,9 +10,9 @@ import { profile as profileCall, type Profile } from "./feed";
  * `/v1/users/{handle}`, and without somewhere to keep the answer every avatar
  * in a message list would be its own request on every render.
  *
- * Memoised per process, like the presigned URLs in `RemoteImage` and for the
- * same reason: a list that scrolls would otherwise ask for the same profile
- * over and over. Not persisted — a display name or a picture can change, and a
+ * Memoised per process, like the pictures in `lib/images.ts` and for the same
+ * reason: a list that scrolls would otherwise ask for the same profile over
+ * and over. Not persisted — a display name or a picture can change, and a
  * stale one on disk outlives the session that would have corrected it.
  */
 

@@ -25,7 +25,7 @@ for you. They list every file in the repository with one line about what it
 owns, so finding the right one costs a scan rather than a `grep` over the whole
 tree.
 
-`docs/` holds ~480 KB of prose, and this file is ~71 KB of it. The rule it
+`docs/` holds ~480 KB of prose, and this file is ~72 KB of it. The rule it
 teaches applies to itself: scan the one section you need, skip the rest.
 
 ## How to keep it
@@ -533,7 +533,7 @@ this is the index.
 | `ImageCropper.tsx` | 206 | Choosing which part of a picture to use, before it is uploaded. |
 | `TextContextMenu.tsx` | 159 | The text-field menu — puts the caret back where it was, then acts. |
 | `StickerPicker.tsx` | 110 | The sticker picker. |
-| `RemoteImage.tsx` | 105 | An image in object storage, rendered from its key. |
+| `RemoteImage.tsx` | 92 | An image in object storage, rendered from its key — fetched, never linked, because `img-src` names no remote host. |
 | `Feedback.tsx` | 104 | `Callout`, `Pill`, empty states. |
 | `DialogHost.tsx` | 98 | Where everything the app has to say is drawn. Modals **queue**, they do not stack. |
 | `Button.tsx` | 88 | `Button`, `IconButton`. |
@@ -609,7 +609,8 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 |---|---|---|
 | `conversations.ts` | 780 | The 45 conversation commands. |
 | `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
-| `feed.ts` | 338 | Feed, posts, comments, profiles, images. |
+| `feed.ts` | 341 | Feed, posts, comments, profiles; uploading a picture, and fetching one as a `blob:` URL. |
+| `images.ts` | 102 | Pictures from object storage for `RemoteImage`: one `blob:` URL per key, shared and reference-counted, revoked once nothing draws it. |
 | `people.ts` | 127 | Search, invitations, reporting. |
 | `stories.ts` | 75 | Stories. Its errors narrow with `asConversationError`, because that is what the Rust side answers in. |
 | `types.ts` | 270 | The shapes the UI renders. |
@@ -632,7 +633,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-21 vitest files, 149 tests, run by `pnpm test`. They cluster on the pure
+21 vitest files, 151 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -640,7 +641,7 @@ app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · use
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection
-lib/          dialogs · format · media
+lib/          dialogs · format · images · media
 mock/         data
 ```
 
@@ -671,7 +672,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/crypto.ts` | 72 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
 | `src/wasm.ts` | 48 | `bindWasm`: the twenty lines between the facade's static constructors and the seam above. |
-| tests | 2 311 | 99 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 2 378 | 104 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
@@ -1029,12 +1030,17 @@ failed silently.
 - **Two different questions decide what an attachment is**, and only one of
   them is about safety. `lib/media.ts` reads the sender's declared MIME to pick
   a *layout* — that value is guessed from a file extension and is not evidence.
-  What the page may actually be handed is decided in Rust from the bytes:
-  `feed::sniff_mime`, then `is_renderable` (a picture or a video — what a story
-  or a profile picture may be) or `is_playable` (also sound — what a
-  conversation may be). Never widen the first to fix the second, and never test
-  for `"application/octet-stream"` instead of asking one of those two: that
-  spelling silently accepts whatever the sniffer learns next.
+  What the page may actually be handed has to be decided from the bytes, and
+  a `blob:` URL carries this page's origin, so the type it is given matters.
+  **Until the rework** that was Rust: `feed::sniff_mime`, then `is_renderable`
+  or `is_playable`. That file was deleted with the Rust client. **Today** only
+  pictures from the bucket are sniffed — `feed.sniffImage` in `packages/core`,
+  called by `downloadImage` for `RemoteImage`. Attachments and stories still
+  build their `blob:` URLs from the sender's declared MIME; nothing navigates
+  to one, which keeps that latent rather than exploitable, and restoring the
+  sniffer there is its own piece of work. Never widen the first question to fix
+  the second, and never test for `"application/octet-stream"` instead of
+  asking a sniffer: that spelling silently accepts whatever it learns next.
 - **A menu's destructive entries sit last**, and `MenuItem` says so. The
   message menu is where that is easy to break, because its entries come and go
   with the message's state — it is built by `features/messages/menu.ts`, a pure
@@ -1099,9 +1105,9 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 71 KB | This file. Where things are, and what not to break. |
+| [`CONTEXT.md`](CONTEXT.md) | 72 KB | This file. Where things are, and what not to break. |
 | [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
-| [`STATUS.md`](STATUS.md) | 100 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
+| [`STATUS.md`](STATUS.md) | 102 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
 | [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
 | [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `packages/core/src/pin.ts` and `THREAT-MODEL.md` §3. |

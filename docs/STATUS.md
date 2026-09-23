@@ -1736,8 +1736,39 @@ again." while sign-in and posts worked.
 end in a `TransportError`, and the console attributes the refusal to the
 bucket's CORS preflight — nothing reached the bucket.
 
-**Not yet fixed:** pictures that *are* in storage still cannot be drawn.
-`RemoteImage` puts a presigned URL in a CSS `background-image`, which `img-src`
-refuses, and `img-src` names no remote host on purpose. Text messages were also
-reported failing and could not be reproduced: sending works end to end against
-a local API, in Node and in a real browser page.
+**Not yet fixed:** text messages were also reported failing and could not be
+reproduced: sending works end to end against a local API, in Node and in a
+real browser page.
+
+### Since v0.1.26: pictures in storage are drawn again
+
+The other half of the same round. Once the buckets allowed the page's
+origins, uploads worked and the pictures still did not appear: `RemoteImage`
+put the presigned URL in a CSS `background-image`, and `img-src` names no
+remote host — on purpose, and it stays that way. Before the rework Rust
+fetched the bytes and the page never saw the URL.
+
+- **The bytes come through `connect-src` and are drawn from a `blob:` URL.**
+  `downloadImage` in `core/src/feed.ts` presigns, fetches and hands back bytes;
+  `lib/images.ts` turns them into one `blob:` URL per key, shared by everything
+  drawing that picture and revoked once nothing does — counted, because the
+  desktop app runs for days in the tray and a memo that never let go would
+  hold every picture anybody scrolled past.
+
+- **The type comes from the bytes.** The presigned PUT signs only the host, so
+  whoever uploaded an object chose its `Content-Type`, and a `blob:` URL
+  carries the page's origin. `sniffImage` accepts PNG, JPEG, GIF and WebP and
+  nothing else; a stored HTML file served as `image/png` is refused. This is
+  the part of the Rust client's `sniff_mime` that pictures need. Attachments
+  and stories still take the sender's declared type — see the sniffing
+  convention in `CONTEXT.md`.
+
+**Verified:** 8 tests in `core/src/feed.test.ts` and 7 in
+`lib/images.test.ts`. In a real browser serving the page as
+`http://tauri.localhost` — the desktop app's origin, which the bucket rule
+names — `lib/images.ts` reached the production bucket through a presign from a
+local API and read its `404` for a key that does not exist, which a missing
+CORS rule would have turned into `Failed to fetch`; a real PNG was typed
+`image/png` from its bytes, decoded at 256×256 and drew from a `blob:` URL; the
+page's own HTML was refused as not a picture. No stored picture was read to
+check this.

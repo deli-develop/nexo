@@ -12,8 +12,9 @@ import { runtime } from "./runtime";
  * assuming the rest of the app's guarantees carry over. They do not: the server
  * can read every post, every profile field, and every feed image.
  *
- * What still holds is rule 2. Image bytes and presigned URLs stay in Rust: the
- * WebView passes a **path** to `uploadImage` and gets back an object key.
+ * Pictures travel as object keys. Uploading hands bytes to `uploadImage` and
+ * gets a key back; drawing turns a key into a `blob:` URL (`lib/images.ts`),
+ * with the type read from the bytes rather than from the bucket.
  */
 
 export interface Post {
@@ -23,7 +24,7 @@ export interface Post {
   author_display_name: string;
   author_avatar_key: string | null;
   body: string;
-  /** Object keys, not URLs. Each is presigned on demand by `imageUrl`. */
+  /** Object keys, not URLs. Each is fetched on demand through `lib/images.ts`. */
   media_keys: string[];
   created_at_ms: number;
   reactions: ReactionCount[];
@@ -323,11 +324,18 @@ export function uploadImageDataUrl(dataUrl: string): Promise<string> {
 }
 
 /**
- * A URL for one image key, good for about an hour.
+ * One picture from the bucket, as a `blob:` URL the page may draw.
  *
- * Presigned per read rather than public: this bucket holds people's pictures,
- * and a URL that works for ever works for ever for everybody who ever saw it.
+ * Not the presigned URL itself: `img-src` names no remote host, so the bytes
+ * come through `connect-src` and are drawn locally. Presigned per read rather
+ * than public all the same — this bucket holds people's pictures, and a URL
+ * that works for ever works for ever for everybody who ever saw it.
+ *
+ * The URL holds the bytes until it is revoked. Draw through `lib/images.ts`,
+ * which shares one per key and revokes it, rather than calling this directly.
  */
-export function imageUrl(key: string): Promise<string> {
-  return runtime().then((it) => core.imageUrl(it.transport, key));
+export async function imageObjectUrl(key: string): Promise<string> {
+  const it = await runtime();
+  const { bytes, mime } = await core.downloadImage(it.transport, key);
+  return URL.createObjectURL(new Blob([bytes as unknown as BlobPart], { type: mime }));
 }

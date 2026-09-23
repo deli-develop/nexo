@@ -85,7 +85,7 @@ export interface AttachmentPayload {
   segmented?: boolean;
   id?: string;
   /** Present on a voice note: the waveform and the length, for the player. */
-  voice?: { duration_ms: number; peaks: number[] };
+  voice?: VoiceMeta;
   forwarded_from?: string;
   forwarded?: boolean;
 }
@@ -160,6 +160,48 @@ export type Payload =
   | GroupAvatarPayload
   | StoryPayload
   | UnsupportedPayload;
+
+/**
+ * A voice note's length and waveform, as `VoiceMeta` in `crates/protocol`.
+ *
+ * `duration_ms` is a `u32`; `peaks` is at most `MAX_PEAKS` bytes, `0`–`255`.
+ */
+export interface VoiceMeta {
+  duration_ms: number;
+  peaks: number[];
+}
+
+/** `VoiceMeta::MAX_PEAKS`: the most buckets a recorder may send. */
+export const MAX_PEAKS = 64;
+
+/**
+ * A voice note's metadata held to the protocol's shape, or `undefined`.
+ *
+ * Used on the way out, so what this client sends is what `crates/protocol`
+ * decodes, and on the way in, because `decodePayload` checks nothing past
+ * the kind and a waveform is drawn one bar per entry. The rules are the Rust
+ * ones: a list over `MAX_PEAKS` is truncated rather than refused — a waveform
+ * is decoration, and losing its tail is not worth losing a message somebody
+ * recorded — and each bar is a byte. Anything that is not a voice note at all
+ * answers `undefined`, so the file is still delivered and drawn as audio.
+ */
+export function voiceMeta(value: unknown): VoiceMeta | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { duration_ms: duration, peaks } = value as { duration_ms?: unknown; peaks?: unknown };
+  if (typeof duration !== "number" || !Number.isFinite(duration) || !Array.isArray(peaks)) {
+    return undefined;
+  }
+  return {
+    duration_ms: Math.min(0xffff_ffff, Math.max(0, Math.round(duration))),
+    peaks: peaks
+      .slice(0, MAX_PEAKS)
+      .map((peak) =>
+        typeof peak === "number" && Number.isFinite(peak)
+          ? Math.min(255, Math.max(0, Math.round(peak)))
+          : 0,
+      ),
+  };
+}
 
 /**
  * The kinds this build knows how to read.

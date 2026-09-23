@@ -1,4 +1,4 @@
-import type { Payload } from "./payload";
+import { voiceMeta, type Payload } from "./payload";
 import { TransportError } from "./errors";
 import type { Transport } from "./transport";
 
@@ -107,6 +107,10 @@ export async function sendAttachment(
   // Absent rather than empty: adding a field must not change a byte of what a
   // message without it puts on the wire.
   if (meta.body !== undefined && meta.body !== "") payload.body = meta.body;
+  // Dropped here once, so every voice note arrived as a plain audio file:
+  // the recorder measured the length and the waveform and they never left.
+  const voice = voiceMeta(meta.voice);
+  if (voice) payload.voice = voice;
   return ctx.sendPayload(conversationId, payload);
 }
 

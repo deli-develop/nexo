@@ -107,6 +107,28 @@ describe("attachments", () => {
     expect(JSON.stringify(sent[0])).not.toContain("body");
   });
 
+  it("carries a voice note's length and waveform", async () => {
+    const { ctx, sent } = harness([{ status: 200, body: { url: "https://s3/put", key: "k1" } }]);
+
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(1), {
+      name: "voice-message.webm",
+      mime: "audio/webm",
+      voice: { duration_ms: 4200, peaks: [3, 140, 255] },
+    });
+
+    // Dropped here once: the recorder measured both, and every voice note
+    // still arrived as a plain audio file.
+    expect(sent[0]).toMatchObject({ voice: { duration_ms: 4200, peaks: [3, 140, 255] } });
+  });
+
+  it("leaves voice off the wire for a file nobody recorded", async () => {
+    const { ctx, sent } = harness([{ status: 200, body: { url: "https://s3/put", key: "k1" } }]);
+
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(1), { name: "a.mp3", mime: "audio/mpeg" });
+
+    expect(JSON.stringify(sent[0])).not.toContain("voice");
+  });
+
   it("refuses a payload whose key is not hex rather than guessing", async () => {
     const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
 

@@ -4,6 +4,7 @@ import {
   attachments as coreAttachments,
   conversations as core,
   decodePayload,
+  voiceMeta,
   type Payload,
   type StoredMessage,
 } from "@nexo/core";
@@ -307,7 +308,12 @@ function toMessage(
         size: payload.size,
         streamable: payload.segmented === true,
       };
-      if (payload.voice) message.attachment.voice = payload.voice;
+      {
+        // Held to the protocol shape on arrival: a waveform is drawn one bar
+        // per entry, and the payload was decoded without checking this field.
+        const voice = voiceMeta(payload.voice);
+        if (voice) message.attachment.voice = voice;
+      }
       break;
     case "view_once":
       message.view_once = {

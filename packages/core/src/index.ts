@@ -67,8 +67,10 @@ export {
   encodePayload,
   encodePayloadString,
   isReactionEmoji,
+  MAX_PEAKS,
   payloadId,
   preview,
+  voiceMeta,
 } from "./payload";
 export type {
   AttachmentPayload,
@@ -80,6 +82,7 @@ export type {
   RetractPayload,
   TextPayload,
   UnsupportedPayload,
+  VoiceMeta,
 } from "./payload";
 export type { CryptoModule, Decrypted, Device, Group, Peeked, StagedCommit } from "./crypto";
 export { bindWasm } from "./wasm";

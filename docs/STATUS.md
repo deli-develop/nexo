@@ -1773,6 +1773,32 @@ CORS rule would have turned into `Failed to fetch`; a real PNG was typed
 page's own HTML was refused as not a picture. No stored picture was read to
 check this.
 
+### Since v0.1.27: what the rework dropped
+
+Things the Rust client did that the page's port quietly did not.
+
+- **A right PIN on an ended session was called wrong.** `unlockWithPin`
+  answered `null` both for wrong digits and for a right PIN whose session
+  `Session.resume` found revoked, and the lock screen counts `null` as a
+  spent try — so after the server ended a session every correct PIN read
+  "That PIN is wrong", until the tries ran out. It now rejects with
+  `signed_out`, which the lock screen already answered by switching to the
+  password; nothing had produced that kind since the rework.
+
+- **Voice notes arrived as plain audio files.** The recorder measured the
+  length and the waveform, `sendAttachment` took them in `AttachmentMeta`,
+  and dropped them: `voice` never reached the payload, so every recipient
+  drew a file row. It is sent again, through `voiceMeta` in
+  `core/src/payload.ts`, which also holds an *arriving* note to
+  `VoiceMeta`'s rules — at most 64 bars, each a byte, truncated rather than
+  refused. `decodePayload` checks nothing past the kind, and a waveform is
+  drawn one bar per entry.
+
+**Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
+cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
+ended-session case and the voice case each fail against the code before the
+fix. Not driven in a running app.
+
 ---
 
 ## Relay (M5)

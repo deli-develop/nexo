@@ -1882,7 +1882,7 @@ reader, and refuses a cut, an altered byte, sizes off by one, `2 ** 52` and a
 fraction, and opening it as a whole object. Not driven in a running app, and
 no video from an old client was at hand to open.
 
-### Since v0.1.27: the shell, seen at phone width
+### Since v0.1.30: the shell, seen at phone width
 
 The mobile-first section above ends by saying the shell had never been
 *seen* at phone width. It has been now, with screenshots from a phone, the web

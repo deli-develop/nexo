@@ -29,10 +29,10 @@ import { Panel } from "../../components/ui/Surface";
  * # What it is not
  *
  * Not a second factor, and not a secret the server has heard of. It only ever
- * *re*-opens a store this machine already holds, under this Windows account.
- * Somebody with the disk and not the account has nothing to try it against;
- * somebody with both has the store anyway. `docs/THREAT-MODEL.md` says the
- * same, and this component deliberately does not imply more.
+ * resumes a session this device already holds, and it guards the screen, not
+ * the disk: the store is unencrypted IndexedDB, so somebody who can read this
+ * machine's files does not need the PIN at all. This component deliberately
+ * does not imply more.
  *
  * # Why it replaces the shell rather than covering it
  *

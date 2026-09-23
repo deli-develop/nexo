@@ -67,9 +67,9 @@ export function UnlockPin() {
       <p className="text-text-mid max-w-[70ch] text-body leading-relaxed">
         After the app locks itself, a PIN gets you back in without typing your full
         password. It never leaves this machine and the server never sees it — which also
-        means it only unlocks, and cannot sign you in somewhere else. It is kept under
-        this Windows account, so somebody with the disk but not the account has nothing
-        to try it against. Five wrong guesses and only the password will do.
+        means it only unlocks, and cannot sign you in somewhere else. Like the lock, it
+        guards the screen, not the disk: what Nexo keeps on this device is not encrypted.
+        Five wrong guesses and only the password will do.
       </p>
       <p className="text-text-mid max-w-[70ch] text-body leading-relaxed">
         A PIN is optional, and this is where it lives. Auto-lock is what protects an

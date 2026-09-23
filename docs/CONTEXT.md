@@ -601,7 +601,7 @@ it, because nothing readable may sit in the DOM behind a gate.
 one tile per story; **posting lives here, never in the strip**),
 `VisibilityControls.tsx` (119).
 
-**`settings/`**: `SettingsPage.tsx` (842), `Relay.tsx` (214 — the Connection
+**`settings/`**: `SettingsPage.tsx` (843), `Relay.tsx` (214 — the Connection
 section: `ViaRelay` and `RunRelay`, both halves of [`RELAY.md`](RELAY.md)),
 `DeleteAccount.tsx` (147), `UnlockPin.tsx` (134), `ChangePassword.tsx` (113),
 `BlockedList.tsx` (107), `PrivacyTable.tsx` (81).

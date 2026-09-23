@@ -29,15 +29,15 @@ const rows: { data: string; protection: string; e2ee: boolean }[] = [
     e2ee: false,
   },
   {
-    data: "Call audio and video",
+    data: "Conversation metadata — who you talk to, when, and how much",
     protection:
-      "End-to-end encrypted with DTLS-SRTP, arranged inside an MLS message. The relay forwards packets it cannot read.",
-    e2ee: true,
+      "Encrypted in transit and at rest. Visible to the server. This is the honest limit of the design.",
+    e2ee: false,
   },
   {
-    data: "Conversation and call metadata — who you talk to and call, when, and how long",
+    data: "Everything Nexo keeps on this device — messages, keys, drafts",
     protection:
-      "Encrypted in transit and at rest. Visible to the server. Calls are relayed so the other person never learns your IP address; the relay sees both. This is the honest limit of the design.",
+      "Not encrypted. Anyone who can read this device's files can read it. The lock guards the screen, not the disk.",
     e2ee: false,
   },
 ];

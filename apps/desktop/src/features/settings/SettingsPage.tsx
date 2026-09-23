@@ -600,7 +600,7 @@ function Security() {
 
       <Group
         title="Lock"
-        description="After this much idleness the encrypted store is closed and the keys are dropped. Reopening it needs your password — unlocking is a full sign-in, not a curtain. A locked app cannot ring: the keys that would read an incoming call are gone until you unlock, so it arrives as a missed call. A call already in progress keeps the app awake until it ends."
+        description="After this much idleness Nexo locks: the screen is replaced, the connection closes, and the session is dropped from memory until you unlock with your PIN or password, which needs the server. The lock guards the screen, not the disk — what Nexo keeps on this device is not encrypted, and anyone who can read this computer's files can read your messages."
       >
         <div className="flex items-center justify-between gap-6 py-3">
           <span className="text-text-hi text-body">Lock after</span>
@@ -824,9 +824,10 @@ function SignOutRow() {
   return (
     <div className="flex items-center justify-between gap-4 py-3">
       <p className="text-text-mid text-meta">
-        Ends this session on this device. Your messages stay in the encrypted
-        store, and the unlock PIN is removed — signing back in needs your
-        password.
+        Ends this session and deletes everything Nexo keeps on this device: your
+        message history, your keys and the unlock PIN. The server does not keep
+        delivered messages, so that history cannot come back here. Signing back
+        in needs your password.
       </p>
       <Button
         variant="secondary"

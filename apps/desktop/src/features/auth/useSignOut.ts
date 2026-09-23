@@ -23,10 +23,10 @@ import { confirm } from "../../lib/native";
  *
  * # Why a failed sign-out still returns to the sign-in screen
  *
- * Rust deletes the store and its key before it reports anything, and it
- * surfaces a server-side failure only afterwards (`session::logout`). By the
- * time an error reaches here the data is gone, so staying on a screen that has
- * no session behind it would be the lie, not the fix.
+ * `Session.logout` in `packages/core` wipes the store in a `finally`, after
+ * asking the server to end the session, so a failure from the server arrives
+ * when the data is already gone. Staying on a screen that has no session
+ * behind it would be the lie, not the fix.
  */
 export function useSignOut(): { signOut: () => Promise<void>; busy: boolean } {
   const setAccount = useApp((s) => s.setAccount);
@@ -38,7 +38,7 @@ export function useSignOut(): { signOut: () => Promise<void>; busy: boolean } {
     try {
       const ok = await confirm(
         "Sign out",
-        "This signs this device out and deletes its local message store. Anything not synced is gone.",
+        "This signs this device out and deletes your message history on it. The server does not keep delivered messages, so it cannot be restored here.",
       );
       if (!ok) return;
       try {
@@ -49,8 +49,8 @@ export function useSignOut(): { signOut: () => Promise<void>; busy: boolean } {
       // The answer to the PIN offer is *not* reset here, and that is the whole
       // point of it.
       //
-      // Signing out erases the PIN along with the store key it unwraps, so
-      // `pin_status` honestly reports "no PIN" afterwards -- and re-arming the
+      // Signing out erases the PIN with the rest of the store, so
+      // `pinStatus` honestly reports "no PIN" afterwards -- and re-arming the
       // offer on top of that put "Choose an unlock PIN" in front of the very
       // next sign-in, which is the thing the offer was made skippable to stop
       // doing. Being asked once is a feature being introduced; being asked

@@ -19,6 +19,11 @@ import type { MenuItem } from "../../components/ui/ContextMenu";
 export interface MessageMenuState {
   /** There is text to copy. An entry that copies "" is worse than no entry. */
   hasBody: boolean;
+  /**
+   * A file rides with the message. Its body is then the caption or the file
+   * name, so `hasBody` alone cannot say whether there are words to forward.
+   */
+  hasAttachment: boolean;
   /** Ours to edit or take back. */
   mine: boolean;
   /**
@@ -74,7 +79,7 @@ export function messageMenuItems(
     // another group; an attachment would mean deciding who owns the object in
     // the bucket afterwards, which is a question with no answer yet, so the
     // entry is absent rather than offered and refused.
-    if (!state.retracted && !state.queued) {
+    if (!state.retracted && !state.queued && !state.hasAttachment) {
       items.push({ label: "Forward…", icon: "send", onSelect: actions.forward });
     }
   }

@@ -21,12 +21,16 @@ import {
  * conversation in the DOM underneath, one `display:none` away from readable —
  * the shell renders this or the app, never both.
  *
- * The two ways in are not the same weight, and the difference is the network.
- * The **password** is a real sign-in: it re-derives the verifier against the
- * server's salt, which is the guarantee the lock claims to make, and it cannot
- * happen offline. The **PIN** never leaves this machine — locking dropped the
- * store connection and the MLS state but not the tokens, so a correct PIN
- * reopens both from disk with no round trip. Both are stated in `lock.rs`.
+ * Locking (`lockSession` in `lib/auth.ts`) dropped the tokens and the MLS
+ * state from memory, not from disk: everything this device keeps is still in
+ * IndexedDB, unencrypted. So this screen guards the screen, and its copy claims
+ * nothing more.
+ *
+ * The two ways in are not the same weight. The **password** is a real
+ * sign-in: it re-derives the verifier against the server's salt. The **PIN**
+ * is checked on this machine and never leaves it; a correct one resumes the
+ * session from the refresh token still in the store (`Session.resume`). Both
+ * need the server.
  *
  * Only a wrong PIN is drawn as a wrong PIN. `unlockWithPin` resolving to
  * `null` is the sole thing that means the digits were wrong; the failures that
@@ -126,8 +130,8 @@ export function LockScreen({
           <p className="text-text-mid text-meta leading-relaxed">
             Signed in as <span className="text-text-hi font-medium">@{account.handle}</span>.
             {pinOffered
-              ? " The local store is closed; your PIN reopens it on this machine."
-              : " The local store is closed; your password reopens it."}
+              ? " Enter your PIN to continue."
+              : " Enter your password to continue."}
           </p>
         </div>
 

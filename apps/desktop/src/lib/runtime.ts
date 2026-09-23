@@ -112,10 +112,11 @@ async function build(): Promise<Runtime> {
     session,
     crypto,
     objects,
-    // 19 MiB, two passes, one lane — the same parameters as
-    // `crates/client/src/pin.rs`, and they are not a knob. A PIN is four to
-    // twelve digits, so the only thing standing between a stolen device and
-    // the messages on it is how long one guess takes.
+    // 19 MiB, two passes, one lane — the parameters the Rust client's
+    // `pin.rs` used, and they are not a knob. A PIN is four to twelve digits,
+    // so how long one guess takes is what stands between somebody at a locked
+    // screen and the session. Not between a stolen device and the messages on
+    // it: the store is not encrypted, and reading it needs no PIN at all.
     pin: {
       store,
       derive: async (pin, salt) => wasm.deriveVerifier(pin, salt, 19 * 1024, 2, 1),

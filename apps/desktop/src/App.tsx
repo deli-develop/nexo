@@ -21,7 +21,7 @@ import { OfferPin } from "./features/auth/OfferPin";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { pinStatus, restoreSession, type Account } from "./lib/auth";
 import { myProfile } from "./lib/feed";
-import { notify, setCloseToTray } from "./lib/native";
+import { notify, setCloseToTray, startRelay } from "./lib/native";
 import { DialogHost } from "./components/ui/DialogHost";
 import { useAutoUpdate } from "./app/useAutoUpdate";
 import { useChrome } from "./app/useChrome";
@@ -157,12 +157,12 @@ function AppShell({ account }: { account: Account }) {
 /**
  * The session gate.
  *
- * Three states, and the middle one matters: until `restore_session` answers we
+ * Three states, and the middle one matters: until `restoreSession` answers we
  * render neither the app nor the login form, because flashing a login screen at
  * someone who is already signed in is both alarming and wrong.
  *
  * The restore call deliberately does not touch the network (see
- * `session::restore` in `crates/client`), so a machine that is offline still
+ * `Session.restore` in `packages/core`), so a machine that is offline still
  * opens to its own account rather than to a sign-in prompt it cannot satisfy.
  */
 export function App() {
@@ -187,6 +187,16 @@ export function App() {
   // Only once the session gate has answered: an install restarts the process,
   // and doing that mid-sign-in would throw away a half-typed password.
   useAutoUpdate(checked);
+
+  // A volunteer's relay comes back with the app if they left it on. Here, not
+  // in the signed-in shell: it carries other people's traffic and has no use
+  // for this account, so signing out is no reason to stop it. Settings starts
+  // and stops it after this; the shell answers a second start with the relay
+  // already running.
+  useEffect(() => {
+    const { relay, relayPort } = useApp.getState().preferences;
+    if (relay) void startRelay(relayPort);
+  }, []);
   const locked = useApp((s) => s.locked);
   const setMyAvatarKey = useApp((s) => s.setMyAvatarKey);
   const setLocked = useApp((s) => s.setLocked);
@@ -253,8 +263,8 @@ export function App() {
         if (!cancelled) setHasPin(status.set);
       })
       .catch(() => {
-        // A keystore that will not answer is not a reason to ask for a PIN it
-        // could not store either. Settings still offers one.
+        // A store that will not answer is not a reason to ask for a PIN it
+        // could not keep either. Settings still offers one.
         if (!cancelled) setHasPin(true);
       });
     return () => {
@@ -317,7 +327,7 @@ export function App() {
 
   // Signed in, with the PIN question still out. The frame and nothing in it:
   // rendering `AuthPage` here put the sign-in form back on screen for as long
-  // as the keystore took to answer, one keystroke after somebody had finished
+  // as the store took to answer, one keystroke after somebody had finished
   // using it.
   return (
     <div className="relative h-full overflow-hidden">

@@ -12,17 +12,18 @@ import { jumpToMessage } from "./jump";
 /**
  * Searching inside the conversation you are looking at.
  *
- * The engine has been here the whole time: `search_messages` runs FTS5 over
- * the encrypted store, and the conversation list has used it to decide which
- * rows match. What was missing was the other half of what people expect from
+ * The engine has been here the whole time: `Store.searchMessages` in
+ * `packages/core` looks words up in the `searchTerms` index, and the
+ * conversation list has used it to decide which rows match. What was missing was the other half of what people expect from
  * `Ctrl+F` — finding the message *in* this chat and being taken to it.
  *
- * # Why the scoping happens in SQL
+ * # Why the scoping happens in the store
  *
  * The store takes the conversation as part of the query rather than filtering
- * afterwards, because `LIMIT` runs last: filtering the result would search the
- * newest messages anywhere and then keep whichever were in this chat. A quiet
- * conversation beside a busy one would find nothing and call it "no matches".
+ * afterwards, because the limit is applied last: filtering the result would
+ * search the newest messages anywhere and then keep whichever were in this
+ * chat. A quiet conversation beside a busy one would find nothing and call it
+ * "no matches".
  *
  * # Why results are walked newest-first
  *

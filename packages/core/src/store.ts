@@ -351,26 +351,30 @@ export class Store {
    * recoverable from the client, so they commit together or not at all.
    */
   async appendMessage(message: StoredMessage, syncedTo?: number): Promise<void> {
-    await transact(this.#db, ["messages", "conversations", "searchTerms"], "readwrite", async (tx) => {
-      await unindexMessage(tx, message.id);
-      await idb.put(tx, "messages", message);
-      await indexMessage(tx, message);
-      const conversation = await idb.get<StoredConversation>(
-        tx,
-        "conversations",
-        message.conversationId,
-      );
-      if (!conversation) return;
-      await idb.put(tx, "conversations", {
-        ...conversation,
-        lastMessage: message.body,
-        lastMessageOutgoing: message.senderDeviceId === null,
-        updatedAtMs: Math.max(conversation.updatedAtMs, message.sentAtMs),
-        syncedTo: syncedTo === undefined
-          ? conversation.syncedTo
-          : Math.max(conversation.syncedTo, syncedTo),
-      });
-    });
+    await transact(this.#db, ["messages", "conversations", "searchTerms"], "readwrite", (tx) =>
+      writeMessage(tx, message, syncedTo),
+    );
+  }
+
+  /**
+   * An arriving view-once: the bubble's row and the key's row, together.
+   *
+   * One transaction, because MLS will not decrypt the envelope twice — a key
+   * written without its bubble, or a bubble without its key, could never be
+   * put right. The message row must already be key-free (`viewOnceBubble`).
+   */
+  async appendViewOnce(message: StoredMessage, item: StoredViewOnce, syncedTo: number): Promise<void> {
+    await transact(
+      this.#db,
+      ["messages", "conversations", "searchTerms", "viewOnce"],
+      "readwrite",
+      async (tx) => {
+        if (!(await idb.get<StoredViewOnce>(tx, "viewOnce", item.clientId))) {
+          await idb.put(tx, "viewOnce", item);
+        }
+        await writeMessage(tx, message, syncedTo);
+      },
+    );
   }
 
   /**
@@ -922,6 +926,24 @@ export class Store {
       for (const name of names) await idb.clear(tx, name);
     });
   }
+}
+
+/** One message into history, and the conversation's summary moved with it. */
+async function writeMessage(tx: IDBTransaction, message: StoredMessage, syncedTo?: number): Promise<void> {
+  await unindexMessage(tx, message.id);
+  await idb.put(tx, "messages", message);
+  await indexMessage(tx, message);
+  const conversation = await idb.get<StoredConversation>(tx, "conversations", message.conversationId);
+  if (!conversation) return;
+  await idb.put(tx, "conversations", {
+    ...conversation,
+    lastMessage: message.body,
+    lastMessageOutgoing: message.senderDeviceId === null,
+    updatedAtMs: Math.max(conversation.updatedAtMs, message.sentAtMs),
+    syncedTo: syncedTo === undefined
+      ? conversation.syncedTo
+      : Math.max(conversation.syncedTo, syncedTo),
+  });
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

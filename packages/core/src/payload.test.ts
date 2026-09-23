@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { decodePayload, encodePayload, encodePayloadString, preview } from "./payload";
+import {
+  MAX_PEAKS,
+  decodePayload,
+  encodePayload,
+  encodePayloadString,
+  forwardedText,
+  preview,
+  voiceMeta,
+} from "./payload";
 
 /**
  * The payload codec.
@@ -83,5 +91,68 @@ describe("payload", () => {
     expect(decodePayload(encodePayload(story))).toEqual(story);
     const { story_id: _newField, ...legacy } = story;
     expect(decodePayload(JSON.stringify(legacy))).toEqual(legacy);
+  });
+});
+
+/**
+ * A forward, as `Payload::forwarded` in `crates/protocol` builds it: new text
+ * with a name of its own, never a copy of the original's.
+ */
+describe("forwardedText", () => {
+  it("is text with a fresh name, the mark, and the author when known", () => {
+    expect(forwardedText("hello", "new-id", "ada")).toEqual({
+      kind: "text",
+      body: "hello",
+      id: "new-id",
+      forwarded: true,
+      forwarded_from: "ada",
+    });
+  });
+
+  it("leaves the author off when it cannot be told", () => {
+    const payload = forwardedText("hello", "new-id");
+    expect(payload).toEqual({ kind: "text", body: "hello", id: "new-id", forwarded: true });
+    expect(JSON.stringify(payload)).not.toContain("forwarded_from");
+  });
+});
+
+/**
+ * A voice note's metadata, held to `VoiceMeta` in `crates/protocol`: a `u32`
+ * length and at most sixty-four byte-sized bars. The same rules as
+ * `drawable_peaks` there — truncate, never refuse.
+ */
+describe("voiceMeta", () => {
+  it("passes a well-formed note through unchanged", () => {
+    expect(voiceMeta({ duration_ms: 4200, peaks: [0, 128, 255] })).toEqual({
+      duration_ms: 4200,
+      peaks: [0, 128, 255],
+    });
+  });
+
+  it("truncates a waveform past the cap rather than refusing the note", () => {
+    const long = voiceMeta({ duration_ms: 1, peaks: Array.from({ length: 5000 }, () => 42) });
+    expect(long?.peaks).toHaveLength(MAX_PEAKS);
+    expect(long?.peaks.every((peak) => peak === 42)).toBe(true);
+  });
+
+  it("holds every bar and the length to what the wire can carry", () => {
+    expect(
+      voiceMeta({ duration_ms: -5.4, peaks: [-1, 12.6, 300, Number.NaN, "loud"] }),
+    ).toEqual({ duration_ms: 0, peaks: [0, 13, 255, 0, 0] });
+    expect(voiceMeta({ duration_ms: 2 ** 40, peaks: [] })?.duration_ms).toBe(0xffff_ffff);
+  });
+
+  it("answers undefined for anything that is not a voice note", () => {
+    for (const value of [
+      undefined,
+      null,
+      "voice",
+      { peaks: [1] },
+      { duration_ms: "4200", peaks: [1] },
+      { duration_ms: Number.POSITIVE_INFINITY, peaks: [1] },
+      { duration_ms: 4200, peaks: "1,2,3" },
+    ]) {
+      expect(voiceMeta(value)).toBeUndefined();
+    }
   });
 });

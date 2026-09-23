@@ -19,6 +19,7 @@ const actions: MessageMenuActions = {
 
 const base: MessageMenuState = {
   hasBody: true,
+  hasAttachment: false,
   mine: true,
   clientId: "c1",
   retracted: false,
@@ -51,6 +52,15 @@ describe("messageMenuItems", () => {
       "Delete for me",
       "Delete for everyone",
     ]);
+  });
+
+  it("does not offer to forward a file, whatever its body says", () => {
+    // A file's body is its caption or its name, so `hasBody` is true for every
+    // one — which put Forward on files that the design keeps it off, and the
+    // forward arrived unmarked, as the forwarder's own.
+    const onFile = labels({ hasAttachment: true });
+    expect(onFile).not.toContain("Forward…");
+    expect(onFile).toContain("Copy text");
   });
 
   it("offers Reply first, because that is what the menu is usually for", () => {

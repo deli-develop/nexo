@@ -288,6 +288,43 @@ describe("remaining local domains", () => {
     upgraded.close();
   });
 
+  it("moves view-once keys out of message rows when an older database is upgraded", async () => {
+    // Before rung 3 an arriving view-once was stored as an ordinary message,
+    // key and all, and nothing wrote the table opening reads from.
+    const factory = new IDBFactory();
+    const payload = (id: string, key: string) => JSON.stringify({
+      kind: "view_once", s3_key: `obj/${id}`, key, nonce: "nn", sha256: "hh",
+      mime: "image/png", size: 3, id,
+    });
+    const v2 = await openDatabase("upgrade-v2", factory, 2);
+    await transact(v2, "messages", "readwrite", async (tx) => {
+      await idb.put(tx, "messages", {
+        id: 1, conversationId: "c1", senderDeviceId: "them", body: "", sentAtMs: 5,
+        clientId: "in", payload: payload("in", "their-key"),
+      });
+      await idb.put(tx, "messages", {
+        id: 2, conversationId: "c1", senderDeviceId: null, body: "", sentAtMs: 6,
+        clientId: "out", payload: payload("out", "my-key"),
+      });
+      await idb.put(tx, "messages", {
+        id: 3, conversationId: "c1", senderDeviceId: "them", body: "hello", sentAtMs: 7,
+      });
+    });
+    v2.close();
+
+    const upgraded = await Store.open("upgrade-v2", factory);
+    const rows = await upgraded.messages("c1");
+    expect(rows.map((row) => row.payload ?? "").join("")).not.toMatch(/their-key|my-key/);
+    expect(rows.find((row) => row.id === 3)).toMatchObject({ body: "hello" });
+    // What arrived and was never opened — none could be — becomes openable;
+    // our own copy keeps nothing.
+    expect(await upgraded.viewOnce("in")).toMatchObject({
+      conversationId: "c1", s3Key: "obj/in", encKey: "their-key", receivedAtMs: 5, openedAtMs: null,
+    });
+    expect(await upgraded.viewOnce("out")).toBeNull();
+    upgraded.close();
+  });
+
   it("deduplicates stories and removes expired keys on read", async () => {
     await store.putStory(story(1, 100));
     await store.putStory({ ...story(1, 100), encKey: "second-copy" });

@@ -451,3 +451,75 @@ export async function copyText(text: string): Promise<boolean> {
     }
   }
 }
+
+/**
+ * A relay this machine is running for other people: a `CONNECT` proxy to
+ * Nexo's hosts and nowhere else, on every interface.
+ */
+export interface RelayInfo {
+  /**
+   * The port. Which address goes with it is the volunteer's to know — behind
+   * a router this machine cannot see it.
+   */
+  port: number;
+}
+
+/**
+ * Starts relaying on `port`, `0` for any free one, and answers the port it
+ * actually bound. A relay that is already running is answered as it is rather
+ * than started twice. `null` when it could not start: in a browser, or on a
+ * port something else holds.
+ */
+export async function startRelay(port: number): Promise<RelayInfo | null> {
+  try {
+    const info = await invoke<RelayInfo>("start_relay", { port });
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stops relaying, and ends every tunnel through this machine. `true` when a
+ * relay was running, `false` when none was.
+ */
+export async function stopRelay(): Promise<boolean> {
+  try {
+    const active = await invoke<boolean>("stop_relay");
+    return active;
+  } catch {
+    return false;
+  }
+}
+
+/** The relay this machine is running, or `null`. */
+export async function getRelayInfo(): Promise<RelayInfo | null> {
+  try {
+    const info = await invoke<RelayInfo | null>("relay_status");
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The relay this app connects through, as `host:port`, or `null` for direct.
+ * Always `null` in a browser, which cannot choose its own proxy.
+ */
+export async function getViaRelay(): Promise<string | null> {
+  if (!inTauri()) return null;
+  try {
+    return await invoke<string | null>("get_via_relay");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Connects through `address` — `null` to go direct — and restarts the app,
+ * because a WebView's proxy is fixed when it is made. Settles only when the
+ * address is refused, rejecting with a human-readable reason.
+ */
+export async function setViaRelay(address: string | null): Promise<void> {
+  await invoke("set_via_relay", { address });
+}

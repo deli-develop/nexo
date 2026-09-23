@@ -57,8 +57,8 @@ export function ChangePassword() {
       <p className="text-text-mid max-w-[60ch] text-meta leading-relaxed">
         Your password is stretched on this machine before anything is sent. The server
         stores a hash of the result and never sees the password itself. Changing it does
-        not touch your messages — the local store is encrypted with a key from Windows,
-        not from your password, so nothing is re-encrypted and no history can be lost.
+        not touch your messages. They are not kept under your password — on this device
+        they are not encrypted at all — so nothing is re-encrypted and no history is lost.
       </p>
 
       <div className="grid max-w-[420px] gap-3">

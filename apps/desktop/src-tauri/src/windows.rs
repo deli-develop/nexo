@@ -123,6 +123,31 @@ pub fn install_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Builds the main window from its entry in `tauri.conf.json`.
+///
+/// That entry says `"create": false` so the window is made here instead, where
+/// it can be given the one thing config cannot know: a relay to connect
+/// through, chosen at runtime (`via_relay.rs`).
+pub fn create_main_window<R: Runtime>(
+    app: &AppHandle<R>,
+    proxy: Option<tauri::Url>,
+) -> tauri::Result<()> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .cloned()
+        .ok_or(tauri::Error::WindowNotFound)?;
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &config)?;
+    if let Some(proxy) = proxy {
+        builder = builder.proxy_url(proxy);
+    }
+    builder.build()?;
+    Ok(())
+}
+
 /// Brings the window back, from the tray or from a second launch.
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {

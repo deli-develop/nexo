@@ -3,7 +3,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as conversations from "./conversations";
-import type { CryptoModule, Decrypted, Device, Group, Peeked, StagedCommit } from "./crypto";
+import type { CryptoModule, Decrypted, Device, Group, Member, Peeked, StagedCommit } from "./crypto";
 import { Store } from "./store";
 import { Transport } from "./transport";
 import type { Envelope } from "./types";
@@ -33,6 +33,8 @@ class FakeGroup implements Group {
   abandoned = 0;
   staged: StagedCommit | null = null;
   encrypted: Uint8Array[] = [];
+  /** Who the group says is in it. A test sets this to change membership. */
+  roster: Member[] = [];
 
   /** Shared with the module, so a group made mid-sync still has its answers. */
   constructor(readonly answers: Array<Decrypted | "throw">) {}
@@ -49,6 +51,9 @@ class FakeGroup implements Group {
   }
   abandonCommit(): void {
     this.abandoned += 1;
+  }
+  members(): Member[] {
+    return this.roster;
   }
   encrypt(_device: Device, plaintext: Uint8Array): Uint8Array {
     this.encrypted.push(plaintext);
@@ -421,6 +426,24 @@ describe("sending", () => {
     expect(await store.mlsState()).not.toBeNull();
   });
 
+  it("keeps no key in the sender's own copy of a view-once", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: { envelope_id: 11 } }]);
+    crypto.createGroup();
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+
+    await conversations.sendPayload(ctx, "c1", {
+      kind: "view_once", s3_key: "obj/2", key: "sender-key", nonce: "nn", sha256: "hh",
+      mime: "video/mp4", size: 5, id: "once-2",
+    });
+
+    const [row] = await store.messages("c1");
+    expect(row).toMatchObject({ id: 11, clientId: "once-2", senderDeviceId: null });
+    expect(row!.payload).not.toContain("sender-key");
+    expect(await store.viewOnce("once-2")).toBeNull();
+  });
+
   it("writes to history only after the server has it", async () => {
     const { ctx, store, crypto } = await context([
       { status: 400, body: { error: "invalid_request", message: "no" } },
@@ -510,6 +533,134 @@ describe("syncing", () => {
       id: 42, authorHandle: "", authorDeviceId: "them", s3Key: "story/x",
       encKey: "aa", expiresAtMs: 1_000_010,
     }]);
+  });
+
+  it("keeps an arriving view-once's key in its own table, never in the message", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [envelope({ envelope_id: 9 })] }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    crypto.answers.push({
+      kind: "message",
+      sender: "them",
+      plaintext: new TextEncoder().encode(JSON.stringify({
+        kind: "view_once", s3_key: "obj/1", key: "the-key", nonce: "nn", sha256: "hh",
+        mime: "image/png", size: 3, id: "once-1",
+      })),
+      epoch: 1n,
+    });
+
+    await conversations.sync(ctx, "c1");
+
+    // Opening reads this table and nothing else, and burning it is what makes
+    // "once" true. A key in the message row outlives the burn.
+    const [row] = await store.messages("c1");
+    expect(row).toMatchObject({ id: 9, clientId: "once-1", senderDeviceId: "them" });
+    expect(row!.payload).not.toContain("the-key");
+    expect(JSON.parse(row!.payload!)).toEqual({ kind: "view_once", id: "once-1", mime: "image/png", size: 3 });
+    expect(await store.viewOnce("once-1")).toMatchObject({
+      conversationId: "c1", s3Key: "obj/1", encKey: "the-key", nonce: "nn", sha256: "hh",
+      mime: "image/png", size: 3, openedAtMs: null,
+    });
+  });
+
+  it("records every other member's key on sync, and never this device's", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [envelope({ envelope_id: 3 })] }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    crypto.group!.roster = [
+      { deviceId: "mine", identityKey: Uint8Array.of(1) },
+      { deviceId: "them", identityKey: Uint8Array.of(2) },
+    ];
+    crypto.answers.push({
+      kind: "message", sender: "them", epoch: 1n,
+      plaintext: new TextEncoder().encode(JSON.stringify({ kind: "text", body: "hi" })),
+    });
+
+    await conversations.sync(ctx, "c1");
+
+    // The safety number is computed from this, and nothing wrote it before.
+    expect(await store.peers("c1")).toMatchObject([
+      { deviceId: "them", identityKey: Uint8Array.of(2), verifiedKey: null, changedAtMs: null },
+    ]);
+  });
+
+  it("records a quiet conversation's keys once, with nothing new to sync", async () => {
+    // A conversation that existed before keys were recorded, and has had no
+    // message since: sync stopped at "nothing new" and never read membership,
+    // so it showed no safety number until somebody wrote.
+    const { ctx, store, crypto } = await context([
+      { status: 200, body: [] },
+      { status: 200, body: [] },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 5, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    crypto.group!.roster = [
+      { deviceId: "mine", identityKey: Uint8Array.of(1) },
+      { deviceId: "them", identityKey: Uint8Array.of(2) },
+    ];
+
+    await conversations.sync(ctx, "c1");
+    expect(await store.peers("c1")).toMatchObject([
+      { deviceId: "them", identityKey: Uint8Array.of(2), changedAtMs: null },
+    ]);
+
+    // Once recorded, a quiet pass leaves the group alone: it runs every few
+    // seconds for every conversation.
+    const load = vi.spyOn(crypto, "loadGroup");
+    await conversations.sync(ctx, "c1");
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("does not reload a conversation with yourself on every quiet pass", async () => {
+    const { ctx, store, crypto } = await context([{ status: 200, body: [] }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "self", epoch: 1, syncedTo: 5, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    const load = vi.spyOn(crypto, "loadGroup");
+
+    await conversations.sync(ctx, "c1");
+
+    // Nobody else is in it, so nothing will ever be recorded, and "nothing
+    // recorded yet" would otherwise be true on every pass for ever.
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("flags a changed key on a later sync, which is what the warning is for", async () => {
+    const { ctx, store, crypto } = await context([
+      { status: 200, body: [envelope({ envelope_id: 3 })] },
+      { status: 200, body: [envelope({ envelope_id: 4 })] },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.createGroup();
+    const text = (body: string) => ({
+      kind: "message" as const, sender: "them", epoch: 1n,
+      plaintext: new TextEncoder().encode(JSON.stringify({ kind: "text", body })),
+    });
+    crypto.answers.push(text("first"), text("second"));
+
+    crypto.group!.roster = [{ deviceId: "them", identityKey: Uint8Array.of(2) }];
+    await conversations.sync(ctx, "c1");
+    // A key a server substituted between the two passes.
+    crypto.group!.roster = [{ deviceId: "them", identityKey: Uint8Array.of(9) }];
+    await conversations.sync(ctx, "c1");
+
+    const [peer] = await store.peers("c1");
+    expect(peer).toMatchObject({ deviceId: "them", identityKey: Uint8Array.of(9) });
+    expect(peer!.changedAtMs).not.toBeNull();
   });
 
   it("joins from a Welcome and skips everything at or before it", async () => {

@@ -6,6 +6,7 @@ import {
   isReactionEmoji,
   payloadId,
   preview,
+  viewOnceBubble,
   type Payload,
 } from "./payload";
 import { Store, type StoredConversation, type StoredMessage } from "./store";
@@ -180,6 +181,7 @@ export async function startWith(ctx: Context, handle: string): Promise<string> {
   // because the way in was a Welcome that was never sent.
   await persist(ctx);
   await remember(ctx, { ...created, epoch }, handle);
+  await recordMembership(ctx, conversationId, group);
 
   if (staged.welcome) {
     // A failure here is real but survivable: the commit is on the server, so
@@ -355,6 +357,10 @@ export async function startGroup(
     if (staged.welcome) await sendEnvelope(ctx, id, staged.welcome, epoch, false);
   }
 
+  // A baseline, so the first sync sees these keys as already known rather
+  // than reporting every member of a new group as a changed key.
+  await recordMembership(ctx, id, group);
+
   // A name is content: the server does not know it. Send only after the last
   // member joined, because earlier ciphertext cannot be read by a later one.
   const ciphertext = group.encrypt(ctx.device, encodePayload({ kind: "rename", title }));
@@ -381,6 +387,7 @@ export async function addTo(ctx: Context, conversationId: string, handle: string
   }
   const epoch = Number(group.confirmCommit(ctx.device, clock(ctx)));
   await persist(ctx);
+  await recordMembership(ctx, conversationId, group);
   const local = await ctx.store.conversation(conversationId);
   if (local) {
     await ctx.store.putConversation({
@@ -594,7 +601,17 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
   const envelopes = await ctx.transport.getAuth<Envelope[]>(
     `/v1/conversations/${conversationId}/sync?since_id=${since}`,
   );
-  if (envelopes.length === 0) return outcome;
+  if (envelopes.length === 0) {
+    // Nothing new, but maybe nothing known either: a conversation that
+    // predates recording, and has been quiet since, would otherwise show no
+    // safety number until somebody wrote. Once per conversation — after that
+    // there is a baseline and a quiet pass leaves the group alone. Never for
+    // a conversation with yourself, which has nobody to record.
+    if (before && before.kind !== "self" && (await ctx.store.peers(conversationId)).length === 0) {
+      await recordMembership(ctx, conversationId, ctx.crypto.loadGroup(ctx.device, conversationId, clock(ctx)));
+    }
+    return outcome;
+  }
 
   // A row has to exist before anything is applied, because everything that
   // records progress — the cursor, the last message, the epoch — is a field on
@@ -726,8 +743,43 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
     if (drew) outcome.messages += 1;
   }
 
+  // Who is in the group now, and whether anyone's key moved. After the
+  // commits, because a commit is what changes membership; before the cursor
+  // moves, so a crash between the two re-runs a comparison rather than skipping
+  // one. Recording is idempotent — the same members change nothing twice.
+  await recordMembership(ctx, conversationId, group);
   await moveCursor(ctx, conversationId, cursor, group);
   return outcome;
+}
+
+/**
+ * Writes down every other member's key, and answers whose key changed.
+ *
+ * The whole of the safety number rests on this: `safetyNumber` is computed
+ * from the recorded key, and a key that differs from the recorded one is what
+ * raises "the safety number here has changed" — the only moment somebody is
+ * told a server may have swapped a key (`THREAT-MODEL.md` §4). The first sight
+ * of a device is its baseline, not a change. This device is left out: a
+ * warning about your own key after a reinstall would be noise, and it is the
+ * one key nobody can check out of band.
+ *
+ * Nothing called the store's half of this after the port, so no key was ever
+ * recorded, no safety number could be shown and no change could be noticed.
+ */
+async function recordMembership(
+  ctx: Context,
+  conversationId: string,
+  group: Group | undefined,
+): Promise<string[]> {
+  if (!group) return [];
+  const me = (await ctx.store.identity())?.deviceId;
+  const peers = group
+    .members()
+    // Read field by field: from the wasm module these are getters, and a
+    // spread further down would copy nothing.
+    .map((member) => ({ deviceId: member.deviceId, identityKey: member.identityKey }))
+    .filter((member) => member.deviceId !== me);
+  return ctx.store.recordPeers(conversationId, peers, clock(ctx));
 }
 
 /**
@@ -876,6 +928,40 @@ async function applyIncoming(
       await applyRevision(ctx, conversationId, payload, from, at);
       return false;
 
+    case "view_once": {
+      // Split in two, as the design has always said: the key in the table
+      // opening reads and burns, the bubble in history with no key. Both were
+      // one message row here, so nothing could open it and nothing burned it.
+      // The protocol always names one; a payload that does not still has to be
+      // written down now, so it is named after its envelope.
+      const name = payload.id ?? `envelope-${envelope.envelope_id}`;
+      await ctx.store.appendViewOnce(
+        {
+          id: envelope.envelope_id,
+          conversationId,
+          senderDeviceId: from,
+          body: preview(payload),
+          sentAtMs: at,
+          clientId: name,
+          payload: viewOnceBubble({ id: name, mime: payload.mime, size: payload.size }),
+        },
+        {
+          clientId: name,
+          conversationId,
+          s3Key: payload.s3_key,
+          encKey: payload.key,
+          nonce: payload.nonce,
+          sha256: payload.sha256,
+          mime: payload.mime,
+          size: payload.size,
+          receivedAtMs: at,
+          openedAtMs: null,
+        },
+        envelope.envelope_id,
+      );
+      return true;
+    }
+
     case "group_avatar":
       // The payload is kept, not the picture: it holds the key, and the bytes
       // are fetched when something actually needs to draw them.
@@ -959,6 +1045,23 @@ async function applyOwn(
 
     case "group_avatar":
       await setAvatar(ctx, conversationId, JSON.stringify(payload));
+      return;
+
+    case "view_once":
+      // Ours to show, never ours to open: the bubble, and no key kept once
+      // the server has the envelope.
+      await ctx.store.appendMessage(
+        {
+          id: envelopeId,
+          conversationId,
+          senderDeviceId: null,
+          body: preview(payload),
+          sentAtMs: at,
+          clientId: clientMsgId,
+          payload: viewOnceBubble({ id: payload.id ?? clientMsgId, mime: payload.mime, size: payload.size }),
+        },
+        envelopeId,
+      );
       return;
 
     default: {

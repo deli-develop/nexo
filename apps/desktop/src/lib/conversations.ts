@@ -4,8 +4,11 @@ import {
   attachments as coreAttachments,
   conversations as core,
   decodePayload,
+  forwardedText,
+  voiceMeta,
   type Payload,
   type StoredMessage,
+  type StoredViewOnce,
 } from "@nexo/core";
 
 import { saveFile } from "./native";
@@ -219,12 +222,14 @@ export async function listConversations(): Promise<Conversation[]> {
 
 export async function conversationMessages(conversationId: string): Promise<Message[]> {
   const { store } = await runtime();
-  const [rows, reactions, pinned] = await Promise.all([
+  const [rows, reactions, pinned, onceRows] = await Promise.all([
     store.messages(conversationId),
     store.reactions(conversationId),
     store.pinnedMessages(conversationId),
+    store.viewOnceIn(conversationId),
   ]);
   const pins = new Set(pinned.map((row) => row.id));
+  const once = new Map(onceRows.map((row) => [row.clientId, row]));
   const byTarget = new Map<string, MessageReaction[]>();
   for (const reaction of reactions) {
     const list = byTarget.get(reaction.target) ?? [];
@@ -238,7 +243,7 @@ export async function conversationMessages(conversationId: string): Promise<Mess
     }
     byTarget.set(reaction.target, list);
   }
-  return rows.map((row) => toMessage(row, byTarget, pins, rows));
+  return rows.map((row) => toMessage(row, byTarget, pins, rows, once));
 }
 
 /**
@@ -253,6 +258,7 @@ function toMessage(
   reactions: Map<string, MessageReaction[]>,
   pins: Set<number>,
   all: StoredMessage[],
+  once: Map<string, StoredViewOnce> = new Map(),
 ): Message {
   const payload: Payload | null = row.payload ? decodePayload(row.payload) : null;
   const outgoing = row.senderDeviceId === null;
@@ -307,11 +313,20 @@ function toMessage(
         size: payload.size,
         streamable: payload.segmented === true,
       };
-      if (payload.voice) message.attachment.voice = payload.voice;
+      {
+        // Held to the protocol shape on arrival: a waveform is drawn one bar
+        // per entry, and the payload was decoded without checking this field.
+        const voice = voiceMeta(payload.voice);
+        if (voice) message.attachment.voice = voice;
+      }
       break;
     case "view_once":
       message.view_once = {
-        openable: true,
+        // Openable while the key is still in its table, and not a moment
+        // after: `openViewOnce` burns it there. The payload's kind said
+        // nothing about that, and every one used to be drawn as openable.
+        openable:
+          !outgoing && row.clientId !== undefined && (once.get(row.clientId)?.encKey ?? null) !== null,
         outgoing,
         kind: payload.mime.startsWith("video/") ? "video" : "image",
       };
@@ -521,13 +536,18 @@ export async function forwardMessage(
   const payload: Payload = row.payload
     ? decodePayload(row.payload)
     : { kind: "text", body: row.body };
-  if (payload.kind !== "text" && payload.kind !== "attachment") {
-    throw new TransportError("rejected", "That cannot be forwarded.");
+  // Words only. A reply's words go on as plain text: the new readers do not
+  // have what it answered. A file does not go at all — the protocol has no way
+  // to mark one as forwarded, so it would arrive as the forwarder's own, and
+  // who owns the object in the bucket afterwards is a question with no answer
+  // yet. The menu does not offer it; this refuses it for any other caller.
+  if (payload.kind !== "text" && payload.kind !== "reply") {
+    throw new TransportError("rejected", "Only text can be forwarded.");
   }
-  const forwarded = { ...payload, forwarded: true } as typeof payload & {
-    forwarded_from?: string;
-  };
-  if (forwardedFrom !== undefined) forwarded.forwarded_from = forwardedFrom;
+  // A name of its own, never the original's: two messages in one
+  // conversation answering to one name is an edit or a reaction landing on
+  // the wrong one.
+  const forwarded = forwardedText(payload.body, globalThis.crypto.randomUUID(), forwardedFrom);
   await core.sendPayload(await it.context(), toConversationId, forwarded);
 }
 
@@ -595,15 +615,13 @@ export async function attachmentBytes(
   const row = await it.store.message(envelopeId);
   if (!row?.payload) throw new TransportError("not_found", "That attachment is gone.");
   const payload = decodePayload(row.payload);
-  if (payload.kind !== "attachment" && payload.kind !== "view_once") {
+  // Not a view-once, ever: saving one would be opening it with no burn. Its
+  // key is not in the message row any more, and this refuses it regardless.
+  if (payload.kind !== "attachment") {
     throw new TransportError("not_found", "That message has no attachment.");
   }
   const bytes = await coreAttachments.open(await it.attachments(), payload);
-  return {
-    bytes,
-    mime: payload.mime,
-    name: payload.kind === "attachment" ? payload.name : "view-once",
-  };
+  return { bytes, mime: payload.mime, name: payload.name };
 }
 
 /**

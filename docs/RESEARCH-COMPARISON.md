@@ -167,6 +167,12 @@ accounts, on the production server at `api.delidev.net`, installing from a link.
 ### Blocking — do not run a public test without these
 
 **B1. Key-change detection and durable verification state.**
+*Status.* Built — a peers table, comparison on sync, verification bound to the
+key, a banner that survives a restart — then lost when the client moved into
+the page, where nothing recorded a key; restored since v0.1.27 (`docs/STATUS.md`).
+Trust on first use remains, as it does for every scheme like it:
+`docs/THREAT-MODEL.md` §4. The rest of this entry is the original analysis,
+and its file references are to the Rust client that has since been deleted.
 *What it is.* Store each conversation peer's identity public key at first
 contact; compare on every sync; when it differs, drop the verified state and
 show a warning that survives a restart.

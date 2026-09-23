@@ -131,10 +131,9 @@ export interface Preferences {
   /** §8: what a Windows toast is allowed to say. */
   notificationDetail: "full" | "sender" | "none";
   /**
-   * §8: auto-lock after this much idleness. The timer runs in the WebView —
-   * idleness is only observable where the input events are — but the locking
-   * itself happens in Rust (see `lock.rs` for what it does and does not
-   * guarantee).
+   * §8: auto-lock after this much idleness. The timer is `useAutoLock`; the
+   * locking is `lockSession` in `lib/auth.ts`, which says what it does and
+   * does not guarantee — it guards the screen, not the disk.
    */
   lockTimeout: LockTimeout;
   /**
@@ -159,6 +158,18 @@ export interface Preferences {
    * user. The value is pushed to Rust, where the close handler lives.
    */
   closeToTray: boolean;
+  /**
+   * Whether this machine relays Nexo traffic for people who cannot reach it
+   * (`docs/RELAY.md`). Off by default, and nothing but the person turns it
+   * on: it opens a port to the internet, and it can be noticed. `App` starts
+   * the relay at launch when this is on; the shell holds whether it runs.
+   */
+  relay: boolean;
+  /**
+   * The port the relay listens on. Kept while the relay is off, so turning it
+   * back on reuses the port the router was already told about.
+   */
+  relayPort: number;
   /**
    * Whether Home keeps the most recent conversation beside the feed.
    *
@@ -202,6 +213,8 @@ export const defaultPreferences: Preferences = {
   lockTimeout: "15",
   pinOfferAnswered: false,
   closeToTray: false,
+  relay: false,
+  relayPort: 41731,
   homeChat: true,
   homeChatWidth: 380,
 };
@@ -234,9 +247,9 @@ interface AppState {
    */
   myAvatarKey: string | null;
   /**
-   * §8: whether the app is locked. Mirrors the Rust side, which holds the
-   * truth — locking drops the store connection and the MLS state over there,
-   * and this flag only decides that the lock screen is what gets drawn.
+   * §8: whether the app is locked. `lockSession` does the dropping — the
+   * tokens and the MLS state, from memory — and this flag only decides that
+   * the lock screen is what gets drawn.
    */
   locked: boolean;
   route: Route;

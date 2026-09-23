@@ -87,6 +87,13 @@ export function bindObjectWasm(module: {
     nonce: Uint8Array,
     sha256: Uint8Array,
   ): Uint8Array;
+  openSegmentedObject(
+    ciphertext: Uint8Array,
+    key: Uint8Array,
+    nonce: Uint8Array,
+    sha256: Uint8Array,
+    size: bigint,
+  ): Uint8Array;
 }): ObjectCrypto {
   return {
     seal: (plaintext) => {
@@ -109,5 +116,11 @@ export function bindObjectWasm(module: {
     },
     open: (ciphertext, key, nonce, sha256) =>
       module.openObject(ciphertext, key, nonce, sha256),
+    // `size` is a `u64` on the other side, so it crosses as a BigInt.
+    // `BigInt` throws on a fraction rather than rounding it into a length
+    // the sender never declared; any other size that disagrees with the
+    // ciphertext is refused by the length check in `decrypt_segmented`.
+    openSegmented: (ciphertext, key, nonce, sha256, size) =>
+      module.openSegmentedObject(ciphertext, key, nonce, sha256, BigInt(size)),
   };
 }

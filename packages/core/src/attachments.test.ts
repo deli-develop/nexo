@@ -24,6 +24,9 @@ const fakeCrypto: attachments.ObjectCrypto = {
     size: plaintext.byteLength,
   }),
   open: (ciphertext) => ciphertext.slice(1),
+  // Marked apart from `open`, so a test can tell which one a payload reached.
+  openSegmented: (ciphertext, _key, _nonce, _sha256, size) =>
+    Uint8Array.of(0x5e, size, ...ciphertext.slice(1)),
 };
 
 function harness(answers: Array<{ status: number; body: unknown }>) {
@@ -44,8 +47,10 @@ function harness(answers: Array<{ status: number; body: unknown }>) {
 
   const put = vi.fn(async (_url: string, _bytes: Uint8Array, _type: string) => {});
   const sent: Payload[] = [];
+  let next = 0;
   const ctx: attachments.AttachmentContext = {
     transport,
+    uuid: () => `uuid-${++next}`,
     crypto: fakeCrypto,
     objects: { put, get: async () => Uint8Array.of(0xff, 7, 8) },
     sendPayload: async (_id, payload) => {
@@ -107,12 +112,96 @@ describe("attachments", () => {
     expect(JSON.stringify(sent[0])).not.toContain("body");
   });
 
+  it("carries a voice note's length and waveform", async () => {
+    const { ctx, sent } = harness([{ status: 200, body: { url: "https://s3/put", key: "k1" } }]);
+
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(1), {
+      name: "voice-message.webm",
+      mime: "audio/webm",
+      voice: { duration_ms: 4200, peaks: [3, 140, 255] },
+    });
+
+    // Dropped here once: the recorder measured both, and every voice note
+    // still arrived as a plain audio file.
+    expect(sent[0]).toMatchObject({ voice: { duration_ms: 4200, peaks: [3, 140, 255] } });
+  });
+
+  it("names every file it sends, so it can be answered and reacted to", async () => {
+    const { ctx, sent } = harness([
+      { status: 200, body: { url: "https://s3/put", key: "k1" } },
+      { status: 200, body: { url: "https://s3/put", key: "k2" } },
+    ]);
+
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(1), { name: "a.png", mime: "image/png" });
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(2), { name: "b.png", mime: "image/png" });
+
+    // Reply, React and Edit all refer to a message by this name, and the menu
+    // offers none of them to a message without one. Each file its own.
+    expect(sent.map((payload) => (payload as { id?: string }).id)).toEqual(["uuid-1", "uuid-2"]);
+  });
+
+  it("leaves voice off the wire for a file nobody recorded", async () => {
+    const { ctx, sent } = harness([{ status: 200, body: { url: "https://s3/put", key: "k1" } }]);
+
+    await attachments.sendAttachment(ctx, "c1", Uint8Array.of(1), { name: "a.mp3", mime: "audio/mpeg" });
+
+    expect(JSON.stringify(sent[0])).not.toContain("voice");
+  });
+
   it("refuses a payload whose key is not hex rather than guessing", async () => {
     const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
 
     await expect(
       attachments.open(ctx, { s3_key: "k", key: "zz", nonce: "03", sha256: "04" }),
     ).rejects.toMatchObject({ kind: "rejected" });
+  });
+
+  it("opens a segmented attachment as segmented, with its declared size", async () => {
+    const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
+
+    // Both encodings look the same from the ciphertext; only the payload
+    // says which. Opening a segmented object whole fails its tag, which is
+    // how every video an old client sent read as "can't decrypt".
+    const opened = await attachments.open(ctx, {
+      s3_key: "k",
+      key: "01",
+      nonce: "03",
+      sha256: "04",
+      segmented: true,
+      size: 2,
+    });
+    expect(opened).toEqual(Uint8Array.of(0x5e, 2, 7, 8));
+  });
+
+  it("opens everything else whole", async () => {
+    const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
+
+    const opened = await attachments.open(ctx, {
+      s3_key: "k",
+      key: "01",
+      nonce: "03",
+      sha256: "04",
+      segmented: false,
+      size: 2,
+    });
+    expect(opened).toEqual(Uint8Array.of(7, 8));
+  });
+
+  it("refuses a segmented attachment that does not say how large it is", async () => {
+    const { ctx } = harness([{ status: 200, body: { url: "https://s3/get" } }]);
+
+    await expect(
+      attachments.open(ctx, { s3_key: "k", key: "01", nonce: "03", sha256: "04", segmented: true }),
+    ).rejects.toMatchObject({ kind: "rejected" });
+  });
+
+  it("names every sticker it sends", async () => {
+    const { ctx, sent } = harness([]);
+
+    await attachments.sendSticker(ctx, "c1", "classic", "wave");
+
+    // `message_id`, because `id` on a sticker already means which sticker.
+    expect(sent[0]).toEqual({ kind: "sticker", pack: "classic", id: "wave", message_id: "uuid-1" });
   });
 
   it("sends a sticker without uploading anything", async () => {
@@ -123,6 +212,6 @@ describe("attachments", () => {
     // Stickers ship with the app. Sending the picture would be sending the
     // same fifty kilobytes every time anybody used it.
     expect(put).not.toHaveBeenCalled();
-    expect(sent[0]).toEqual({ kind: "sticker", pack: "classic", id: "wave" });
+    expect(sent[0]).toMatchObject({ kind: "sticker", pack: "classic", id: "wave" });
   });
 });

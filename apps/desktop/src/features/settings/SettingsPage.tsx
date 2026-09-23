@@ -28,11 +28,13 @@ import { useSignOut } from "../auth/useSignOut";
 import { UnlockPin } from "./UnlockPin";
 import { BlockedList } from "./BlockedList";
 import { PrivacyTable } from "./PrivacyTable";
+import { RunRelay, ViaRelay } from "./Relay";
 
 type Section =
   | "appearance"
   | "notifications"
   | "system"
+  | "connection"
   | "privacy"
   | "security"
   | "storage"
@@ -75,6 +77,7 @@ const sections: { id: Section; label: string; icon: IconName }[] = [
   { id: "appearance", label: "Appearance", icon: "moon" },
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "system", label: "System", icon: "panel" },
+  { id: "connection", label: "Connection", icon: "globe" },
   { id: "privacy", label: "Privacy", icon: "eye" },
   { id: "security", label: "Security", icon: "shield" },
   { id: "storage", label: "Storage", icon: "database" },
@@ -119,6 +122,7 @@ export function SettingsPage({ now }: { now: Date }) {
             {section === "appearance" ? <Appearance /> : null}
             {section === "notifications" ? <Notifications /> : null}
             {section === "system" ? <System /> : null}
+            {section === "connection" ? <Connection /> : null}
             {section === "privacy" ? <Privacy now={now} /> : null}
             {section === "security" ? <Security /> : null}
             {section === "storage" ? <Storage /> : null}
@@ -490,6 +494,34 @@ function System() {
   );
 }
 
+/**
+ * Relays (`docs/RELAY.md`): reaching Nexo through somebody else's computer
+ * when it is blocked, and letting others reach it through this one.
+ *
+ * Both say what a relay can see, because both ask somebody to trust a
+ * stranger's machine or lend their own: rule 5 is about exactly this kind of
+ * sentence.
+ */
+function Connection() {
+  return (
+    <>
+      <Group
+        title="Connect through a relay"
+        description="If Nexo is blocked where you are, someone outside the block can relay for you. Your messages stay end-to-end encrypted, and your connection to Nexo stays encrypted through the relay: it sees that you use Nexo and how much, never what. Anyone watching your own connection can still tell it leads to Nexo."
+      >
+        <ViaRelay />
+      </Group>
+
+      <Group
+        title="Help others connect"
+        description="Let people who can't reach Nexo connect through this computer. It passes along bytes it cannot read, to Nexo's servers and nowhere else, and keeps no record of who connected."
+      >
+        <RunRelay />
+      </Group>
+    </>
+  );
+}
+
 function Privacy({ now }: { now: Date }) {
   const prefs = useApp((s) => s.preferences);
   const set = useApp((s) => s.setPreference);
@@ -568,7 +600,7 @@ function Security() {
 
       <Group
         title="Lock"
-        description="After this much idleness the encrypted store is closed and the keys are dropped. Reopening it needs your password — unlocking is a full sign-in, not a curtain. A locked app cannot ring: the keys that would read an incoming call are gone until you unlock, so it arrives as a missed call. A call already in progress keeps the app awake until it ends."
+        description="After this much idleness Nexo locks: the screen is replaced, the connection closes, and the session is dropped from memory until you unlock with your PIN or password, which needs the server. The lock guards the screen, not the disk — what Nexo keeps on this device is not encrypted, and anyone who can read this computer's files can read your messages."
       >
         <div className="flex items-center justify-between gap-6 py-3">
           <span className="text-text-hi text-body">Lock after</span>
@@ -792,9 +824,10 @@ function SignOutRow() {
   return (
     <div className="flex items-center justify-between gap-4 py-3">
       <p className="text-text-mid text-meta">
-        Ends this session on this device. Your messages stay in the encrypted
-        store, and the unlock PIN is removed — signing back in needs your
-        password.
+        Ends this session and deletes everything Nexo keeps on this device: your
+        message history, your keys and the unlock PIN. The server does not keep
+        delivered messages, so that history cannot come back here. Signing back
+        in needs your password.
       </p>
       <Button
         variant="secondary"

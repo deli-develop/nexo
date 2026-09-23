@@ -145,17 +145,31 @@ export async function clearPin(): Promise<void> {
 }
 
 /**
- * Unlocks with a PIN, or answers `null`.
+ * Unlocks with a PIN.
+ *
+ * `null` means the digits were wrong, and nothing else: the lock screen counts
+ * it as a spent try. A right PIN whose session the server has since ended —
+ * signed out elsewhere, or revoked — rejects with `signed_out` instead, because
+ * no PIN can bring that back and the lock screen's answer to it is the
+ * password. Both used to be `null`, so a right PIN was drawn as a wrong one
+ * until the tries ran out.
  *
  * The PIN does not decrypt anything — it gates a session that is already on
  * this device. That is the honest description, and the settings screen says it
- * too: on a browser it protects the screen, not the disk.
+ * too: it protects the screen, not the disk.
  */
 export async function unlockWithPin(value: string): Promise<Account | null> {
   const it = await runtime();
   if (!(await corePin.verify(it.pin, value))) return null;
   const account = await it.session.resume();
-  return account ? toAccount(account) : null;
+  if (!account) {
+    const ended: AuthError = {
+      kind: "signed_out",
+      message: "Your session has ended. Sign in with your password.",
+    };
+    throw ended;
+  }
+  return toAccount(account);
 }
 
 /**

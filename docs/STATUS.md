@@ -1772,3 +1772,211 @@ CORS rule would have turned into `Failed to fetch`; a real PNG was typed
 `image/png` from its bytes, decoded at 256×256 and drew from a `blob:` URL; the
 page's own HTML was refused as not a picture. No stored picture was read to
 check this.
+
+### Since v0.1.27: what the rework dropped
+
+Things the Rust client did that the page's port quietly did not.
+
+- **A right PIN on an ended session was called wrong.** `unlockWithPin`
+  answered `null` both for wrong digits and for a right PIN whose session
+  `Session.resume` found revoked, and the lock screen counts `null` as a
+  spent try — so after the server ended a session every correct PIN read
+  "That PIN is wrong", until the tries ran out. It now rejects with
+  `signed_out`, which the lock screen already answered by switching to the
+  password; nothing had produced that kind since the rework.
+
+- **Voice notes arrived as plain audio files.** The recorder measured the
+  length and the waveform, `sendAttachment` took them in `AttachmentMeta`,
+  and dropped them: `voice` never reached the payload, so every recipient
+  drew a file row. It is sent again, through `voiceMeta` in
+  `core/src/payload.ts`, which also holds an *arriving* note to
+  `VoiceMeta`'s rules — at most 64 bars, each a byte, truncated rather than
+  refused. `decodePayload` checks nothing past the kind, and a waveform is
+  drawn one bar per entry.
+
+- **A video from a client that seals in segments could not be opened.** The
+  Rust client sealed video in 256 KiB segments (`encrypt_segmented`) and said
+  so in `Payload::Attachment::segmented`; the page only ever called
+  `openObject`, whose tag fails on that layout, so every such video read as
+  "can't decrypt". The server does not enforce `PROTOCOL_VERSION`, so a client
+  that has not updated can still send one. `crates/crypto-wasm` now exposes
+  `openSegmentedObject` over the existing `decrypt_segmented` — rule 1 is
+  untouched — and `attachments.open` picks it from the flag. The page still
+  downloads the whole object; there is no ranged player.
+
+  **`decrypt_segmented` trusted the declared size for its allocation.** It
+  called `Vec::with_capacity(size as usize)` with the sender's number before
+  checking anything, so a message could ask for any amount of memory, and on
+  wasm32 `as usize` truncated it besides. The size must now match the
+  ciphertext's length — every segment is its plaintext plus a 16-byte tag —
+  before anything is allocated.
+
+- **Files and stickers sent from the page could not be answered.** The Rust
+  client named every attachment (`id`) and every sticker (`message_id`); the
+  port set neither, and Reply, React and Edit are only offered on a message
+  with a name — so no file, picture, voice note or sticker sent from the page
+  could be replied to or reacted to, by anybody. `sendAttachment` and
+  `sendSticker` name each one.
+
+- **A forward kept the original's name.** `forwardMessage` spread the original
+  payload, so forwarding one message twice into a conversation, or a forward
+  back where it came from, left two messages there answering to one name, and
+  an edit, a retraction or a reaction reached whichever the store found first.
+  A forward is now new text with a name of its own — `forwardedText`, as
+  `Payload::forwarded` builds it.
+
+- **Files could be forwarded, unmarked; replies could not be forwarded at
+  all.** The menu offers Forward on anything with a body, and a file's body is
+  its caption or its name, so every file had it — against the menu's own rule
+  that files are not forwarded. `forwardMessage` then sent the attachment
+  payload with a `forwarded` mark the protocol's attachment does not have and
+  the reader never draws, so it arrived as the forwarder's own file. Replies
+  had the entry and were refused ("That cannot be forwarded"). Now files have
+  no Forward (`hasAttachment` in the menu state) and `forwardMessage` refuses
+  them; a reply's words go on as ordinary forwarded text.
+
+- **View-once could not be opened, and its key was never destroyed.** An
+  arriving view-once went through the ordinary path: the whole payload, key
+  included, into the message row — exactly where the design above says it must
+  not be — and nothing wrote the `viewOnce` table that `openViewOnce` reads.
+  So every view-once answered "That has already been opened" on the first tap,
+  was drawn as openable for ever, and kept a key nothing burned; the sender's
+  own copy kept its key too. Now it is split as designed: `appendViewOnce`
+  writes the key to `viewOnce` and a key-free bubble to `messages` in one
+  transaction, the sender's copy keeps no key, `openable` comes from whether
+  the key is still in the table, and `attachmentBytes` refuses a view-once.
+  Schema rung 3 repairs a database that already holds them: keys move out of
+  message rows, received ones become openable — none can have been opened —
+  and our own keep nothing.
+
+- **Safety numbers never worked, and a changed key could not be noticed.**
+  The key a safety number is computed from, and compared against to raise
+  "the safety number here has changed", is written by `Store.recordPeers` —
+  and after the port nothing called it, because `crates/crypto-wasm` gave the
+  page no way to read a group's members. So `safetyNumber` was always `null`,
+  "mark as verified" had nothing to mark, and a server substituting somebody's
+  key — the adversary `THREAT-MODEL.md` §4 names — would never have been
+  caught. The facade's `Group` now has `members()` over the existing
+  `Conversation::members`, and `recordMembership` records every other device's
+  key after each sync and after starting a conversation or adding somebody, as
+  the Rust client did; the first sight of a device is its baseline. A
+  conversation that has been quiet since is recorded on its first quiet sync,
+  once — sync used to stop at "nothing new" before reading membership, so an
+  existing chat would have shown no number until somebody wrote.
+
+  **What that baseline is worth.** It is trust on first use: whatever key a
+  device has when it is first recorded is accepted, and for every conversation
+  that existed before this, that moment is the first sync after upgrading. A
+  key substituted before then is not detected — only comparing the numbers
+  catches it, and every such conversation starts unverified.
+  `docs/THREAT-MODEL.md` §4 says so.
+
+**Verified:** `lib/auth.test.ts` (4 cases, the runtime faked) and 6 new
+cases in `core/src/attachments.test.ts` and `payload.test.ts`; the
+ended-session case and the voice case each fail against the code before the
+fix. For segments: a `crates/crypto` test refuses `u64::MAX` and other sizes
+the ciphertext cannot hold; three core cases prove the reader picks the door
+from the flag; `packages/crypto-wasm/src/segmented.test.ts` seals four
+segments with the real module and opens them byte for byte through core's
+reader, and refuses a cut, an altered byte, sizes off by one, `2 ** 52` and a
+fraction, and opening it as a whole object. Not driven in a running app, and
+no video from an old client was at hand to open.
+
+---
+
+## Relay (M5)
+
+**Built, desktop only.** [`RELAY.md`](RELAY.md) is the design. Both halves
+exist — running a relay for other people, and connecting through one — and
+Settings → Connection reaches both. The server and `crates/protocol` know nothing about a
+relay, and do not need to.
+
+**The decision.** A relay is an HTTP `CONNECT` proxy that forwards only to the
+hosts the page's CSP already allows, and a blocked user's app points its
+WebView at one. TLS stays end to end, so a relay sees host names and byte
+counts, never a token or a message. Desktop only: a browser tab cannot choose
+its proxy. Reaching a volunteer behind a NAT is still the volunteer's port
+forward or IPv6 address; the outbound-only shape `RELAY.md` prefers needs a
+broker nobody has decided on.
+
+What is in the tree:
+
+- **`apps/desktop/src-tauri/src/relay.rs`** — the relay. `start_relay(port)`
+  binds one port on every interface, IPv6 and IPv4 (`0` for any free port),
+  *before* answering, so a taken port is an error and the port answered is the
+  one bound; a second start answers the running relay. Each connection must
+  open with `CONNECT host:port HTTP/1.x` for a host in `NEXO_HOSTS` —
+  `api.delidev.net:443` and `fsn1.your-objectstorage.com:443`, the CSP's
+  `connect-src` — or it is answered `403` (another host, never dialled),
+  `405` (another method, never fetched), `400` (garbage, or a head over 8 KiB),
+  `408` (no head in 10 s), `502` (the host did not answer) or `503` (128
+  tunnels already open). Every refusal reads what the client already sent
+  before closing — at most a second and a head's worth — because closing with
+  input unread is a reset on Windows, and a reset could overtake the answer:
+  a busy relay, which refuses before reading, was heard as a dropped
+  connection rather than a `503`. Otherwise `200`, and bytes both ways. `stop_relay`
+  ends the listeners and every tunnel; `relay_status` answers the port or
+  `None`. No client address is logged.
+- **`apps/desktop/src-tauri/src/via_relay.rs`** — the blocked user's half.
+  `set_via_relay(address)` checks `host:port` (a name, IPv4, or bracketed
+  IPv6; not port 80, which Tauri drops on the way to WebView2), writes it to
+  `via-relay` in the app config dir — or removes the file for `null` — and
+  restarts. At startup `lib.rs` builds the main window itself
+  (`"create": false` in `tauri.conf.json`) and gives it that address as its
+  proxy. `get_via_relay` answers what is saved. A file that no longer parses
+  is ignored, and the app starts direct. Desktop only; the mobile command
+  refuses.
+- **`apps/desktop/src/lib/native.ts`** — `startRelay`, `stopRelay`,
+  `getRelayInfo`, `getViaRelay`, `setViaRelay`.
+- **`apps/desktop/src/features/settings/Relay.tsx`** — Settings → Connection.
+  *Connect through a relay*: what is in force now, an address field, *Save and
+  restart*, *Connect directly*; the shell's refusal is shown under the field.
+  *Help others connect*: a toggle and a port (1024–65535), a callout with the
+  port and the router and firewall steps when — and only when — the shell says
+  the relay runs, and a standing warning that relaying can be noticed where
+  Nexo is blocked (`RELAY.md` §3). Both halves say what a relay can see.
+- **Preferences** — `relay` (off by default) and `relayPort` (41731), in
+  `app/store.ts`. `App.tsx` starts the relay at launch when `relay` is on,
+  whether or not anybody is signed in: it carries other people's traffic and
+  has no use for this account.
+
+`RelayTransport` (a WebSocket tunnel with a JSON-RPC handshake that nothing
+answered) and `runtime.startRelay()` (which routed this device's own client
+through its own listener) are gone: neither fits the shape above.
+
+Still missing, and each is a decision rather than a bug:
+
+- **Finding a relay.** Addresses are passed by hand. `RELAY.md`'s lookup
+  service is an open question.
+- **Volunteers behind a NAT.** A relay is reachable only through a port
+  forward or an IPv6 address the router lets through. The outbound-only shape
+  needs a broker.
+- **The first leg is not disguised.** The TLS handshake to the relay names
+  `api.delidev.net`, so a block that reads SNI rather than addresses still
+  sees Nexo. `RELAY.md` describes an address block.
+- **Web and Android.** A browser tab cannot choose its proxy; the phone's
+  command refuses.
+
+**Checked:** `cargo test -p nexo-desktop` drives the relay over real sockets:
+a tunnel to an allowed host carries bytes both ways, including bytes sent
+behind the `CONNECT` head; another host is `403` and a listener standing in
+for it is never dialled; a plain `GET` is `405`; an oversized head is `400`; a
+host that does not answer is `502`; past the ceiling is `503`; stopping ends
+the listener and an open tunnel. A test reads the CSP out of `tauri.conf.json`
+and fails if `NEXO_HOSTS` disagrees with it. Run six times in a row without a
+flake. `via_relay.rs`'s tests cover the address rules and the file. A debug
+build was started twice: with no `via-relay` file it made its window and
+WebView2 ran with no proxy; with `127.0.0.1:41731` saved it made its window and
+the WebView2 browser process ran with `--proxy-server=http://127.0.0.1:41731`.
+A throwaway test (not committed) started the real `Relay` on loopback and
+sent real HTTPS through it with `ureq` as the `CONNECT` client:
+`https://api.delidev.net/v1/health` answered `200`
+`{"status":"ok","protocol_version":5}`, the bucket host was tunnelled (its own
+`403` for an unsigned request came back through it), and `example.com` was
+refused by the relay. Settings → Connection was driven in a browser against a
+stand-in for the shell: turning the relay on called `start_relay` with 41731
+and showed the port; a port the shell refused showed the error and no
+"Relaying" callout; port 80 was refused before any call; an address the shell
+refused showed its reason under the field; a good one called `set_via_relay`
+and locked the form. Not driven: the real app's Settings screen, and a
+WebView's traffic through a relay on another machine.

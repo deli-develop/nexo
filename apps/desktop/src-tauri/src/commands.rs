@@ -4,13 +4,15 @@
 //! one means adding a permission to capabilities/default.json, so the two
 //! files should always be read together.
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt;
 #[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt as _;
 
+use crate::relay::{Relay, RelayInfo};
+use crate::via_relay;
 use crate::windows::{NotificationDetail, WindowPrefs, toast_text, tray_tooltip};
 
 /// The running app version, for the About panel and the M0 IPC smoke test.
@@ -223,6 +225,56 @@ mod tests {
     fn app_version_matches_the_crate() {
         assert_eq!(super::app_version(), env!("CARGO_PKG_VERSION"));
     }
+}
+
+// ------------------------------------------------------------------ relay
+
+/// Starts relaying for other people, or answers the relay already running.
+/// `0` picks a free port. What it forwards, and what it refuses, is in
+/// `relay.rs`.
+#[tauri::command]
+pub async fn start_relay(relay: State<'_, Relay>, port: u16) -> Result<RelayInfo, String> {
+    relay.start(port).await
+}
+
+/// Closes the relay and every tunnel through it. `false` when none was
+/// running.
+#[tauri::command]
+pub fn stop_relay(relay: State<'_, Relay>) -> bool {
+    relay.stop()
+}
+
+/// The running relay's port, or `None`.
+#[tauri::command]
+pub fn relay_status(relay: State<'_, Relay>) -> Option<RelayInfo> {
+    relay.status()
+}
+
+/// The relay this app connects through, or `None` for direct.
+#[tauri::command]
+pub fn get_via_relay(app: AppHandle) -> Option<String> {
+    via_relay::current(&app)
+}
+
+/// Saves the relay to connect through — `None` to go direct — and restarts,
+/// because a WebView's proxy is fixed when it is made. Answers only when the
+/// address is refused.
+///
+/// `async` for the restart, as in `install_update`: from the main thread,
+/// `restart()` spawns the new process before the single-instance lock is let
+/// go, and the new process hands itself to the old one and exits.
+#[tauri::command]
+#[cfg(desktop)]
+pub async fn set_via_relay(app: AppHandle, address: Option<String>) -> Result<(), String> {
+    via_relay::save(&app, address.as_deref())?;
+    app.restart();
+}
+
+/// A phone's WebView takes no proxy from this app.
+#[tauri::command]
+#[cfg(mobile)]
+pub async fn set_via_relay(_app: AppHandle, _address: Option<String>) -> Result<(), String> {
+    Err("A relay can only be used from the desktop app.".to_string())
 }
 
 /// The store updates the app on a phone, and it is not this app's business.

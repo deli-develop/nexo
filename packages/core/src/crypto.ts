@@ -34,10 +34,23 @@ export interface Decrypted {
   readonly epoch: bigint;
 }
 
+/** One member of a group: which device, and the key that signs its messages. */
+export interface Member {
+  readonly deviceId: string;
+  readonly identityKey: Uint8Array;
+}
+
 /** One conversation's MLS group. */
 export interface Group {
   readonly epoch: bigint;
   readonly memberCount: number;
+  /**
+   * Everyone in the group, this device included. Safety numbers are computed
+   * from these keys and a changed one is noticed through them. From the wasm
+   * module the entries are classes whose fields are getters: read them, never
+   * spread them.
+   */
+  members(): Member[];
   addMember(device: Device, keyPackage: Uint8Array): StagedCommit;
   confirmCommit(device: Device, nowMs: number): bigint;
   abandonCommit(device: Device): void;

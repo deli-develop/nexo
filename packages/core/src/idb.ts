@@ -1,3 +1,5 @@
+import { viewOnceBubble } from "./payload";
+
 /**
  * A promise over IndexedDB, and the schema ladder.
  *
@@ -27,7 +29,7 @@
  * rewritten once anybody has climbed it, because a database created before the
  * edit took the old path and the two would disagree. Add a rung instead.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Every object store, and what makes a row unique in it. */
 export const STORES = {
@@ -107,13 +109,15 @@ const V2_STORES: StoreName[] = [
 export function openDatabase(
   name = "nexo",
   factory: IDBFactory = globalThis.indexedDB,
+  /** A lower rung, for a test that needs a database as an older build left it. */
+  version = SCHEMA_VERSION,
 ): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!factory) {
       reject(new Error("This browser has no IndexedDB, so there is nowhere to keep anything."));
       return;
     }
-    const request = factory.open(name, SCHEMA_VERSION);
+    const request = factory.open(name, version);
 
     request.onupgradeneeded = (event) => {
       const db = request.result;
@@ -139,6 +143,7 @@ export function openDatabase(
       // Existing databases took rung 1 before the domains below existed.
       // Its definition is never changed after a released version has used it.
       if (event.oldVersion < 1) create(V1_STORES);
+      const target = event.newVersion ?? version;
       if (event.oldVersion < 2) {
         create(V2_STORES);
         // A device upgrading from v1 already has messages. Search must find
@@ -156,6 +161,65 @@ export function openDatabase(
             }
           };
         }
+      }
+      // Rung 3: view-once keys out of message rows. Until this, an arriving
+      // view-once was stored as an ordinary message, key and all, and nothing
+      // wrote the `viewOnce` table opening reads — so none could be opened, and
+      // every key outlived the promise to burn it. Each moves to that table as
+      // unopened (none can have been opened), our own copies keep none, and
+      // every row is left with the bubble alone.
+      if (event.oldVersion >= 1 && event.oldVersion < 3 && target >= 3) {
+        const upgrade = request.transaction!;
+        const viewOnce = upgrade.objectStore("viewOnce");
+        const cursor = upgrade.objectStore("messages").openCursor();
+        cursor.onsuccess = () => {
+          const at = cursor.result;
+          if (!at) return;
+          const row = at.value as {
+            conversationId: string;
+            senderDeviceId: string | null;
+            sentAtMs: number;
+            payload?: unknown;
+          };
+          let parsed: Record<string, unknown> | null = null;
+          if (typeof row.payload === "string") {
+            try {
+              parsed = JSON.parse(row.payload) as Record<string, unknown>;
+            } catch {
+              parsed = null;
+            }
+          }
+          if (parsed?.kind === "view_once" && typeof parsed.id === "string" && "key" in parsed) {
+            const id = parsed.id;
+            if (row.senderDeviceId !== null && typeof parsed.key === "string") {
+              const existing = viewOnce.get(id);
+              existing.onsuccess = () => {
+                if (existing.result) return;
+                viewOnce.put({
+                  clientId: id,
+                  conversationId: row.conversationId,
+                  s3Key: String(parsed!.s3_key ?? ""),
+                  encKey: parsed!.key,
+                  nonce: typeof parsed!.nonce === "string" ? parsed!.nonce : null,
+                  sha256: typeof parsed!.sha256 === "string" ? parsed!.sha256 : null,
+                  mime: String(parsed!.mime ?? ""),
+                  size: Number(parsed!.size ?? 0),
+                  receivedAtMs: row.sentAtMs,
+                  openedAtMs: null,
+                });
+              };
+            }
+            at.update({
+              ...row,
+              payload: viewOnceBubble({
+                id,
+                mime: String(parsed.mime ?? ""),
+                size: Number(parsed.size ?? 0),
+              }),
+            });
+          }
+          at.continue();
+        };
       }
     };
 

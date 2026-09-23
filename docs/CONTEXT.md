@@ -61,7 +61,7 @@ logged-in user, and the UI says so rather than implying otherwise. Conversation
 metadata (who, when, how big) is visible to the server. Android is a later port
 that must not require a rewrite, which is why the layering below is strict.
 
-Current version: `0.1.30`. The authority is `[workspace.package] version` in
+Current version: `0.1.31`. The authority is `[workspace.package] version` in
 `Cargo.toml`, and `apps/desktop/src-tauri/tauri.conf.json` has to agree with it
 — the release workflow refuses a tag that does not match.
 Current state: [`STATUS.md`](STATUS.md). Milestones: [`PLAN.md`](PLAN.md).
@@ -513,8 +513,8 @@ package, and `main.tsx` imports them.
 
 #### `components/`
 
-`chrome/`: `TopBar.tsx` (121 ln — one top row across the whole app; on a phone it drops the mark's 64px cell, which only lines up with the rail),
-`IconRail.tsx` (134 ln — the 64px rail, at 768px and up), `BottomBar.tsx`
+`chrome/`: `TopBar.tsx` (142 ln — one top row across the whole app; the mark sits in a disc in the 64px cell above the rail, and on a phone the cell goes, since it only lines up with the rail),
+`IconRail.tsx` (221 ln — the 64px rail, at 768px and up: raised discs, the current one inverted, Home and Messages centred, Settings, sign-out and your own avatar (Profile) at the foot), `BottomBar.tsx`
 (92 ln — the same destinations across the bottom, below 768px) and
 `destinations.ts` (27 ln — **the four destinations, shared by both**, so which
 tab is second does not change when a window is resized).
@@ -1148,6 +1148,15 @@ failed silently.
   whatever the specificity, because unlayered CSS beats layered CSS. Answering
   one of those rules takes another unlayered rule. The one there is
   `[data-scrollbar="none"]`, used by `Tabs`.
+- **`pnpm dev` registers the service worker too, and it serves stale
+  modules.** `main.tsx` registers `public/sw.js` whenever it is not in Tauri,
+  and the worker answers same-origin GETs from its cache and refreshes behind
+  them. Under Vite that means `/src/...` itself: after an edit the page loads
+  the old copy of a file beside new copies of others, which has shown up as
+  an edit that "did not apply", a missing export, and React's invalid-hook-call
+  error from two copies of React. Before trusting what the dev page shows,
+  unregister the worker and delete the `nexo-shell-*` cache (DevTools →
+  Application).
 - **The commit rules in [`CLAUDE.md`](../CLAUDE.md) are not decoration.** No
   attribution trailers, no tool names, in commits or anywhere else. Run
   `git config core.hooksPath .githooks` after a fresh clone so the hook backs

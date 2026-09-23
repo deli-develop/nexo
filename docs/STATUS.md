@@ -1978,6 +1978,29 @@ for want of a session; a report has not been sent. The context panel's
 pictures were drawn as their placeholder fields, because nothing decrypts
 without a session.
 
+### Since v0.1.31: the rail is a column of discs
+
+- **Every rail button is a raised disc, and the one you are on is inverted.**
+  The ink colour becomes the fill and the surface the glyph: black on white in
+  the light theme, white on near-black in the dark. It replaces the 3px accent
+  marker on the window edge, which was the only thing that said where you were.
+  The shadow is a new token, `--shadow-chip`, with a hairline ring in the dark
+  theme so the discs do not dissolve into the column.
+- **The mark sits in the same disc**, in the top row's cell above the rail, so
+  the column reads as one rail from the top of the window to the bottom.
+- **Home and Messages are centred; Settings, sign-out and Profile are at the
+  foot.** Profile is drawn as your own avatar, and lights only on your own
+  profile, not while you read somebody else's. The bottom bar is unchanged:
+  Profile is still its third tab, and Messages is still second in both.
+- **Sign-out is red only on hover, and only the glyph.** A red disc would be the
+  loudest thing on the rail.
+
+**Verified** in a browser at 1280×800 in both themes, with the shell mounted on
+a stand-in account: the current page inverted on Home, Messages and Settings,
+the ring on the avatar on Profile, the hover state of the discs and of
+sign-out, and the unread dot on the rim of Messages. Not seen in the desktop
+app, and not with a real profile picture.
+
 ---
 
 ## Relay (M5)

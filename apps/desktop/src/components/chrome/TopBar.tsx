@@ -50,8 +50,12 @@ export function TopBar({
           {/* The mark, not a logo lockup: one letter and a full stop. Drawn as
               paths rather than typeset, because no font is bundled and the
               display face fell through to whatever the OS had — see
-              `BrandMark`. */}
-          <BrandMark className="text-text-hi" />
+              `BrandMark`. It sits in the same disc as the rail's buttons, so
+              the top of the column reads as the rail's first stop. A `div`,
+              not a button: it goes nowhere, and this row is drag region. */}
+          <div className="bg-surface-1 flex size-11 items-center justify-center rounded-full shadow-[var(--shadow-chip)]">
+            <BrandMark className="text-text-hi" />
+          </div>
         </div>
       ) : null}
 

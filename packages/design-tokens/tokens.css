@@ -196,6 +196,17 @@
      Tailwind would prune it out of `@theme` without a word. */
   --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
 
+  /* A round button that stands on the rail rather than being drawn into it:
+     the rail's destinations, and the mark above them.
+
+     Bigger and softer than the knob, because it lifts a 44px disc rather than
+     a 16px one. In the dark the first layer is a hairline ring: a surface-1
+     disc on a surface-0 rail is a step of a few percent, and without an edge
+     the buttons dissolve into the column. Spent through
+     `shadow-[var(--shadow-chip)]`, for the same pruning reason as the knob. */
+  --shadow-chip: 0 0 0 1px var(--color-line), 0 1px 2px rgba(0, 0, 0, 0.35),
+    0 4px 12px -4px rgba(0, 0, 0, 0.45);
+
   /* The luminance of the field behind the window card.
 
      One tone and one shade, and deliberately nothing else. This used to be
@@ -308,6 +319,8 @@
 
     --glass-edge: rgba(255, 255, 255, 0.75);
     --shadow-knob: 0 1px 2px rgba(11, 18, 32, 0.18), 0 2px 5px -2px rgba(11, 18, 32, 0.14);
+    --shadow-chip: 0 0 0 1px rgba(11, 18, 32, 0.04), 0 1px 2px rgba(11, 18, 32, 0.06),
+      0 4px 14px -4px rgba(11, 18, 32, 0.12);
     --field-base: #cfcfd6;
     --field-shade: rgba(18, 18, 30, 0.18);
     /* Higher than dark: dark text over a bright wallpaper loses contrast
@@ -368,6 +381,12 @@
   /* Softer and shorter than the dark one: on a white track a shadow this size
      at dark-mode strength reads as dirt rather than as lift. */
   --shadow-knob: 0 1px 2px rgba(11, 18, 32, 0.18), 0 2px 5px -2px rgba(11, 18, 32, 0.14);
+
+  /* On white the disc needs no ring to be seen, only the faintest edge where
+     it meets a white top row -- the lift does the rest, as it does in the
+     references. */
+  --shadow-chip: 0 0 0 1px rgba(11, 18, 32, 0.04), 0 1px 2px rgba(11, 18, 32, 0.06),
+    0 4px 14px -4px rgba(11, 18, 32, 0.12);
 
   color-scheme: light;
 }

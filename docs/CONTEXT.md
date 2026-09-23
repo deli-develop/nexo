@@ -775,6 +775,7 @@ it is expensive.
 | **"Is this already built?"** | [`STATUS.md`](STATUS.md). It was written by walking the code, not the commit messages. Read it **before** calling a feature missing |
 | **"Why was it done this way?"** | [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md), or the comment at the point of the decision. Search before re-litigating |
 | **"Should we build this?"** (a feature from another messenger) | [`TELEGRAM-FEATURES.md`](TELEGRAM-FEATURES.md) — what fits, what cannot, and why |
+| **A feature Nexo itself wants, not copied from another app** | [`RELAY.md`](RELAY.md) if it is about reaching a blocked user past a block; otherwise the [invariants](#invariants) and the route table |
 
 ### Diagnosing
 
@@ -1124,6 +1125,7 @@ Read cost matters. Sizes are approximate and current.
 | [`BRIEF.md`](BRIEF.md) | 27 KB | The original specification. The source of the §-numbers other docs cite. |
 | [`LICENSING.md`](LICENSING.md) | 29 KB | Copyright, MIT duties, dependency licences, Swiss law, export control. |
 | [`RESEARCH-COMPARISON.md`](RESEARCH-COMPARISON.md) | 38 KB | Why each technology decision beat its alternative. Background, not instruction. |
+| [`RELAY.md`](RELAY.md) | 9 KB | A user's device as a path past a block: why a volunteer relay works, what it sees (nothing), and the three hard parts — finding a relay, home routers, and relay location. **A design, not a status line; nothing here is built yet.** |
 
 Also under `docs/`: `design/` (two reference images) and `superpowers/plans/`
 (two dated planning documents — historical, not current instruction).

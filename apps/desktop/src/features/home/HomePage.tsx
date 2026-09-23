@@ -25,6 +25,7 @@ import { Field } from "../../components/ui/Controls";
 import { Icon } from "../../components/ui/Icon";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { block, confirmBlock } from "../../lib/blocks";
+import { ReportDialog } from "./ReportDialog";
 import { Panel } from "../../components/ui/Surface";
 import { useLayout } from "../../app/useLayout";
 import { HomeChat } from "./HomeChat";
@@ -584,6 +585,7 @@ function PostCard({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [reporting, setReporting] = useState(false);
   const [threadOpen, setThreadOpen] = useState(false);
   const viewProfile = useApp((s) => s.viewProfile);
   const pickerWrap = useRef<HTMLDivElement>(null);
@@ -645,8 +647,8 @@ function PostCard({
           // What can be done about somebody else's post, from what exists.
           // It used to say muting and reporting "arrive with the feed
           // milestone" and offer nothing; blocking was already there, one
-          // profile away. Reporting is not here because nothing in the page
-          // sends a report yet.
+          // profile away. Report sits above Block because it is not
+          // destructive, and Block is.
           <IconButton
             name="more"
             label="Post options"
@@ -669,11 +671,24 @@ function PostCard({
                 onSelect: () => viewProfile(post.author_handle),
               },
               {
+                label: "Report this post",
+                icon: "alert",
+                onSelect: () => setReporting(true),
+              },
+              {
                 label: `Block ${post.author_display_name}`,
                 danger: true,
                 onSelect: onBlock,
               },
             ]}
+          />
+        ) : null}
+        {reporting ? (
+          <ReportDialog
+            subject="post"
+            id={post.id}
+            name={post.author_display_name}
+            onClose={() => setReporting(false)}
           />
         ) : null}
       </header>

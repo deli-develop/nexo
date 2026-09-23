@@ -574,6 +574,7 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `compose.ts` | 77 | What a draft amounts to. **A post's kind is derived, never chosen** — see Conventions. |
 | `useStories.ts` | 46 | Every live story this device holds, read once and re-readable. |
 | `story.ts` | 32 | Picks a file and posts it as a story. |
+| `ReportDialog.tsx` | 156 | Reporting a post, a comment or a person, from all three places that offer it (a post's menu, beside a comment's Reply, a profile). One wording, because the promise is the server's: a person reads it, nothing is hidden automatically, the reporter hears nothing back. |
 
 **`messages/`** — the largest surface.
 
@@ -620,7 +621,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
 | `feed.ts` | 341 | Feed, posts, comments, profiles; uploading a picture, and fetching one as a `blob:` URL. |
 | `images.ts` | 102 | Pictures from object storage for `RemoteImage`: one `blob:` URL per key, shared and reference-counted, revoked once nothing draws it. |
-| `people.ts` | 127 | Search, invitations, reporting. |
+| `people.ts` | 129 | Search, invitations, reporting (`report`, for all three subjects the server takes). |
 | `stories.ts` | 75 | Stories. Its errors narrow with `asConversationError`, because that is what the Rust side answers in. |
 | `types.ts` | 270 | The shapes the UI renders. |
 | `auth.ts` | 181 | Register, login, restore, the PIN, password, sign-out, delete. |

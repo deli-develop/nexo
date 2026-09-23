@@ -1940,9 +1940,17 @@ could not have caught.
   now offers your profile, Settings and sign-out. The one on somebody else's
   post said muting and reporting "arrive with the feed milestone"; it now
   offers their profile and blocking them, with the same confirmation the
-  profile page asks (`confirmBlock`), and reloads the feed after. **Reporting
-  is still not offered anywhere:** `reportUser` exists in `lib/people.ts` and
-  nothing in the page calls it.
+  profile page asks (`confirmBlock`), and reloads the feed after.
+
+- **Reporting, in the page at last.** `/v1/reports` had been on the server
+  since v0.1.3 and nothing in the page called it. A post's menu, a comment
+  (a word beside Reply) and a profile (beside Block) now open one
+  `ReportDialog`: five reasons, the server's own, and an optional note of up
+  to 1000 characters. It says what the server does with a report and no more:
+  a person reads it, nothing is hidden automatically, the person reported is
+  not told, and the reporter hears nothing back. Nothing in a conversation can
+  be reported, on purpose: the server cannot read a message, so a report
+  would have to carry the plaintext out.
 
 - **The top row lines up with the context panel in the desktop app.** The
   actions cell above the panel was 280px wide and ended where the window's

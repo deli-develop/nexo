@@ -166,6 +166,7 @@ than just a layout:
 | `features/auth/LockScreen` | Drawn *instead of* the shell when locked, never over it, so no conversation sits in the DOM underneath. |
 | `features/home/HomeChat` | The most recent conversation beside the feed, on Home. Composes the real `MessageList` and `Composer` rather than lookalikes, so message grouping, delivery states and the offline-queue mark cannot drift between the two places they appear. |
 | `features/home/Splitter` | The draggable line between the feed and that conversation. Owns no width — it measures the gesture and reports a number, separately for "while dragging" and "done", because persisting on every frame puts a `localStorage` write on every frame. Keyboard-operable, like anything else that changes the layout (§7.4). |
+| `features/home/ReportDialog` | Reporting, for a post, a comment or a person. Says who reads a report and what the reporter is told — nothing — because that is what `reports.rs` does, and a dialog that implied a moderation team would be an overstated promise (rule 5). |
 | `features/messages/LinkPreviewCard` | Renders a preview only once one has arrived (no skeleton for something that may never come), and a bare link otherwise. |
 
 ## Composition, in one example

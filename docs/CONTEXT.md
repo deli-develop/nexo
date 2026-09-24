@@ -599,12 +599,12 @@ it, because nothing readable may sit in the DOM behind a gate.
 |---|---|---|
 | `MessageList.tsx` | 1 431 | The bubbles, and `buildRows` (grouping). `grouping.test.ts` imports that from here — there is no `grouping.ts`. |
 | `SoundPlayer.tsx` | 326 | Nexo's own player for a voice note or a sound file: play/pause, the waveform as a seekable `slider`, the time, a speed. Replaced `<audio controls>`. **One sound plays at a time.** |
-| `ConversationList.tsx` | 962 | The list, the folders, the multi-selection. |
+| `ConversationList.tsx` | 1021 | The list, the folders, the multi-selection. |
 | `MessagesPage.tsx` | 614 | Rail, list, chat, context panel. |
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |
-| `MessagesHeader.tsx` | 488 | The Messages cells of the top row: the title ("Messages" — it used to be your own name and a "⋯" menu), the conversation, the actions. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
+| `MessagesHeader.tsx` | 524 | The Messages cells of the top row: the title ("Messages" — it used to be your own name and a "⋯" menu), the conversation — whose avatar and name open the other person's profile in a DM (`peerHandle`) — and the actions. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
 | `Composer.tsx` | 390 | Typing, attaching, recording. |
-| `ContextPanel.tsx` | 504 | The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
+| `ContextPanel.tsx` | 554 | In a DM it opens with who it is with and a Profile button. The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
 | `useRecorder.ts` | 213 | Voice recording, and the waveform that describes it. |
 | `ConversationSearch.tsx` | 155 | Searching inside the conversation you are looking at. |
 | `ForwardPicker.tsx` | 127 | Choosing where a message goes next. |

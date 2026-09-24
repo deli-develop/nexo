@@ -2200,6 +2200,16 @@ now happens.
   Every other destination's cell names the page, and now this one does.
   **Seen** at 1280×760 in both themes with the shell on stand-in data.
 
+- **A chat leads to the person in it.** There was no way from a
+  conversation to the profile of whoever it was with; only Home's side chat
+  had one. In a one-to-one, the header's avatar and name now open their
+  profile, the details panel starts with their face, name and handle and a
+  Profile button, and the row's right-click menu starts with "View profile".
+  Who "they" are comes from the member list (`peerHandle`), never the title;
+  a group, Saved messages, or a DM whose members have not arrived yet has
+  nobody to open, and nothing is offered. **Seen** and clicked in a browser
+  on stand-in data: all three land on the Profile route.
+
 ---
 
 ## Relay (M5)

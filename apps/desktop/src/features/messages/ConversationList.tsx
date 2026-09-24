@@ -751,6 +751,7 @@ export function ConversationRow({
   const forget = useApp((s) => s.forgetConversation);
   const account = useApp((s) => s.account);
   const peer = peerHandle(conversation, account?.handle);
+  const viewProfile = useApp((s) => s.viewProfile);
   const override = useApp((s) => s.conversationOverrides[conversation.id]);
   const muted = isMuted(override, now.getTime());
   const pinned = override?.pinned ?? false;
@@ -792,6 +793,14 @@ export function ConversationRow({
       ];
     }
     return [
+      // First, because it is the one entry about the person rather than the
+      // row -- and absent where there is nobody to name, like Block below.
+      ...(peer
+        ? [
+            { label: "View profile", icon: "user" as const, onSelect: () => viewProfile(peer) },
+            { label: "", separator: true as const },
+          ]
+        : []),
       {
         label: pinned ? "Unpin" : "Pin to the top",
         icon: "pin",

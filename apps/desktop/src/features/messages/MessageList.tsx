@@ -5,6 +5,7 @@ import { firstLink, useLinkPreview } from "../../app/useLinkPreview";
 import { cn } from "../../lib/cn";
 import { clockTime, dayDivider, fileSize, isSameDay } from "../../lib/format";
 import {
+  canBlockScreenCapture,
   confirm,
   copyText,
   notify,
@@ -36,6 +37,7 @@ import {
   type AttachmentEntry,
 } from "../../lib/conversations";
 import { SoundPlayer } from "./SoundPlayer";
+import { ViewOnceViewer } from "./ViewOnceViewer";
 import { fieldFor, fileTone } from "../../lib/palette";
 import type {
   Attachment,
@@ -550,9 +552,13 @@ function StickerBubble({ sticker }: { sticker: { pack: string; id: string } }) {
  * **Ours.** We kept the file we picked, so there was never anything here for us
  * to open — the bubble says it was sent rather than pretending to be spent.
  *
+ * **Open.** Over the whole window, in `ViewOnceViewer`, which keeps the window
+ * out of screenshots in the desktop app while it is shown.
+ *
  * What it never says: that the other person cannot keep it. They can photograph
- * the screen, and `docs/THREAT-MODEL.md` §4 puts the viewer's own device out of
- * scope. Claiming otherwise would be the comfortable lie rule 5 exists to stop.
+ * the screen, a browser cannot block even a screenshot, and
+ * `docs/THREAT-MODEL.md` §4 puts the viewer's own device out of scope. What the
+ * line under the button claims is only what the host can actually do.
  */
 function ViewOnceBubble({
   message,
@@ -585,66 +591,67 @@ function ViewOnceBubble({
     }
   }
 
-  if (showing) {
-    return (
-      <div className="rounded-panel bg-surface-2 ring-line flex w-[320px] flex-col gap-2 p-2 ring-1">
-        {state.kind === "video" ? (
-          <video src={showing} controls autoPlay className="w-full rounded-[10px]" />
-        ) : (
-          <img src={showing} alt={`${noun}, opened once`} className="w-full rounded-[10px]" />
-        )}
-        <span className="text-text-lo text-[11px]">
-          Closing this ends it — the key is already gone from this device.
-        </span>
-      </div>
-    );
-  }
-
   const spent = !state.openable;
   return (
-    <div
-      className={cn(
-        "rounded-panel ring-line flex w-[260px] flex-col gap-1.5 p-3 ring-1",
-        spent ? "bg-surface-2" : "bg-surface-3",
-      )}
-    >
-      <span className="flex items-center gap-2">
-        <Icon
-          name={spent ? "lock" : state.kind === "video" ? "play" : "image"}
-          size={15}
-          className={spent ? "text-text-lo shrink-0" : "text-accent-soft shrink-0"}
+    <>
+      {showing ? (
+        <ViewOnceViewer
+          url={showing}
+          kind={state.kind}
+          onClose={() => {
+            // The only copy of the bytes this page had. The key went when it
+            // was opened; this lets go of the picture.
+            URL.revokeObjectURL(showing);
+            setShowing(null);
+          }}
         />
-        <span className="text-text-hi text-[12px] font-medium">
-          {noun}
-          {spent ? "" : " · once"}
-        </span>
-      </span>
-
-      {spent ? (
-        <span className="text-text-lo text-[11px]">
-          {state.outgoing
-            ? "Sent. You can open your own copy of the file, not this."
-            : "Opened. The key was destroyed, so this cannot be opened again."}
-        </span>
-      ) : (
-        <>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void open()}
-            className="rounded-control bg-accent text-on-accent px-2.5 py-1.5 text-[12px] font-medium enabled:hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-fill-disabled disabled:text-text-disabled"
-          >
-            {busy ? "Opening…" : `Open ${noun.toLowerCase()}`}
-          </button>
-          <span className="text-text-lo text-[11px]">
-            Once. Nexo cannot stop a screenshot.
-          </span>
-        </>
-      )}
-      {problem ? (
-        <span className="text-[11px] text-[var(--danger)]">{problem}</span>
       ) : null}
-    </div>
+      <div
+        className={cn(
+          "rounded-panel ring-line flex w-[260px] flex-col gap-1.5 p-3 ring-1",
+          spent ? "bg-surface-2" : "bg-surface-3",
+        )}
+      >
+        <span className="flex items-center gap-2">
+          <Icon
+            name={spent ? "lock" : state.kind === "video" ? "play" : "image"}
+            size={15}
+            className={spent ? "text-text-lo shrink-0" : "text-accent-soft shrink-0"}
+          />
+          <span className="text-text-hi text-[12px] font-medium">
+            {noun}
+            {spent ? "" : " · once"}
+          </span>
+        </span>
+
+        {spent ? (
+          <span className="text-text-lo text-[11px]">
+            {state.outgoing
+              ? "Sent. You can open your own copy of the file, not this."
+              : "Opened. The key was destroyed, so this cannot be opened again."}
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void open()}
+              className="rounded-control bg-accent text-on-accent px-2.5 py-1.5 text-[12px] font-medium enabled:hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-fill-disabled disabled:text-text-disabled"
+            >
+              {busy ? "Opening…" : `Open ${noun.toLowerCase()}`}
+            </button>
+            <span className="text-text-lo text-[11px]">
+              {canBlockScreenCapture()
+                ? "Once. Screenshots of Nexo come out blank while it is open."
+                : "Once. A browser cannot stop a screenshot."}
+            </span>
+          </>
+        )}
+        {problem ? (
+          <span className="text-[11px] text-[var(--danger)]">{problem}</span>
+        ) : null}
+      </div>
+    </>
   );
 }
 

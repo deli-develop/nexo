@@ -2210,6 +2210,25 @@ now happens.
   nobody to open, and nothing is offered. **Seen** and clicked in a browser
   on stand-in data: all three land on the Profile route.
 
+- **A view-once photo cannot be screenshotted in the desktop app.** It was
+  shown inside the bubble with "Nexo cannot stop a screenshot" beside it.
+  It now opens over the whole window (`ViewOnceViewer`), and while it is
+  open the window is excluded from capture -- `SetWindowDisplayAffinity`
+  with `WDA_EXCLUDEFROMCAPTURE`, through Tauri's content protection -- so a
+  screenshot, the Snipping Tool or a screen recording shows the window
+  blank. It is how Unigram does it on Windows and what `FLAG_SECURE` does on
+  Android. Nothing is drawn until the protection is in place, picture-in-
+  picture is off, and closing it (button or Escape) lets go of the bytes.
+  The web app cannot block anything and says so, before and while it is
+  open; the promise is the host's, not the feature's.
+  `docs/THREAT-MODEL.md` §2.13 has what it still cannot stop: a camera, a
+  capture card, a modified build, Windows 10 before 2004. **Verified** in a
+  browser with the Tauri bridge stubbed: protection is asked for when the
+  viewer opens and released when it closes, and both captions were seen;
+  `lib/capture.test.ts` covers two holds, a double release and a refusal.
+  **Not verified on Windows** -- that a real screenshot comes out blank is
+  the thing to check by hand.
+
 ---
 
 ## Relay (M5)

@@ -386,17 +386,42 @@ about why: a client that merely *refuses* to show something it could still
 decrypt is one patch away from showing it. Deleting the key removes the
 question.
 
-What it does **not** do, and what the UI therefore says out loud beside the
-button — *"Once. Nexo cannot stop a screenshot."*:
+**In the desktop app, the window is kept out of screen capture while it is
+open.** The photo or clip is shown over the whole window, and until it is
+closed the window asks Windows to leave it out of every capture
+(`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`, which is what
+Tauri's content protection calls — permission
+`core:window:allow-set-content-protected`). A screenshot, the Snipping Tool
+or a screen recording shows the window blank. Nothing is drawn until the
+protection is in place, and picture-in-picture is off, because a clip in a
+window of its own would not be covered. This is how other messengers do it
+where the platform allows: Android apps set `FLAG_SECURE`, Unigram (a
+Telegram client for Windows) sets the same display affinity, and WhatsApp's
+web client refuses to open view-once media at all because a browser can do
+neither.
 
-- A screenshot, a screen recorder, or a camera pointed at the monitor. The
-  viewer's own device is out of scope (§4), and nothing here changes that.
-- A modified build that keeps the plaintext after decrypting it. The bytes are
-  decrypted on the viewer's machine because they must be, and that machine is
-  theirs.
+What it does **not** do, and what the UI therefore says beside the button —
+*"Once. Screenshots of Nexo come out blank while it is open."* in the desktop
+app, *"Once. A browser cannot stop a screenshot."* on the web:
 
-**There is no screenshot notification, deliberately.** Telegram sends one, and
-it is the part of the feature that should not be copied: it tells the sender
+- A camera pointed at the monitor, a capture card, or another machine
+  watching this one over remote desktop software that runs below the window
+  manager. The viewer's own device is out of scope (§4), and blocking a
+  screenshot does not move it into scope.
+- A screenshot in the web app. No page can stop one, and the viewer says so.
+  Refusing to open view-once in a browser, as WhatsApp does, is not open to
+  Nexo: one device per account means somebody on the web app may have no
+  other device to open it on.
+- Windows 10 before version 2004, where `WDA_EXCLUDEFROMCAPTURE` does not
+  exist and the call does nothing. Every such release is out of support.
+- A modified build that keeps the plaintext after decrypting it, or leaves
+  the protection off. The bytes are decrypted on the viewer's machine because
+  they must be, and that machine is theirs.
+
+**There is no screenshot notification, deliberately.** Blocking a capture is
+the window refusing to be copied; a notification is a claim about what
+happened. Telegram sends one, and it is the part of the feature that should
+not be copied: it tells the sender
 something happened only when a cooperating client chooses to say so, which
 means its silence proves nothing while reading as an assurance. Sending it here
 would imply exactly the guarantee this section disclaims. Rule 5 covers this

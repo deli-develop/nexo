@@ -597,11 +597,12 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `MessageList.tsx` | 1 431 | The bubbles, and `buildRows` (grouping). `grouping.test.ts` imports that from here — there is no `grouping.ts`. |
+| `MessageList.tsx` | 1 438 | The bubbles, and `buildRows` (grouping). `grouping.test.ts` imports that from here — there is no `grouping.ts`. |
 | `SoundPlayer.tsx` | 326 | Nexo's own player for a voice note or a sound file: play/pause, the waveform as a seekable `slider`, the time, a speed. Replaced `<audio controls>`. **One sound plays at a time.** |
 | `ConversationList.tsx` | 1021 | The list, the folders, the multi-selection. |
 | `MessagesPage.tsx` | 614 | Rail, list, chat, context panel. |
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |
+| `ViewOnceViewer.tsx` | 115 | A view-once photo or clip over the whole window, drawn only once `blockScreenCapture` has kept the window out of screenshots (desktop app); says plainly on the web that a browser cannot. No picture-in-picture. |
 | `MessagesHeader.tsx` | 524 | The Messages cells of the top row: the title ("Messages" — it used to be your own name and a "⋯" menu), the conversation — whose avatar and name open the other person's profile in a DM (`peerHandle`) — and the actions. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
 | `Composer.tsx` | 390 | Typing, attaching, recording. |
 | `ContextPanel.tsx` | 554 | In a DM it opens with who it is with and a Profile button. The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
@@ -657,7 +658,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | File | Ln | Wraps |
 |---|---|---|
 | `conversations.ts` | 901 | The 45 conversation commands. |
-| `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
+| `native.ts` | 576 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater — and `blockScreenCapture`, the window's content protection (`WDA_EXCLUDEFROMCAPTURE`), held while a view-once is open. Not an IPC command: Tauri's window API, allowed by `core:window:allow-set-content-protected` in the capability file. |
 | `feed.ts` | 341 | Feed, posts, comments, profiles; uploading a picture, and fetching one as a `blob:` URL. |
 | `images.ts` | 102 | Pictures from object storage for `RemoteImage`: one `blob:` URL per key, shared and reference-counted, revoked once nothing draws it. |
 | `people.ts` | 129 | Search, invitations, reporting (`report`, for all three subjects the server takes). |
@@ -684,7 +685,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-29 vitest files, 192 tests, run by `pnpm test`. They cluster on the pure
+30 vitest files, 195 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -693,7 +694,7 @@ components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection · shared
               teams: postMenu · roles
-lib/          animated · attachmentText · auth · dialogs · format · forward · images · media · viewonce
+lib/          animated · attachmentText · auth · capture · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```
 

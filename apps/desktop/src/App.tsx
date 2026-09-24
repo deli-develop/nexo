@@ -334,8 +334,8 @@ export function App() {
   // it already has, and only an unlocked one can be missing it.
   //
   // Offered once and never again, either way. This was a gate — no PIN, no app
-  // — and the cost landed on the wrong person: signing out erases the PIN, so
-  // the sign-in that followed a sign-out hit the same wall, and somebody who
+  // — and the cost landed on the wrong person: signing out erased the PIN then,
+  // so the sign-in that followed a sign-out hit the same wall, and somebody who
   // simply did not want one hit it at every sign-in forever. `OfferPin` says
   // what the requirement was buying and why one screen is enough to buy it.
   if (account && hasPin === false && !pinOfferAnswered) {

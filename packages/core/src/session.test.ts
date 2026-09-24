@@ -177,7 +177,7 @@ describe("Session", () => {
     expect(await store.mlsState()).toEqual(Uint8Array.of(5));
   });
 
-  it("wipes locally even when server logout fails", async () => {
+  it("erases everything when asked, even when server logout fails", async () => {
     await store.persistSignIn(
       { userId: 7, handle: "alice", displayName: "Alice" },
       { deviceId: tokens(1).device_id, secret: Uint8Array.of(9) },
@@ -186,10 +186,102 @@ describe("Session", () => {
     const fetch = vi.fn().mockRejectedValue(new TypeError("offline")) as typeof globalThis.fetch;
     const { session, transport } = create(fetch);
     transport.adopt(tokens(1));
-    await expect(session.logout()).rejects.toMatchObject({ kind: "unreachable" });
+    await expect(session.logout({ erase: true })).rejects.toMatchObject({ kind: "unreachable" });
     expect(await store.account()).toBeNull();
     expect(await store.identity()).toBeNull();
     expect(await store.refreshToken()).toBeNull();
     expect(transport.signedIn).toBe(false);
+  });
+
+  it("keeps the device and its history on sign-out, and picks them up on the next sign-in", async () => {
+    await store.persistSignIn(
+      { userId: 7, handle: "alice", displayName: "Alice" },
+      { deviceId: tokens(1).device_id, secret: Uint8Array.of(17) },
+      "refresh-1", Uint8Array.of(5),
+    );
+    await store.putConversation({
+      id: "c1", title: "bob", kind: "dm", epoch: 3, syncedTo: 40, lastMessage: "hi", updatedAtMs: 1,
+    });
+    const logins: unknown[] = [];
+    const fetch = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/logout")) return answer(204);
+      if (url.endsWith("/salt")) return answer(200, { salt: "01".repeat(16), argon2: params });
+      if (url.endsWith("/login")) {
+        logins.push(JSON.parse(String(init?.body)));
+        return answer(200, tokens(2));
+      }
+      throw new Error(url);
+    }) as typeof globalThis.fetch;
+    const { session, transport } = create(fetch);
+    transport.adopt(tokens(1));
+
+    await session.logout();
+    // Signed out: no token to resume with, so the app shows the sign-in form...
+    expect(await store.refreshToken()).toBeNull();
+    expect(transport.signedIn).toBe(false);
+    expect(await session.resume()).toBeNull();
+    // ...and everything else is still here.
+    expect(await session.keptAccount()).toMatchObject({ handle: "alice" });
+    expect(await store.conversation("c1")).toMatchObject({ syncedTo: 40 });
+
+    await session.login("alice", "password");
+    // The same key goes to the server, so it is the same device coming back.
+    expect(logins[0]).toMatchObject({ identity_pubkey: "11" });
+    expect(await store.identity()).toMatchObject({ secret: Uint8Array.of(17) });
+    expect(await store.mlsState()).toEqual(Uint8Array.of(5));
+    expect(await store.conversation("c1")).toMatchObject({ syncedTo: 40, lastMessage: "hi" });
+    expect(session.keyPackagesPending).toBe(false);
+  });
+
+  it("replaces what somebody else left, with a new device, once the server says yes", async () => {
+    await store.persistSignIn(
+      { userId: 7, handle: "alice", displayName: "Alice" },
+      { deviceId: tokens(1).device_id, secret: Uint8Array.of(17) },
+      "refresh-1", Uint8Array.of(5),
+    );
+    await store.putConversation({
+      id: "c1", title: "bob", kind: "dm", epoch: 3, syncedTo: 40, lastMessage: "hi", updatedAtMs: 1,
+    });
+    await store.clearRefreshToken();
+    const logins: unknown[] = [];
+    let accept = false;
+    const fetch = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/salt")) return answer(200, { salt: "01".repeat(16), argon2: params });
+      if (url.endsWith("/login")) {
+        logins.push(JSON.parse(String(init?.body)));
+        return accept ? answer(200, { ...tokens(3), user_id: 8 }) : answer(401, { error: "invalid_credentials" });
+      }
+      if (url.endsWith("/keypackages")) return answer(204);
+      throw new Error(url);
+    }) as typeof globalThis.fetch;
+    const { session } = create(fetch);
+
+    // A wrong password for the other account leaves Alice's history alone.
+    await expect(session.login("carol", "wrong")).rejects.toBeDefined();
+    expect(await store.conversation("c1")).not.toBeNull();
+
+    accept = true;
+    await expect(session.login("carol", "password")).resolves.toMatchObject({ handle: "carol", userId: 8 });
+    // Never Alice's key: the login upserts on it and would hand her device to Carol.
+    expect(logins[1]).toMatchObject({ identity_pubkey: "09" });
+    expect(await store.account()).toMatchObject({ handle: "carol", displayName: "carol" });
+    expect(await store.identity()).toMatchObject({ secret: Uint8Array.of(9) });
+    expect(await store.conversation("c1")).toBeNull();
+  });
+
+  it("refuses another account while this one is still signed in", async () => {
+    await store.persistSignIn(
+      { userId: 7, handle: "alice", displayName: "Alice" },
+      { deviceId: tokens(1).device_id, secret: Uint8Array.of(17) },
+      "refresh-1", Uint8Array.of(5),
+    );
+    const fetch = vi.fn() as unknown as typeof globalThis.fetch;
+    const { session } = create(fetch);
+    await expect(session.login("carol", "password")).rejects.toThrow(/signed in as @alice/);
+    await expect(session.register("carol", "Carol", "password")).rejects.toThrow(/signed in as @alice/);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await store.account()).toMatchObject({ handle: "alice" });
   });
 });

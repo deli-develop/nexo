@@ -897,32 +897,51 @@ function About() {
 }
 
 /**
- * Signing out, from Settings.
+ * Signing out, from Settings -- the one place both kinds are offered.
  *
  * The same `useSignOut` the rail uses — one path, one confirmation, one busy
- * flag around the *question* rather than only the answer. Two entry points to
- * one behaviour, not two behaviours.
+ * flag around the *question* rather than only the answer. The rail's button
+ * is the everyday one and keeps this device's history for the next sign-in;
+ * erasing it is here, where there is room to say what it costs.
  */
 function SignOutRow() {
   const { signOut, busy } = useSignOut();
 
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <p className="text-text-mid text-meta">
-        Ends this session and deletes everything Nexo keeps on this device: your
-        message history, your keys and the unlock PIN. The server does not keep
-        delivered messages, so that history cannot come back here. Signing back
-        in needs your password.
-      </p>
-      <Button
-        variant="secondary"
-        icon="logout"
-        onClick={() => void signOut()}
-        disabled={busy}
-        className="shrink-0"
-      >
-        Sign out
-      </Button>
+    <div className="flex flex-col divide-y divide-[var(--hairline)]">
+      <div className="flex items-center justify-between gap-4 py-3">
+        <p className="text-text-mid text-meta">
+          Ends this session. Your messages, keys and unlock PIN stay on this
+          device, so signing back in with your password picks up where you
+          left off. They are not encrypted on the disk: anybody who uses this
+          computer can read them.
+        </p>
+        <Button
+          variant="secondary"
+          icon="logout"
+          onClick={() => void signOut()}
+          disabled={busy}
+          className="shrink-0"
+        >
+          Sign out
+        </Button>
+      </div>
+      <div className="flex items-center justify-between gap-4 py-3">
+        <p className="text-text-mid text-meta">
+          For a shared or borrowed computer. Ends this session and deletes
+          everything Nexo keeps here. Nothing on this device can read those
+          conversations again: signing in later starts them from nothing.
+        </p>
+        <Button
+          variant="danger"
+          icon="trash"
+          onClick={() => void signOut({ erase: true })}
+          disabled={busy}
+          className="shrink-0"
+        >
+          Sign out and erase
+        </Button>
+      </div>
     </div>
   );
 }

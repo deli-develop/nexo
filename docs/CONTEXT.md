@@ -572,10 +572,10 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `AuthPage.tsx` | 198 | The one screen reachable without an account. Never says whether a handle exists. Says why it is back when the server ended the session (`endedFor`). |
+| `AuthPage.tsx` | 228 | The one screen reachable without an account. Never says whether a handle exists. Says why it is back when the server ended the session (`endedFor`). Fills in the handle whose history this device kept (`keptAccount`), and warns before anybody else's sign-in or registration replaces it. |
 | `LockScreen.tsx` | 193 | The lock screen. The PIN when there is one, the password otherwise. A `null` from `unlockWithPin` is the **only** thing that means a wrong PIN; the other failures arrive as errors with a `kind`. |
 | `OfferPin.tsx` | 139 | The unlock PIN, offered **once per machine** and skippable. It used to be a gate; the reasoning for the change is in its header. |
-| `useSignOut.ts` | 61 | Signing out, in one place, with the busy flag around the *question* and not only the answer. |
+| `useSignOut.ts` | 83 | Signing out, in one place, with the busy flag around the *question* and not only the answer. `signOut()` keeps this device's history and says who could read it; `signOut({ erase: true })` is Settings' "Sign out and erase". |
 
 **`home/`** — the feed.
 
@@ -664,7 +664,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `people.ts` | 129 | Search, invitations, reporting (`report`, for all three subjects the server takes). |
 | `stories.ts` | 75 | Stories. Its errors narrow with `asConversationError`, because that is what the Rust side answers in. |
 | `types.ts` | 270 | The shapes the UI renders. |
-| `auth.ts` | 181 | Register, login, restore, the PIN, password, sign-out, delete. |
+| `auth.ts` | 297 | Register, login, restore, the PIN, password, sign-out (keeping or erasing), `keptAccount`, delete. |
 | `dialogs.ts` | 163 | In-app dialogs and toasts (`confirm`, `notify`) — not OS dialogs. |
 | `format.ts` | 116 | Relative time, sizes, counts. |
 | `palette.ts` | 83 | Deterministic colour from a string. |
@@ -716,7 +716,8 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | File | Ln | Owns |
 |---|---|---|
 | `src/conversations.ts` | 1 463 | The MLS orchestration: start, send, sync, discover, and the revision rules; `removeFrom` / `removeDevice` (routing first, then the commit). Also where a team's payloads land: `team_pin` / `team_remove` — and in a team, `rename`, `team_meta` and `group_avatar` — are **checked against the roster as they arrive** and dropped from anybody who does not moderate; an unreadable envelope in a team leaves a placeholder row; a Welcome's envelope id is kept as `joinedAt`. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
-| `src/store.ts` | 1 052 | Everything this device keeps, over IndexedDB. `teamMarks` holds a board's honoured pins and removals; a taken-back team post or comment keeps its skeleton (kind, id, post) so the board can place it. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
+| `src/session.ts` | 374 | One signed-in device: register, login (reusing the kept identity and MLS state for the same account; a fresh device, and the kept one replaced, for another), resume, `logout` (keeps the store unless `erase`), delete, change password. The one door to the signed-in `Context`. |
+| `src/store.ts` | 1 091 | Everything this device keeps, over IndexedDB. **A conversation row is changed through `updateConversation`**, one transaction, never read-then-put (*Conventions*). `teamMarks` holds a board's honoured pins and removals; a taken-back team post or comment keeps its skeleton (kind, id, post) so the board can place it. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
 | `src/payload.ts` | 449 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`, the team kinds included. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 309 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
 | `src/idb.ts` | 313 | A promise over IndexedDB and the schema ladder (`SCHEMA_VERSION` **4**), written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
@@ -1046,13 +1047,22 @@ failed silently.
   writes both rows in one transaction. The port once stored the whole payload
   in `messages` and never filled `viewOnce`, so every view-once was unopenable
   *and* unburnable; `openable` is read from the table, never from the payload.
-- **Signing out wipes in a `finally`, and the wipe is one transaction.** The
-  Rust client once reported a successful sign-out with the database, its key
-  and the PIN all still on disk, because one failed step skipped the ones after
-  it. `Session.logout` asks the server to end the session and wipes in a
-  `finally`, and `Store.wipe` clears every object store in one transaction, so
-  no step can skip another. `Session.deleteAccount` is the other way round,
-  server first: a refusal must leave this device able to reach the account.
+- **Signing out keeps the store; erasing is the option, and it is one
+  transaction.** `Session.logout()` asks the server to end the session and,
+  in a `finally`, drops the tokens and clears the refresh token -- the
+  account, identity key, MLS state and history stay, so signing in again as
+  the same person is the same device returning, groups and chats intact. It
+  used to wipe everything, and every sign-in after a sign-out was a new
+  device that could read none of its old conversations. `logout({ erase:
+  true })` ("Sign out and erase" in Settings) is the old wipe: `Store.wipe`
+  clears every object store in one transaction, so no step can skip another
+  -- the Rust client once reported a successful sign-out with its database,
+  key and PIN still on disk. Signing in as a **different** account replaces
+  what is kept, only after the server accepts the credentials, with a fresh
+  device key (the login upserts on the key); while the stored account still
+  holds a refresh token, another account is refused instead.
+  `Session.deleteAccount` is the other way round, server first: a refusal
+  must leave this device able to reach the account.
 - **A conversation's title is not a handle.** `title` is a label — for a DM
   with no member list yet it is literally `"Unnamed conversation"` — and
   looking it up as an account sends a doomed request on every render.
@@ -1142,7 +1152,7 @@ failed silently.
   every refresh token) calls `onSessionEnded` exactly once; `Session` clears
   the dead refresh token and calls its `onEnded`; `lib/auth.ts::onSessionEnded`
   drops socket, tokens and runtime; `App` returns to `AuthPage` with
-  `endedFor`. **The store is kept**, unlike `logout`: signing in there again
+  `endedFor`. **The store is kept**, as `logout` now keeps it too: signing in there again
   reuses the identity key, un-retires that device row and keeps its history.
   Before this, every screen swallowed `signed_out` and the app stayed drawn
   over a dead session. An unreachable refresh is not an ending.

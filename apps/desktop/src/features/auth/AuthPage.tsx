@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Controls";
 import { Callout } from "../../components/ui/Feedback";
@@ -8,6 +8,7 @@ import {
   login,
   register,
   type Account,
+  keptAccount,
 } from "../../lib/auth";
 
 type Mode = "login" | "register";
@@ -46,6 +47,23 @@ export function AuthPage({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Whose history this device kept when they signed out. Their handle is
+  // filled in -- signing back in is what almost everybody here is doing --
+  // and anybody else is told, before they press anything, that signing in
+  // replaces it.
+  const [kept, setKept] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void keptAccount().then((found) => {
+      if (cancelled || !found) return;
+      setKept(found);
+      setHandle((typed) => typed || found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const replacesKept = kept !== null && (mode === "register" || (handle !== "" && handle !== kept));
 
   const handleError = handleProblem(handle);
   const canSubmit =
@@ -150,6 +168,18 @@ export function AuthPage({
             computer. Nexo keeps one device signed in per account. Signing in
             here again brings back what this device already has, and signs the
             other one out.
+          </Callout>
+        ) : null}
+
+        {replacesKept && !error ? (
+          <Callout tone="warning" icon="alert" className="mt-4">
+            This device keeps @{kept}'s messages. Signing in as anybody else
+            removes them from it — they cannot be brought back here.
+          </Callout>
+        ) : kept !== null && handle === kept && mode === "login" && !endedFor && !error ? (
+          <Callout className="mt-4">
+            Your messages are still on this device. Signing in picks up where
+            you left off.
           </Callout>
         ) : null}
 

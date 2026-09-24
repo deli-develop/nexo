@@ -225,8 +225,9 @@ the server that belongs to an account that no longer exists, which is worse in
 every direction.
 
 **The order is server first, machine second**, the opposite of signing out.
-Signing out wipes the disk whatever the server says, because somebody handing
-over a laptop cares about the disk. Deletion has to hear a yes first: wiping
+Signing out finishes on the machine whatever the server says, and "Sign out
+and erase" wipes the disk whatever it says, because somebody handing over a
+laptop cares about the disk. Deletion has to hear a yes first: wiping
 locally and then failing would leave an account that still exists, that this
 machine can no longer reach, and that has no recovery.
 
@@ -372,7 +373,7 @@ a story is recallable.
   for messages — who talks to whom, and when — but it arrives in a recognisable
   pattern, and a pattern is information.
 
-### 2.13 View-once destroys a key, and nothing else
+### 2.13 View-once destroys a key, and hides the window from capture
 
 What it does, exactly: the key that opens the ciphertext is stored apart from
 the message — in `view_once`, never in `messages.payload`, which outlives the
@@ -535,6 +536,38 @@ server. What members already have on their devices stays there, and the
 objects its posts' files point at stay in the bucket as ciphertext nobody
 holds a key for.
 
+### 2.17 Signing out keeps this device's history, unless you erase it
+
+Signing out ends the session -- the server revokes the refresh token and the
+app drops every token it held -- and **leaves everything else on this
+device**: the account row, the identity key, the MLS state, every
+conversation and its history, the unlock PIN. Signing in again as the same
+person is then the same device coming back, with its groups and its chats;
+the server un-retires the device by its key.
+
+It used to wipe all of that, and the cost was the thing people noticed: the
+next sign-in was a brand-new device that could read none of its old
+conversations, so every chat had to be started again and the history was
+gone. It was also a new identity key, which raised the safety-number warning
+for everybody that person talked to (§4, B1).
+
+What this concedes, and what the UI says where it offers the choice:
+
+- **Nothing is encrypted at rest** (§1 and `docs/REWORK.md`), so after an
+  ordinary sign-out the messages on this machine are readable by anybody who
+  uses it, or who can read its disk. The sign-out question says so.
+- **"Sign out and erase"**, in Settings, is the old behaviour: one
+  transaction removes everything, and nothing here can read those
+  conversations again. It is the one to use on a shared or borrowed
+  computer.
+- **One device holds one account.** Signing in as somebody else, or
+  registering, replaces what the last person left -- after the server has
+  accepted the new credentials, never before, and the sign-in form warns
+  first. The other person's device key is never offered for the new account:
+  the login upserts on the key, and would hand their device to someone else.
+  While the stored account is still signed in (the app merely started
+  offline), another account is refused rather than allowed to erase it.
+
 ## 3. Adversaries in scope
 
 **A network attacker.** Defeated by TLS 1.3 for transport plus MLS for content.
@@ -645,10 +678,11 @@ defence is users actually comparing **safety numbers** out of band.
 > **A new device looks like the attack.** Signing in on a machine with no local
 > store generates a **fresh identity keypair** (`Session.login` in
 > `packages/core/src/session.ts`), and the server accepts it as an additional
-> device. So does signing out and back in on the same machine: sign-out wipes
-> the store, keys included. Both raise the warning for everyone who talks to
-> that person, correctly — Nexo cannot tell a new device from a substituted
-> key, and the banner says so.
+> device. So does signing back in after "Sign out and erase", which takes the
+> keys with it. Both raise the warning for everyone who talks to that person,
+> correctly — Nexo cannot tell a new device from a substituted key, and the
+> banner says so. An ordinary sign-out no longer does: it keeps the key, and
+> signing back in is the same device returning.
 >
 > Tracked as B1 in `docs/RESEARCH-COMPARISON.md`.
 

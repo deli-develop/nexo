@@ -2229,6 +2229,28 @@ now happens.
   **Not verified on Windows** -- that a real screenshot comes out blank is
   the thing to check by hand.
 
+- **Signing out and back in keeps your chats.** Sign-out wiped the whole
+  store -- identity key, MLS groups, every conversation's history -- so the
+  next sign-in was a new device: no history, and every chat with somebody
+  you had already talked to had to be started again (and everybody you
+  talked to got a "safety number changed" warning). Now `Session.logout`
+  ends the session on the server and drops the tokens, and keeps the rest.
+  Signing back in as the same person sends the same device key, the server
+  un-retires that device, its groups still open, and whatever arrived while
+  signed out syncs in. The sign-out question says the messages stay and that
+  they are readable by anybody using the computer (nothing is encrypted at
+  rest); Settings adds **Sign out and erase**, the old wipe, for a shared
+  computer. Signing in or registering as somebody else replaces what is
+  kept -- only once the server accepts the new credentials, with a fresh
+  device key, and after a warning on the sign-in form, which also fills in
+  the kept handle. While the kept account still holds a session (an offline
+  start), another account is refused as before. `docs/THREAT-MODEL.md`
+  §2.17. **Verified** by four `session.test.ts` cases: kept and resumed with
+  the same key and history; erase; a different account replacing it only
+  after a successful login, never with the old key; and a refusal while
+  still signed in. History already wiped by an earlier sign-out cannot come
+  back; this helps from the next sign-out on. Not driven against the server.
+
 ---
 
 ## Relay (M5)

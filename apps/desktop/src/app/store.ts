@@ -170,13 +170,14 @@ export interface Preferences {
    * so the question is asked once rather than at every sign-in. It exists
    * because the PIN used to be a *gate* — the app would not open until one
    * existed — which charged a screen for a convenience and charged it again on
-   * the sign-in after every sign-out, since signing out erases the PIN.
+   * the sign-in after every sign-out, since signing out erased the PIN.
    *
-   * Deliberately *not* reset by signing out. Signing out does erase the PIN,
-   * so the machine genuinely has none afterwards — but re-arming the offer on
-   * that fact is what put "Choose an unlock PIN" in front of the very next
-   * sign-in, which is the thing the offer was made skippable to stop doing.
-   * Asked once per machine means once; Settings sets a PIN at any time after.
+   * Deliberately *not* reset by signing out. Signing out keeps the PIN now,
+   * and "Sign out and erase" still removes it, so the machine can genuinely
+   * have none afterwards — but re-arming the offer on that fact is what put
+   * "Choose an unlock PIN" in front of the very next sign-in, which is the
+   * thing the offer was made skippable to stop doing. Asked once per machine
+   * means once; Settings sets a PIN at any time after.
    */
   pinOfferAnswered: boolean;
   /**

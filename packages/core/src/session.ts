@@ -65,7 +65,9 @@ export class Session {
   }
 
   async register(handle: string, displayName: string, password: string): Promise<Account> {
-    this.#guardAccount(handle, await this.#store.account());
+    // A new account is never "the same account" as whatever is kept here, so
+    // what is kept goes -- but only once the server has made the account.
+    const replacing = await this.#replacing(handle, await this.#store.account(), true);
     const { argon2 } = await auth.salt(this.#transport, handle);
     const salt = this.#randomBytes(16);
     const verifier = await this.#derive(password, salt, argon2);
@@ -90,6 +92,7 @@ export class Session {
     }
     const device = this.#crypto.deviceFromSecret(tokens.device_id, secret);
     const account: Account = { userId: tokens.user_id, handle, displayName };
+    if (replacing) await this.#store.wipe();
     try {
       await this.#store.persistSignIn(
         account, { deviceId: tokens.device_id, secret }, tokens.refresh_token, device.exportState(),
@@ -105,11 +108,14 @@ export class Session {
   }
 
   async login(handle: string, password: string): Promise<Account> {
-    const previous = await this.#store.account();
-    this.#guardAccount(handle, previous);
+    const kept = await this.#store.account();
+    const replacing = await this.#replacing(handle, kept, false);
+    // Somebody else's device is never offered as this account's: its key
+    // would be bound to them on the server (the login upserts on it).
+    const previous = replacing ? null : kept;
     const { salt, argon2 } = await auth.salt(this.#transport, handle);
     const verifier = await this.#derive(password, unhex(salt), argon2);
-    const identity = await this.#store.identity();
+    const identity = replacing ? null : await this.#store.identity();
     const provisional = identity
       ? this.#crypto.deviceFromSecret(identity.deviceId, identity.secret)
       : this.#crypto.newDevice(this.#uuid());
@@ -126,6 +132,9 @@ export class Session {
     const device = this.#crypto.deviceFromSecret(tokens.device_id, secret);
     const oldState = identity ? await this.#store.mlsState() : null;
     if (oldState) device.importState(oldState);
+    // After the server said yes, not before: a wrong password for the new
+    // account must leave the old one's history where it was.
+    if (replacing) await this.#store.wipe();
     const account: Account = {
       userId: tokens.user_id,
       handle,
@@ -185,8 +194,25 @@ export class Session {
     return account;
   }
 
-  /** Sign-out wipes local data even if revocation cannot reach the API. */
-  async logout(): Promise<void> {
+  /**
+   * Ends this session on the server and on this device.
+   *
+   * **What stays.** By default the account, the identity key, the MLS state
+   * and every conversation's history stay in the store; only the refresh
+   * token goes. Signing in again as the same person is then the same device
+   * coming back -- the server un-retires it by its key (`/v1/auth/login`
+   * upserts on it) -- so its groups still open, what arrived meanwhile syncs
+   * in, and the chats are all there. Sign-out used to wipe everything, and
+   * the next sign-in was a new device that could read none of it: every
+   * conversation had to be started again, and the history was gone.
+   *
+   * `erase` is the old behaviour, for a shared or a borrowed computer:
+   * everything goes, and nothing here can read those conversations again.
+   *
+   * Either way the local half happens in a `finally`, so a server that
+   * cannot be reached does not leave a session behind.
+   */
+  async logout(options: { erase?: boolean } = {}): Promise<void> {
     try {
       const refreshToken = await this.#store.refreshToken();
       if (refreshToken) await auth.logout(this.#transport, refreshToken);
@@ -195,8 +221,18 @@ export class Session {
       this.#device = null;
       this.#keyPackagesPending = false;
       this.#pendingResume = null;
-      await this.#store.wipe();
+      if (options.erase) await this.#store.wipe();
+      else await this.#store.clearRefreshToken();
     }
+  }
+
+  /**
+   * The account whose history is kept on this device while nobody is signed
+   * in -- so the sign-in form can say that signing in as somebody else
+   * removes it. `null` when there is none.
+   */
+  async keptAccount(): Promise<Account | null> {
+    return this.#store.account();
   }
 
   /** Server-first: a refusal must leave this device able to reach the account. */
@@ -305,10 +341,24 @@ export class Session {
     if (!account) throw new TransportError("invalid_credentials", "You are not signed in.");
     return account;
   }
-  #guardAccount(handle: string, existing: Account | null): void {
-    if (existing && existing.handle !== handle) {
-      throw new Error(`This device is signed in as @${existing.handle}.`);
+  /**
+   * Whether signing in as `handle` replaces what is kept for somebody else.
+   *
+   * A device holds one account. When the one it holds signed out, or the
+   * server ended its session, what it left is kept for its return -- and
+   * signing in as anybody else replaces it. When it is still signed in (a
+   * refresh token is stored: the app merely could not reach the server when
+   * it started) nothing is replaced, and the sign-in is refused as before:
+   * an offline start must not be the way one account erases another.
+   */
+  async #replacing(handle: string, kept: Account | null, alwaysNew: boolean): Promise<boolean> {
+    if (!kept) return false;
+    const same = !alwaysNew && kept.handle.toLowerCase() === handle.toLowerCase();
+    if (same) return false;
+    if (await this.#store.refreshToken()) {
+      throw new Error(`This device is signed in as @${kept.handle}.`);
     }
+    return true;
   }
   async #derive(password: string, salt: Uint8Array, params: Argon2Params): Promise<Uint8Array> {
     return this.#password.deriveVerifier(password, salt, params);

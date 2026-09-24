@@ -1,7 +1,7 @@
 import { TransportError, pin as corePin } from "@nexo/core";
 
 import { forgetAccount } from "./native";
-import { resetRuntime, runtime } from "./runtime";
+import { onRuntimeSessionEnded, resetRuntime, runtime } from "./runtime";
 import { closeStream } from "./stream";
 
 /**
@@ -210,6 +210,28 @@ export async function logout(): Promise<void> {
   // wiped. Keeping it would mean the next sign-in on this page inherits the
   // last account's ratchet.
   resetRuntime();
+}
+
+/**
+ * Calls `listener` when the server ends this session while it is in use.
+ *
+ * Almost always because the account signed in somewhere else: one device per
+ * account, so the web app signing in retires this one, and the reverse. Until
+ * this the retired app went on drawing conversations whose every request was
+ * refused, and each screen swallowed the refusal as `signed_out`.
+ *
+ * What is dropped is what `lockSession` drops -- the socket, the tokens, the
+ * runtime -- and not the store: the identity key and the MLS state stay, so
+ * signing in here again makes this the live device, with what it had. That is
+ * the difference from `logout`, which wipes.
+ */
+export function onSessionEnded(listener: () => void): () => void {
+  return onRuntimeSessionEnded(() => {
+    closeStream();
+    resetRuntime();
+    void forgetAccount();
+    listener();
+  });
 }
 
 export async function deleteAccount(_handle: string, password: string): Promise<void> {

@@ -138,7 +138,10 @@ Written the same way as the rest: walked against the code, not the commit log.
   media, profile and membership, beside the auth and send limits that already
   existed. `NEXO_RATE_LIMITS=off` exists for the integration suite and is
   loud about itself at startup.
-- **Device retirement** on login, and **reporting** (`/v1/reports`).
+- **Device retirement** on login, and **reporting** (`/v1/reports`). A
+  retired device is refused on its next request rather than when its access
+  token expires, and the app it was running drops to the sign-in form and
+  says why, keeping what is on it for the next sign-in there.
 
 ### Meet&Greet (M10) — **removed in 0.2.0**
 

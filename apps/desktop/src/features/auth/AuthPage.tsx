@@ -28,9 +28,20 @@ type Mode = "login" | "register";
  * posture and a permanent support burden, so it is said here, before the
  * account exists, rather than discovered later (PLAN.md risk 7).
  */
-export function AuthPage({ onSignedIn }: { onSignedIn: (a: Account) => void }) {
+export function AuthPage({
+  onSignedIn,
+  endedFor,
+}: {
+  onSignedIn: (a: Account) => void;
+  /**
+   * The handle whose session the server just ended on this device -- nearly
+   * always a sign-in somewhere else. Said, rather than dropping somebody on a
+   * blank form mid-conversation.
+   */
+  endedFor?: string;
+}) {
   const [mode, setMode] = useState<Mode>("login");
-  const [handle, setHandle] = useState("");
+  const [handle, setHandle] = useState(endedFor ?? "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -131,6 +142,16 @@ export function AuthPage({ onSignedIn }: { onSignedIn: (a: Account) => void }) {
               : {})}
           />
         </div>
+
+        {endedFor && mode === "login" && !error ? (
+          <Callout tone="warning" icon="alert" className="mt-4">
+            Your session on this device has ended — usually because
+            @{endedFor} signed in somewhere else, in the web app or on another
+            computer. Nexo keeps one device signed in per account. Signing in
+            here again brings back what this device already has, and signs the
+            other one out.
+          </Callout>
+        ) : null}
 
         {error ? (
           <Callout tone="danger" icon="alert" className="mt-4">

@@ -70,6 +70,19 @@ interface Runtime {
 let pending: Promise<Runtime> | null = null;
 
 /**
+ * Who hears that the server ended the session (`Session`'s `onEnded`).
+ *
+ * Kept outside the runtime: sign-out and locking replace the runtime, and a
+ * listener tied to one would go deaf after the first of them.
+ */
+const endedListeners = new Set<() => void>();
+
+export function onRuntimeSessionEnded(listener: () => void): () => void {
+  endedListeners.add(listener);
+  return () => endedListeners.delete(listener);
+}
+
+/**
  * Builds the runtime once, and hands the same one to everybody afterwards.
  *
  * A promise rather than a value because the wasm module is fetched: the `web`
@@ -99,6 +112,9 @@ async function build(): Promise<Runtime> {
     store,
     crypto,
     password: bindPasswordWasm(wasm as never),
+    onEnded: () => {
+      for (const listener of endedListeners) listener();
+    },
   });
 
   // One door to "am I signed in", and it is the session's. Building a context

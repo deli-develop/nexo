@@ -130,7 +130,7 @@ export function TeamList({
                 {/* The open team's parts, hung under it on a guide line. */}
                 {team.id === activeId ? (
                   <ul className="my-0.5 ml-[29px] flex flex-col border-l border-[var(--hairline)] pl-2">
-                    {(["board", "members"] as const).map((pane) => (
+                    {(["board", "settings"] as const).map((pane) => (
                       <li key={pane}>
                         <button
                           type="button"
@@ -142,7 +142,7 @@ export function TeamList({
                             teamPane === pane ? "text-text-hi bg-fill-hover font-medium" : "text-text-mid hover:text-text-hi",
                           )}
                         >
-                          {pane === "board" ? "Board" : "Members"}
+                          {pane === "board" ? "Board" : "Settings"}
                         </button>
                       </li>
                     ))}

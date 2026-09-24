@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useApp } from "../../app/store";
 import { Button } from "../../components/ui/Button";
 import { Field, Select, TextArea } from "../../components/ui/Controls";
+import { ConversationAvatar } from "../../components/ui/ConversationAvatar";
 import { Callout } from "../../components/ui/Feedback";
 import { asConversationError, setConversationAvatar } from "../../lib/conversations";
 import { confirm, pickFile } from "../../lib/native";
@@ -11,14 +12,15 @@ import {
   describeTeam,
   leaveTeam,
   renameTeam,
-  teamRoster,
   transferTeam,
   type RosterEntry,
   type Team,
 } from "../../lib/teams";
+import { TeamMembers } from "./TeamMembers";
 
 /**
- * A team's name, what it is for, its picture -- and the ways out of it.
+ * A team's name, what it is for, its picture, who is in it -- and the ways
+ * out of it. One screen for everything about the team that is not its posts.
  *
  * The name, description and picture are messages like any other: sent inside
  * the ciphertext, so the server never learns them, and honoured by every
@@ -40,7 +42,9 @@ export function TeamSettings({
   onGone: () => void;
 }) {
   const account = useApp((s) => s.account);
+  // Read by the members section below, and handed up for the hand-on picker.
   const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const onRoster = useCallback((next: RosterEntry[]) => setRoster(next), []);
   const [name, setName] = useState(team.name ?? "");
   const [description, setDescription] = useState(team.description ?? "");
   const [heir, setHeir] = useState("");
@@ -50,12 +54,6 @@ export function TeamSettings({
   const moderates = team.myRole === "owner" || team.myRole === "admin";
   const owner = team.myRole === "owner";
   const me = account?.handle.toLowerCase();
-
-  useEffect(() => {
-    void teamRoster(team.id)
-      .then(setRoster)
-      .catch(() => {});
-  }, [team.id]);
 
   async function run(label: string, action: () => Promise<void>, done?: string) {
     setBusy(label);
@@ -76,13 +74,37 @@ export function TeamSettings({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[560px] flex-col gap-6 px-4 py-5 sm:px-6">
+      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-6 px-4 py-5 sm:px-6">
         <h2 className="font-display text-text-hi text-[20px] font-semibold tracking-[-0.01em]">Team settings</h2>
         {problem ? <Callout tone="danger">{problem}</Callout> : null}
         {saved ? <Callout>{saved}</Callout> : null}
 
         {moderates ? (
           <section className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <ConversationAvatar
+                conversationId={team.id}
+                kind="team"
+                title={team.name ?? "New team"}
+                hasAvatar={team.hasAvatar}
+                version={team.avatarVersion}
+                size={56}
+              />
+              <Button
+                icon="image"
+                disabled={busy !== null}
+                onClick={async () => {
+                  // Asked before anything is busy: a cancelled picker changed
+                  // nothing, and used to be answered "Picture changed."
+                  const picked = await pickFile({ images: true, title: "Choose a picture" });
+                  if (picked) {
+                    void run("picture", () => setConversationAvatar(team.id, picked), "Picture changed.");
+                  }
+                }}
+              >
+                Change picture
+              </Button>
+            </div>
             <Field label="Name" value={name} maxLength={80} onChange={(event) => setName(event.target.value)} />
             <TextArea
               label="What it's for"
@@ -108,22 +130,6 @@ export function TeamSettings({
               >
                 Save
               </Button>
-              <Button
-                icon="image"
-                disabled={busy !== null}
-                onClick={() =>
-                  void run(
-                    "picture",
-                    async () => {
-                      const picked = await pickFile({ images: true, title: "Choose a picture" });
-                      if (picked) await setConversationAvatar(team.id, picked);
-                    },
-                    "Picture changed.",
-                  )
-                }
-              >
-                Change picture
-              </Button>
             </div>
             <p className="text-text-lo text-meta leading-relaxed">
               The name, description and picture are sent inside the team's encryption. The server never learns them.
@@ -132,6 +138,8 @@ export function TeamSettings({
         ) : (
           <p className="text-text-mid text-body">Only the owner and admins can change the team's name, description and picture.</p>
         )}
+
+        <TeamMembers team={team} onRoster={onRoster} onChanged={onChanged} />
 
         {owner ? (
           <section className="flex flex-col gap-3 border-t border-[var(--hairline)] pt-5">

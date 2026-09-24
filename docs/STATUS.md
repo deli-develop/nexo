@@ -2156,6 +2156,16 @@ now happens.
   `CONTEXT.md`). **Verified** by two `store.test.ts` cases, the first of which
   shows the old pattern losing the rename. Not driven with a real team.
 
+- **Members is part of a team's settings.** It was a third pane beside Board
+  and Settings, with its own button on the board and its own entry under the
+  open team. Now Settings is the one place for everything about a team that
+  is not its posts: its picture (shown there now, so a change is seen where
+  it is made), name and description, the members with their roles and Add
+  people, handing it on, and leaving or deleting. The members list's roster
+  also feeds the hand-on picker, which used to read its own. Choosing no
+  picture no longer answers "Picture changed." **Seen** in a browser in both
+  themes, without a session, so the roster itself was not drawn.
+
 ---
 
 ## Relay (M5)

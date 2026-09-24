@@ -78,7 +78,6 @@ export function TeamBoard({
                 {team.myRole && team.myRole !== "member" ? ` · you are ${team.myRole === "owner" ? "the owner" : "an admin"}` : ""}
               </p>
             </div>
-            <IconButton name="user" label="Members" size={17} onClick={() => setTeamPane("members")} />
             <IconButton name="settings" label="Team settings" size={17} onClick={() => setTeamPane("settings")} />
           </div>
           {team.description ? (

@@ -620,9 +620,9 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `TeamsPage.tsx` | 144 | The list beside the open team — board, members or settings (`teamPane`), each a screen of its own on a phone — one pane at a time on a phone; opening a team marks it opened, reads its roster, clears its unread. Also `TeamsHeader`, its cell of the top row (a way back on a phone, "New team" everywhere). |
-| `TeamList.tsx` | 158 | Search, *Teams* / *Invites*, and Board · Members hung under the open team — Invites is teams you were added to and have not opened on this device (`opened` in `conversationOverrides`). |
-| `TeamBoard.tsx` | 169 | The header (the team's marker, member count, the switcher, the one line on what the server sees), the composer, pinned posts, the rest, an unreadable post **in its place**, and "Posts from before you joined aren't on this device." |
+| `TeamsPage.tsx` | 142 | The list beside the open team — board or settings (`teamPane`), each a screen of its own on a phone — one pane at a time on a phone; opening a team marks it opened, reads its roster, clears its unread. Also `TeamsHeader`, its cell of the top row (a way back on a phone, "New team" everywhere). |
+| `TeamList.tsx` | 158 | Search, *Teams* / *Invites*, and Board · Settings hung under the open team — Invites is teams you were added to and have not opened on this device (`opened` in `conversationOverrides`). |
+| `TeamBoard.tsx` | 168 | The header (the team's marker, member count, the switcher, the one line on what the server sees), the composer, pinned posts, the rest, an unreadable post **in its place**, and "Posts from before you joined aren't on this device." |
 | `TeamComposer.tsx` | 117 | Title, words, files — and **"Visible to the N members of … End-to-end encrypted."** where you write, the mirror of the feed's "Posts are public". Files are sealed and uploaded before the post names them. |
 | `TeamPostCard.tsx` | 139 | One post. No votes, no public line; taken back and admin-removed posts stay as a line saying so. |
 | `TeamComments.tsx` | 213 | Comments and one level of answers; "Reply" only on the top level. |
@@ -630,9 +630,9 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `postMenu.ts` | 75 | What the menu offers and in what order — **destructive last**: the author's "Take back" before an admin's "Remove for everyone". Tested like `messages/menu.ts`. |
 | `TeamFiles.tsx` | 106 | A post's files, opened on this device; a picture that will not open says so. |
 | `CreateTeamDialog.tsx` | 81 | Name and description; says what a team is before anybody makes one. |
-| `TeamMembers.tsx` | 229 | Owner, Admins, Members, each with a sentence on what the role may do; per person handle and *Joined*, and a role and remove button **only where the viewer may act**. No "last active", ever. |
+| `TeamMembers.tsx` | 237 | **A section of `TeamSettings`**, not a pane: Owner, Admins, Members, each with a sentence on what the role may do; per person handle and *Joined*, and a role and remove button **only where the viewer may act**. No "last active", ever. |
 | `AddPeopleDialog.tsx` | 290 | *Search* or *From a group*; a typed handle is offered as-is (private accounts are not in search); every row that cannot be added **says why**. "They'll see posts from now on, not earlier ones." |
-| `TeamSettings.tsx` | 215 | Name, description, picture (owner and admins), hand on (owner), leave, delete (owner) — each saying what it can and cannot reach. |
+| `TeamSettings.tsx` | 237 | Everything about a team that is not its posts: name, description, picture with a preview (owner and admins), the members (`TeamMembers`, whose roster also feeds the hand-on picker), hand on (owner), leave, delete (owner) — each saying what it can and cannot reach. Re-reads the team list after every change (`onChanged`). |
 | `roles.ts` | 83 | The server's role rules mirrored for what the UI offers, and `addRow` — a person's state in the add dialog (addable, already in, blocked by you, full, refused). Tested. |
 | `Author.tsx`, `useTeamBoard.ts` | 85 | Who wrote something (a device, through the team's device list, or "Somebody who has left"), and the board re-read after every sync. |
 

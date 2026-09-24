@@ -6,8 +6,13 @@ import type { BackdropReport } from "../lib/native";
 
 export type Route = "home" | "messages" | "teams" | "profile" | "settings";
 
-/** What an open team is showing. On a phone each is a screen of its own. */
-export type TeamPane = "board" | "members" | "settings";
+/**
+ * What an open team is showing. On a phone each is a screen of its own.
+ *
+ * Two, not three: who is in the team is part of its settings, beside its name
+ * and the ways out of it, rather than a destination of its own.
+ */
+export type TeamPane = "board" | "settings";
 
 /** The sections of Settings, in the order the list draws them. */
 export type SettingsSection =

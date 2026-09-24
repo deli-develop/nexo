@@ -418,6 +418,12 @@ function Encryption({
               for another device signed in as you. There is nothing here to
               compare, and nothing sent here can be opened on this one.
             </>
+          ) : conversation.kind === "self" ? (
+            <>
+              Notes here are end-to-end encrypted, and nobody else is in this
+              conversation. A safety number compares two people&rsquo;s keys, so
+              there is nothing here to compare.
+            </>
           ) : conversation.kind === "group" ? (
             <>
               Messages here are end-to-end encrypted, and only the people in

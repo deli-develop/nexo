@@ -11,6 +11,7 @@ import {
   acknowledgeKeyChange,
   asConversationError,
   forwardMessage,
+  openSelfConversation,
   startConversation,
   startGroup,
 } from "../../lib/conversations";
@@ -436,8 +437,9 @@ function StartConversation({
  * make out of this one: it leaves the dead DM and starts a fresh one, whose
  * Welcome comes here.
  *
- * Only a DM gets the button. A group cannot be restarted by one member, and
- * Saved messages has its own way back; both still say what is wrong.
+ * A DM gets a new DM, and Saved messages a new Saved messages on this device
+ * (`openSelfConversation` leaves the one it cannot open). A group cannot be
+ * restarted by one member, so it only says what is wrong.
  */
 function ShutOut({
   conversation,
@@ -454,20 +456,30 @@ function ShutOut({
   const open = useApp((s) => s.openConversation);
   const [busy, setBusy] = useState(false);
   const handle = peerHandle(conversation, account?.handle);
+  const self = conversation.kind === "self";
+  const start = self
+    ? openSelfConversation
+    : handle
+      ? () => startConversation(handle)
+      : undefined;
 
   const title = "This device can't read this conversation";
-  const body = handle
-    ? `It was set up for another device signed in as you — which happens after signing in somewhere else, or signing out and back in. Nothing sent here can be opened on this one, now or later. Starting a new conversation with ${conversation.title} leaves this one and makes one that works here.`
-    : "It was set up for another device signed in as you — which happens after signing in somewhere else, or signing out and back in. Nothing sent here can be opened on this one, now or later.";
+  const why =
+    "It was set up for another device signed in as you — which happens after signing in somewhere else, or signing out and back in. Nothing sent here can be opened on this one, now or later.";
+  const body = self
+    ? `${why} Starting again leaves it and keeps your notes on this device from now on.`
+    : handle
+      ? `${why} Starting a new conversation with ${conversation.title} leaves this one and makes one that works here.`
+      : why;
 
-  const action = handle ? (
+  const action = start ? (
     <Button
       variant="primary"
       disabled={busy}
       onClick={async () => {
         setBusy(true);
         try {
-          open(await startConversation(handle));
+          open(await start());
           onStarted();
         } catch (error) {
           await notify(
@@ -479,7 +491,7 @@ function ShutOut({
         }
       }}
     >
-      {busy ? "Starting…" : "Start a new conversation"}
+      {busy ? "Starting…" : self ? "Start Saved messages here" : "Start a new conversation"}
     </Button>
   ) : undefined;
 

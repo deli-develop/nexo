@@ -294,22 +294,63 @@ export async function openWith(ctx: Context, handle: string): Promise<string> {
 
 export const SELF_TITLE = "Saved messages";
 
-/** A one-member MLS group for notes kept on this device. */
+/**
+ * A one-member MLS group for notes kept on this device.
+ *
+ * One this device can write in, which a row alone does not prove. The server
+ * keeps one per account, so after a sign-out, or a sign-in on another client,
+ * the account's Saved messages can be one another device made: `discover`
+ * lists it, and this device holds no group for it -- every note in it
+ * unreadable here, and every new one refused. That one is left, which is the
+ * only way the server will make another, and a new one is started here.
+ */
 export async function startSelf(ctx: Context): Promise<string> {
-  const existing = (await ctx.store.conversations()).find((row) => row.kind === "self");
-  if (existing) return existing.id;
+  for (const row of (await ctx.store.conversations()).filter((row) => row.kind === "self")) {
+    if (ctx.crypto.loadGroup(ctx.device, row.id, clock(ctx))) return row.id;
+    await leaveUnreadable(ctx, row.id);
+  }
 
   const id = uuid(ctx);
   ctx.crypto.createGroup(ctx.device, id, clock(ctx));
-  const created = await ctx.transport.postAuth<ConversationSummary>("/v1/conversations", {
-    conversation_id: id,
-    members: [],
+  // Twice at most: the server answers with the one it has when there is one,
+  // and a second answer that is not ours means leaving did not take.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const created = await ctx.transport.postAuth<ConversationSummary>("/v1/conversations", {
+      conversation_id: id,
+      members: [],
+    });
+    await persist(ctx);
+    // The server keeps one self conversation per account, including two starts
+    // that raced. Adopt its id rather than persisting a second local row --
+    // when this device can write in it. When it cannot, it is one another
+    // device made that no `discover` had brought here yet.
+    if (
+      created.conversation_id === id ||
+      ctx.crypto.loadGroup(ctx.device, created.conversation_id, clock(ctx))
+    ) {
+      await remember(ctx, created, SELF_TITLE);
+      return created.conversation_id;
+    }
+    await leaveUnreadable(ctx, created.conversation_id);
+  }
+  throw new TransportError("rejected", "Saved messages could not be set up on this device.");
+}
+
+/**
+ * Takes this account out of a conversation this device cannot open, on the
+ * server and here.
+ *
+ * Nothing readable is lost on this device: without the group, nothing in it
+ * could be opened here. The device that made it keeps what it holds, and no
+ * longer syncs it (`syncAll` skips what the server does not list).
+ */
+async function leaveUnreadable(ctx: Context, conversationId: string): Promise<void> {
+  const me = (await ctx.store.account())?.handle;
+  if (!me) throw new TransportError("invalid_credentials", "You are not signed in.");
+  await ctx.transport.postAuth<void>(`/v1/conversations/${conversationId}/members/remove`, {
+    handle: me,
   });
-  // The server keeps one self conversation per account, including two starts
-  // that raced. Adopt its id rather than persisting a second local row.
-  await persist(ctx);
-  await remember(ctx, created, SELF_TITLE);
-  return created.conversation_id;
+  if (await ctx.store.conversation(conversationId)) await ctx.store.forgetConversation(conversationId);
 }
 
 /**

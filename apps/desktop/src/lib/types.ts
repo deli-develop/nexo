@@ -203,7 +203,11 @@ export interface Message {
 
 export interface Conversation {
   id: string;
-  kind: "dm" | "group";
+  /**
+   * `self` is Saved messages. It used to arrive here as a `dm`, which drew it
+   * a second time in the list, beside the pinned row that is its way in.
+   */
+  kind: "dm" | "group" | "self";
   /** A DM's title is the other person's display name; a group has its own. */
   title: string;
   memberIds: string[];

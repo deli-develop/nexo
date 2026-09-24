@@ -58,3 +58,11 @@ impl FromRef<AppState> for std::sync::Arc<TokenKeys> {
         state.auth.clone()
     }
 }
+
+// And the pool, so it can refuse a device a later sign-in retired
+// (`Caller::current`). A clone of a pool is a handle to the same one.
+impl FromRef<AppState> for PgPool {
+    fn from_ref(state: &AppState) -> Self {
+        state.db.clone()
+    }
+}

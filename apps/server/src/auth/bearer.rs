@@ -4,6 +4,10 @@
 //! requirement visible in each handler's signature. A route that takes
 //! [`Caller`] is authenticated; a route that does not, is not. There is no way
 //! to forget to apply a layer, and no way to read a route and be unsure.
+//!
+//! A token that verifies is not enough on its own: it names a device, and a
+//! later sign-in may have retired that device since the token was issued. One
+//! indexed lookup per request is what closes the fifteen minutes in between.
 
 use axum::Json;
 use axum::extract::{FromRef, FromRequestParts};
@@ -11,6 +15,7 @@ use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use std::sync::Arc;
@@ -63,22 +68,25 @@ impl IntoResponse for Unauthorized {
 impl<S> FromRequestParts<S> for Caller
 where
     Arc<TokenKeys>: FromRef<S>,
+    PgPool: FromRef<S>,
     S: Send + Sync,
 {
-    type Rejection = Unauthorized;
+    type Rejection = Response;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let header = parts
+        let token = parts
             .headers
             .get(axum::http::header::AUTHORIZATION)
-            .ok_or(Unauthorized)?
-            .to_str()
-            .map_err(|_| Unauthorized)?;
-
-        let token = bearer_token(header).ok_or(Unauthorized)?;
+            .and_then(|value| value.to_str().ok())
+            .and_then(bearer_token)
+            .ok_or(Unauthorized)
+            .map_err(IntoResponse::into_response)?;
 
         let keys = Arc::<TokenKeys>::from_ref(state);
         Self::from_access_token(&keys, token)
+            .map_err(IntoResponse::into_response)?
+            .current(&PgPool::from_ref(state))
+            .await
     }
 }
 
@@ -97,6 +105,44 @@ impl Caller {
             user_id: claims.sub.parse().map_err(|_| Unauthorized)?,
             device_id: claims.did.parse().map_err(|_| Unauthorized)?,
         })
+    }
+
+    /// Refuses a device that is no longer this account's.
+    ///
+    /// Signing in retires every other device the account has (one device per
+    /// account), but an access token keeps verifying until it expires. Until
+    /// this check the replaced device went on for up to fifteen minutes --
+    /// syncing, fetching Welcomes addressed to its successor, moving its
+    /// cursor past messages it could never read -- and then quietly failed
+    /// its next refresh. Refused here, it learns at once, and the page says
+    /// so. A deleted account's devices are gone, and are refused the same way.
+    ///
+    /// The same 401 as any other bad token: which of them it was is nobody's
+    /// business but the account's. A database that cannot answer is a 500,
+    /// not a 401 -- an outage must not look like being signed out everywhere.
+    pub(crate) async fn current(self, db: &PgPool) -> Result<Self, Response> {
+        let live = sqlx::query_scalar!(
+            "SELECT retired_at IS NULL AS \"live!\" FROM devices WHERE id = $1 AND user_id = $2",
+            self.device_id,
+            self.user_id
+        )
+        .fetch_optional(db)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "could not read whether a device is current");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(Body {
+                    error: "internal",
+                    message: "Something went wrong. Try again.",
+                }),
+            )
+                .into_response()
+        })?;
+        match live {
+            Some(true) => Ok(self),
+            _ => Err(Unauthorized.into_response()),
+        }
     }
 }
 

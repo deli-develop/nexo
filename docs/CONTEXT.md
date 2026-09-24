@@ -1113,7 +1113,12 @@ failed silently.
   conversation that reached three people into a `'group'`, which would have
   dropped every role in a team; it now does that to a `'dm'` only. The CHECK
   constraint, last widened in `20260923120000_teams.sql`, is what stops a
-  fifth appearing by accident.
+  fifth appearing by accident. The page's `Conversation.kind` carries
+  `'self'` too: it used to fold into `'dm'`, which drew Saved messages twice
+  in the list and handed its title to `HandleAvatar` as a handle. One per
+  account also means a device signed in after another can find the account's
+  Saved messages holds no group here; `startSelf` leaves that one (the only
+  way the server makes another) and starts a new one on this device.
 - **The server's tests share one development database and never clean up.**
   `apps/server/tests/*` connect to `DATABASE_URL` and skip when it is absent;
   they invent unique handles so they do not collide, but every run leaves its

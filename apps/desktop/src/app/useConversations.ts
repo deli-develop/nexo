@@ -39,7 +39,7 @@ const ME = "me";
 function toConversation(wire: WireConversation): Conversation {
   return {
     id: wire.conversation_id,
-    kind: wire.kind === "group" ? "group" : "dm",
+    kind: wire.kind === "group" ? "group" : wire.kind === "self" ? "self" : "dm",
     // A conversation joined from a Welcome has no title until M7's profile
     // fetch. Saying so is better than inventing a name or showing a UUID.
     title: wire.title ?? "Unnamed conversation",

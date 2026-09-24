@@ -229,6 +229,10 @@ export function ConversationList({
         last: lastMessages[base.id],
       }))
       .filter(({ conversation }) => {
+        // Saved messages has its own row above the list, which is its way in;
+        // listed here as well it was drawn twice. A search is the exception:
+        // that row steps aside for results, and a note is one.
+        if (conversation.kind === "self" && !lowered) return false;
         // Archived is a view, not a filter that stacks: looking at the archive
         // means looking at exactly the archive.
         const archived = overrides[conversation.id]?.archived ?? false;

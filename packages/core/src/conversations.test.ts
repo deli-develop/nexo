@@ -120,7 +120,7 @@ class FakeCrypto implements CryptoModule {
     this.group ??= new FakeGroup(this.answers);
     return this.group;
   }
-  loadGroup(): Group | undefined {
+  loadGroup(_device?: Device, _conversationId?: string): Group | undefined {
     return this.group;
   }
 }
@@ -265,6 +265,66 @@ describe("starting a conversation", () => {
       kind: "self", title: conversations.SELF_TITLE, syncedTo: 0,
     });
     expect(await store.mlsState()).not.toBeNull();
+  });
+
+  it("starts saved messages afresh when this device cannot open the account's one", async () => {
+    // What a device signed in after another one finds: the account's Saved
+    // messages is listed, and there is no group for it here. Returning it
+    // opened a conversation where every note was refused.
+    const { ctx, store, calls } = await context([
+      { status: 204, body: undefined },
+      { status: 200, body: {
+        conversation_id: "id-1", kind: "self", epoch: 1,
+        latest_envelope_id: null, members: [],
+      } },
+    ]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    await store.putConversation({
+      id: "old", title: conversations.SELF_TITLE, kind: "self", epoch: 1, syncedTo: 1,
+      lastMessage: null, updatedAtMs: 0,
+    });
+
+    expect(await conversations.startSelf(ctx)).toBe("id-1");
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/v1/conversations/old/members/remove",
+      "/v1/conversations",
+    ]);
+    expect(calls[0]!.body).toEqual({ handle: "me" });
+    expect(await store.conversation("old")).toBeNull();
+    expect(await store.conversation("id-1")).toMatchObject({ kind: "self" });
+  });
+
+  it("leaves a saved messages the server hands back that this device cannot open", async () => {
+    // Not in the store yet -- no `discover` had brought it here -- so the
+    // server's answer is the first this device hears of it.
+    const { ctx, store, crypto, calls } = await context([
+      { status: 200, body: {
+        conversation_id: "theirs", kind: "self", epoch: 1,
+        latest_envelope_id: 4, members: [],
+      } },
+      { status: 204, body: undefined },
+      { status: 201, body: {
+        conversation_id: "id-1", kind: "self", epoch: 1,
+        latest_envelope_id: null, members: [],
+      } },
+    ]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    vi.spyOn(crypto, "loadGroup").mockImplementation((_device, id) =>
+      id === "theirs" ? undefined : crypto.group,
+    );
+
+    expect(await conversations.startSelf(ctx)).toBe("id-1");
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/v1/conversations",
+      "/v1/conversations/theirs/members/remove",
+      "/v1/conversations",
+    ]);
+    // The same id both times: the group made for it is the one this device
+    // will write in.
+    expect(calls[2]!.body).toEqual({ conversation_id: "id-1", members: [] });
+    expect(await store.conversation("theirs")).toBeNull();
   });
 
   it("claims everyone before group creation, commits each member, then sends the title", async () => {

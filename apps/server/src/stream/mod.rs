@@ -49,9 +49,14 @@ async fn upgrade(
     State(state): State<AppState>,
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
-) -> Result<Response, Unauthorized> {
-    let token = stream_token(&headers)?;
-    let caller = Caller::from_access_token(&state.auth, token)?;
+) -> Result<Response, Response> {
+    let token = stream_token(&headers).map_err(IntoResponse::into_response)?;
+    // The same decision the bearer extractor makes, retirement included: a
+    // replaced device must not keep a live socket to learn when to fetch.
+    let caller = Caller::from_access_token(&state.auth, token)
+        .map_err(IntoResponse::into_response)?
+        .current(&state.db)
+        .await?;
     Ok(upgrade
         .protocols(["nexo"])
         .on_upgrade(move |socket| run(socket, state, caller)))

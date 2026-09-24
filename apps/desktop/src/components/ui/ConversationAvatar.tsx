@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { conversationAvatar } from "../../lib/conversations";
 import { Avatar } from "./Avatar";
 import { HandleAvatar } from "./HandleAvatar";
+import { Icon } from "./Icon";
 
 /**
  * Whatever a conversation should look like.
@@ -13,6 +14,10 @@ import { HandleAvatar } from "./HandleAvatar";
  * has exactly one other person and wears theirs. Everything else is the
  * generated gradient, which is what an unnamed thing looks like rather than a
  * placeholder waiting to be replaced.
+ *
+ * Saved messages is none of them: it wears the pin the list's own row for it
+ * wears. As a DM it was handed to `HandleAvatar`, which looked "Saved
+ * messages" up as somebody's handle.
  */
 export function ConversationAvatar({
   conversationId,
@@ -22,7 +27,7 @@ export function ConversationAvatar({
   size = 40,
 }: {
   conversationId: string;
-  kind: "dm" | "group";
+  kind: "dm" | "group" | "self";
   /** A DM's title is the other person's handle. */
   title: string;
   /** Whether a picture has been set, so no request is made when none has. */
@@ -58,6 +63,19 @@ export function ConversationAvatar({
         className="shrink-0 rounded-full bg-cover bg-center ring-1 ring-line-strong"
         style={{ width: size, height: size, backgroundImage: `url(${url})` }}
       />
+    );
+  }
+
+  if (kind === "self") {
+    return (
+      <span
+        role="img"
+        aria-label={title}
+        className="bg-fill text-text-mid ring-line flex shrink-0 items-center justify-center rounded-full ring-1"
+        style={{ width: size, height: size }}
+      >
+        <Icon name="pin" size={Math.round(size * 0.4)} />
+      </span>
     );
   }
 

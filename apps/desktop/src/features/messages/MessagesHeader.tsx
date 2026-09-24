@@ -9,7 +9,6 @@ import {
   setConversationAvatar,
 } from "../../lib/conversations";
 import type { LiveConversations } from "../../app/useConversations";
-import { HandleAvatar } from "../../components/ui/HandleAvatar";
 import { ConversationAvatar } from "../../components/ui/ConversationAvatar";
 import { Button, IconButton } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Controls";
@@ -18,15 +17,21 @@ import { Modal } from "../../components/ui/Modal";
 import { Icon } from "../../components/ui/Icon";
 import { ContextMenu, type MenuItem } from "../../components/ui/ContextMenu";
 import { cn } from "../../lib/cn";
-import { useSignOut } from "../auth/useSignOut";
 import { captionWidth } from "../../components/chrome/TopBar";
+import { peerHandle } from "./peer";
 
 /**
- * The Messages cells of the top row: the account, the conversation, the panel
- * actions. They are here rather than inside each pane so that the column
- * hairlines line up down the whole window — the account cell is exactly as
- * wide as the conversation list, the actions cell exactly as wide as the
- * context panel.
+ * The Messages cells of the top row: the page's title, the conversation, the
+ * panel actions. They are here rather than inside each pane so that the column
+ * hairlines line up down the whole window — the title cell is exactly as wide
+ * as the conversation list, the actions cell exactly as wide as the context
+ * panel.
+ *
+ * **The title cell says "Messages", like every destination's does.** It used
+ * to be your own name and handle with a "⋯" beside it: a second copy of the
+ * face already at the foot of the rail, and a menu of Profile, Settings and
+ * Sign out that were all a rail button away. It named the account rather
+ * than the page, and nobody reading it could tell what the dots were for.
  *
  * **Each button is drawn only where it can act.** The actions cell used to
  * stand with nothing open — add someone to no conversation, mute nothing — and
@@ -43,7 +48,8 @@ export function MessagesHeader({
   live: LiveConversations;
 }) {
   const activeId = useApp((s) => s.activeConversationId);
-  const go = useApp((s) => s.go);
+  const account = useApp((s) => s.account);
+  const viewProfile = useApp((s) => s.viewProfile);
   const showPresence = useApp((s) => s.preferences.presence);
   const contextOpen = useApp((s) => s.contextPanelOpen);
   const toggleContext = useApp((s) => s.toggleContextPanel);
@@ -57,7 +63,6 @@ export function MessagesHeader({
   // starting a second that `applySignal` would only decline.
   const layout = useLayout();
 
-  const account = useApp((s) => s.account);
 
   const base = live.conversations.find((c) => c.id === activeId);
   const conversation = base ? { ...base, ...overrides[base.id] } : undefined;
@@ -65,6 +70,10 @@ export function MessagesHeader({
   // one paint can disagree about a mute that is expiring, and the label and
   // the pressed state would then contradict each other.
   const muted = base ? isMuted(overrides[base.id], now.getTime()) : false;
+  // Who a one-to-one is with, from the member list -- never the title, which
+  // is a label. A group, Saved messages or a DM whose members are not known
+  // yet has nobody to open, and its header stays text.
+  const peer = conversation ? peerHandle(conversation, account?.handle) : undefined;
 
   // No profile directory yet (M7), so there is nobody to look up: the avatar
   // is seeded from the conversation and presence is simply not shown rather
@@ -75,14 +84,6 @@ export function MessagesHeader({
   const [addOpen, setAddOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
-  const [accountMenuAt, setAccountMenuAt] = useState<{ x: number; y: number } | null>(null);
-  const { signOut } = useSignOut();
-  const accountMenu: MenuItem[] = [
-    { label: "Your profile", icon: "user", onSelect: () => go("profile") },
-    { label: "Settings", icon: "settings", onSelect: () => go("settings") },
-    { label: "", separator: true },
-    { label: "Sign out", icon: "logout", danger: true, onSelect: () => void signOut() },
-  ];
 
   // The column from 1280px up, the sheet or the phone's screen below it —
   // the same button either way. See `contextSheetOpen`.
@@ -103,6 +104,17 @@ export function MessagesHeader({
     { label: muted ? "Unmute" : "Mute", icon: "bell", onSelect: toggleMute },
   ];
 
+  const avatar = conversation ? (
+    <ConversationAvatar
+      conversationId={conversation.id}
+      kind={conversation.kind}
+      title={conversation.title}
+      hasAvatar={conversation.hasAvatar ?? false}
+      version={conversation.avatarVersion}
+      size={layout.phone ? 32 : 36}
+    />
+  ) : null;
+
   const subtitle = !conversation
     ? ""
     : conversation.kind === "group"
@@ -112,34 +124,10 @@ export function MessagesHeader({
   return (
     <>
       {layout.canShowList ? (
-        <div className="flex w-[300px] shrink-0 items-center gap-3 border-r border-[var(--hairline)] px-4">
-          <HandleAvatar handle={account?.handle ?? ""} name={account?.display_name ?? ""} size={36} />
-          <button
-            type="button"
-            onClick={() => go("profile")}
-            className="no-drag min-w-0 flex-1 text-left"
-          >
-            <span className="text-text-hi block truncate text-body font-medium">
-              {account?.display_name ?? ""}
-            </span>
-            <span className="text-text-lo block truncate text-[11px]">@{account?.handle ?? ""}</span>
-          </button>
-          <div className="no-drag">
-            {/* What there is to do about your own account, from the top of
-                the list. It used to say account switching "arrives in a later
-                milestone" and offer nothing. Sign-out is here as well as on
-                the rail, because this is where people look for it. */}
-            <IconButton
-              name="more"
-              label="Account options"
-              size={16}
-              active={accountMenuAt !== null}
-              onClick={(event) => {
-                const box = event.currentTarget.getBoundingClientRect();
-                setAccountMenuAt({ x: box.right, y: box.bottom + 4 });
-              }}
-            />
-          </div>
+        <div className="flex w-[300px] shrink-0 items-center border-r border-[var(--hairline)] px-5">
+          <h1 className="font-display text-text-hi text-title font-semibold tracking-[-0.01em]">
+            Messages
+          </h1>
         </div>
       ) : null}
 
@@ -169,17 +157,36 @@ export function MessagesHeader({
 
         {conversation ? (
           <>
-            <ConversationAvatar
-              conversationId={conversation.id}
-              kind={conversation.kind}
-              title={conversation.title}
-              hasAvatar={conversation.hasAvatar ?? false}
-              size={layout.phone ? 32 : 36}
-            />
+            {/* The face and the name are the way to their profile, as they
+                are beside the feed and in every messenger people use. There
+                used to be no way from a chat to the person in it. */}
+            {peer ? (
+              <button
+                type="button"
+                onClick={() => viewProfile(peer)}
+                aria-label={`Open ${conversation.title}'s profile`}
+                className="no-drag focus-visible:ring-accent flex shrink-0 rounded-full outline-none transition-opacity duration-[var(--motion-fast)] ease-[var(--ease-state)] hover:opacity-80 focus-visible:ring-2"
+              >
+                {avatar}
+              </button>
+            ) : (
+              avatar
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <h1 className="text-text-hi truncate text-body font-medium">
-                  {conversation.title}
+                <h1 className="text-text-hi min-w-0 truncate text-body font-medium">
+                  {peer ? (
+                    <button
+                      type="button"
+                      onClick={() => viewProfile(peer)}
+                      title="View profile"
+                      className="no-drag focus-visible:ring-accent max-w-full truncate rounded-[4px] text-left outline-none hover:underline focus-visible:ring-1"
+                    >
+                      {conversation.title}
+                    </button>
+                  ) : (
+                    conversation.title
+                  )}
                 </h1>
                 {/* §4.4: the lock shows in E2EE conversations only, never on
                     the feed or a profile. Unverified is a quiet outline of the
@@ -242,13 +249,6 @@ export function MessagesHeader({
 
       {menuAt ? (
         <ContextMenu items={phoneMenu} at={menuAt} onClose={() => setMenuAt(null)} />
-      ) : null}
-      {accountMenuAt ? (
-        <ContextMenu
-          items={accountMenu}
-          at={accountMenuAt}
-          onClose={() => setAccountMenuAt(null)}
-        />
       ) : null}
 
       {conversation && !layout.phone ? (
@@ -428,6 +428,10 @@ function RenameConversation({
   // chosen here — so the preview beside the button shows the new picture
   // rather than the one the dialog opened with.
   const [hasPicture, setHasPicture] = useState(hadPicture);
+  // Bumped when a picture is chosen here, which is what makes the preview
+  // fetch the new bytes. Flipping `hasPicture` off and on again did nothing:
+  // React batches the two, so the preview never saw it change.
+  const [pictureVersion, setPictureVersion] = useState(0);
 
   async function changePicture() {
     const file = await pickFile({ title: "Choose a picture", images: true });
@@ -436,9 +440,8 @@ function RenameConversation({
     setError(null);
     try {
       await setConversationAvatar(conversation.id, file);
-      // Remounts the preview, which is what makes it fetch the new bytes.
-      setHasPicture(false);
       setHasPicture(true);
+      setPictureVersion((version) => version + 1);
     } catch (raw) {
       setError(asConversationError(raw).message);
     } finally {
@@ -489,6 +492,7 @@ function RenameConversation({
             kind="group"
             title={conversation.title}
             hasAvatar={hasPicture}
+            version={String(pictureVersion)}
             size={44}
           />
           <Button icon="camera" disabled={busy} onClick={() => void changePicture()}>

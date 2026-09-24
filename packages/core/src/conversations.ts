@@ -235,8 +235,7 @@ export async function openWith(ctx: Context, handle: string): Promise<string> {
       await ctx.store.rememberConversation(id);
       await remember(ctx, summary, wanted);
       if (resume > 0) {
-        const local = await ctx.store.conversation(id);
-        if (local) await ctx.store.putConversation({ ...local, syncedTo: resume });
+        await ctx.store.updateConversation(id, (local) => local && { ...local, syncedTo: resume });
       }
       await sync(ctx, id);
       syncedBeforeOpen = true;
@@ -274,8 +273,7 @@ export async function openWith(ctx: Context, handle: string): Promise<string> {
     }
     await remember(ctx, summary, wanted);
     if (resume > 0 && !syncedBeforeOpen) {
-      const local = await ctx.store.conversation(id);
-      if (local) await ctx.store.putConversation({ ...local, syncedTo: resume });
+      await ctx.store.updateConversation(id, (local) => local && { ...local, syncedTo: resume });
     }
     return id;
   }
@@ -430,16 +428,13 @@ export async function addTo(ctx: Context, conversationId: string, handle: string
   const epoch = Number(group.confirmCommit(ctx.device, clock(ctx)));
   await persist(ctx);
   await recordMembership(ctx, conversationId, group);
-  const local = await ctx.store.conversation(conversationId);
-  if (local) {
-    await ctx.store.putConversation({
-      ...local,
-      // A 1:1 that gains a third person is a group, as the server decides too.
-      // Nothing else changes kind: a team with a third member is still a team.
-      kind: local.kind === "dm" && group.memberCount > 2 ? "group" : local.kind,
-      epoch,
-    });
-  }
+  await ctx.store.updateConversation(conversationId, (local) => local && {
+    ...local,
+    // A 1:1 that gains a third person is a group, as the server decides too.
+    // Nothing else changes kind: a team with a third member is still a team.
+    kind: local.kind === "dm" && group.memberCount > 2 ? "group" : local.kind,
+    epoch,
+  });
   if (staged.welcome) await sendEnvelope(ctx, conversationId, staged.welcome, epoch, false);
 }
 
@@ -496,8 +491,7 @@ export async function removeDevice(
   const epoch = Number(group.confirmCommit(ctx.device, clock(ctx)));
   await persist(ctx);
   await recordMembership(ctx, conversationId, group);
-  const local = await ctx.store.conversation(conversationId);
-  if (local) await ctx.store.putConversation({ ...local, epoch });
+  await ctx.store.updateConversation(conversationId, (local) => local && { ...local, epoch });
 }
 
 async function devicesOf(ctx: Context, conversationId: string, handle: string): Promise<string[]> {
@@ -744,7 +738,7 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
   //
   // `kind` is a guess until `discover` overwrites it with the server's answer.
   if (!before) {
-    await ctx.store.putConversation({
+    await ctx.store.updateConversation(conversationId, (row) => row ?? {
       id: conversationId,
       title: null,
       kind: "dm",
@@ -808,10 +802,9 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
   // what came before is not here -- and the next sync will not see this
   // Welcome again to be asked.
   if (joinedAt !== null) {
-    const row = await ctx.store.conversation(conversationId);
-    if (row && row.joinedAt === undefined) {
-      await ctx.store.putConversation({ ...row, joinedAt });
-    }
+    await ctx.store.updateConversation(conversationId, (row) =>
+      row && row.joinedAt === undefined ? { ...row, joinedAt } : null,
+    );
   }
 
   let cursor = since;
@@ -933,9 +926,9 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
  * does not stick: a Welcome that later lets this device in sets it back.
  */
 async function recordInGroup(ctx: Context, conversationId: string, inGroup: boolean): Promise<void> {
-  const row = await ctx.store.conversation(conversationId);
-  if (!row || row.inGroup === inGroup) return;
-  await ctx.store.putConversation({ ...row, inGroup });
+  await ctx.store.updateConversation(conversationId, (row) =>
+    row && row.inGroup !== inGroup ? { ...row, inGroup } : null,
+  );
 }
 
 /**
@@ -1022,8 +1015,7 @@ async function discoverListing(ctx: Context): Promise<{ fresh: string[]; listed:
       : others.length > 1 ? others.join(", ") : undefined;
     await remember(ctx, summary, title);
     if (through !== undefined && through > 0) {
-      const local = await ctx.store.conversation(id);
-      if (local) await ctx.store.putConversation({ ...local, syncedTo: through });
+      await ctx.store.updateConversation(id, (local) => local && { ...local, syncedTo: through });
     }
     if (!known.has(id)) fresh.push(id);
   }
@@ -1427,37 +1419,41 @@ async function remember(
   summary: ConversationSummary,
   title?: string,
 ): Promise<void> {
-  const existing = await ctx.store.conversation(summary.conversation_id);
-  const conversation: StoredConversation = {
-    id: summary.conversation_id,
-    title: existing?.title ?? title ?? null,
-    kind: summary.kind,
-    epoch: summary.epoch,
-    syncedTo: existing?.syncedTo ?? 0,
-    lastMessage: existing?.lastMessage ?? null,
-    members: summary.members,
-    // Not zero for one we have never seen: the list sorts by this, and a fresh
-    // invitation sorted to the bottom is an invitation nobody finds.
-    updatedAtMs: existing?.updatedAtMs ?? clock(ctx),
-  };
-  // Carried over, not reset: `discover` rewrites this row on every pass, and a
-  // field it does not know about would otherwise last only until the next one.
-  if (existing?.avatar !== undefined) conversation.avatar = existing.avatar;
-  if (existing?.lastMessageOutgoing !== undefined) {
-    conversation.lastMessageOutgoing = existing.lastMessageOutgoing;
-  }
-  if (existing?.description !== undefined) conversation.description = existing.description;
-  if (existing?.joinedAt !== undefined) conversation.joinedAt = existing.joinedAt;
-  if (existing?.inGroup !== undefined) conversation.inGroup = existing.inGroup;
-  if (existing?.roles !== undefined) conversation.roles = existing.roles;
-  if (summary.member_devices !== undefined) {
-    conversation.memberDevices = Object.fromEntries(
-      summary.member_devices.map((member) => [member.device_id, member.handle]),
-    );
-  } else if (existing?.memberDevices !== undefined) {
-    conversation.memberDevices = existing.memberDevices;
-  }
-  await ctx.store.putConversation(conversation);
+  // In one transaction with the read: this runs for every conversation on
+  // every pass, and a row built from a copy read before a rename landed put
+  // the old name back.
+  await ctx.store.updateConversation(summary.conversation_id, (existing) => {
+    const conversation: StoredConversation = {
+      id: summary.conversation_id,
+      title: existing?.title ?? title ?? null,
+      kind: summary.kind,
+      epoch: summary.epoch,
+      syncedTo: existing?.syncedTo ?? 0,
+      lastMessage: existing?.lastMessage ?? null,
+      members: summary.members,
+      // Not zero for one we have never seen: the list sorts by this, and a fresh
+      // invitation sorted to the bottom is an invitation nobody finds.
+      updatedAtMs: existing?.updatedAtMs ?? clock(ctx),
+    };
+    // Carried over, not reset: `discover` rewrites this row on every pass, and a
+    // field it does not know about would otherwise last only until the next one.
+    if (existing?.avatar !== undefined) conversation.avatar = existing.avatar;
+    if (existing?.lastMessageOutgoing !== undefined) {
+      conversation.lastMessageOutgoing = existing.lastMessageOutgoing;
+    }
+    if (existing?.description !== undefined) conversation.description = existing.description;
+    if (existing?.joinedAt !== undefined) conversation.joinedAt = existing.joinedAt;
+    if (existing?.inGroup !== undefined) conversation.inGroup = existing.inGroup;
+    if (existing?.roles !== undefined) conversation.roles = existing.roles;
+    if (summary.member_devices !== undefined) {
+      conversation.memberDevices = Object.fromEntries(
+        summary.member_devices.map((member) => [member.device_id, member.handle]),
+      );
+    } else if (existing?.memberDevices !== undefined) {
+      conversation.memberDevices = existing.memberDevices;
+    }
+    return conversation;
+  });
 }
 
 async function moveCursor(
@@ -1466,9 +1462,7 @@ async function moveCursor(
   cursor: number,
   group: Group | undefined,
 ): Promise<void> {
-  const existing = await ctx.store.conversation(conversationId);
-  if (!existing) return;
-  await ctx.store.putConversation({
+  await ctx.store.updateConversation(conversationId, (existing) => existing && {
     ...existing,
     epoch: group ? Number(group.epoch) : existing.epoch,
     // Never backwards. `appendMessage` has already moved it for anything it
@@ -1479,21 +1473,15 @@ async function moveCursor(
 }
 
 async function setTitle(ctx: Context, conversationId: string, title: string): Promise<void> {
-  const existing = await ctx.store.conversation(conversationId);
-  if (!existing) return;
-  await ctx.store.putConversation({ ...existing, title });
+  await ctx.store.updateConversation(conversationId, (existing) => existing && { ...existing, title });
 }
 
 async function setAvatar(ctx: Context, conversationId: string, encoded: string): Promise<void> {
-  const existing = await ctx.store.conversation(conversationId);
-  if (!existing) return;
-  await ctx.store.putConversation({ ...existing, avatar: encoded });
+  await ctx.store.updateConversation(conversationId, (existing) => existing && { ...existing, avatar: encoded });
 }
 
 async function setDescription(ctx: Context, conversationId: string, description: string): Promise<void> {
-  const existing = await ctx.store.conversation(conversationId);
-  if (!existing) return;
-  await ctx.store.putConversation({ ...existing, description });
+  await ctx.store.updateConversation(conversationId, (existing) => existing && { ...existing, description });
 }
 
 /**

@@ -199,17 +199,40 @@ export async function lockSession(): Promise<void> {
   resetRuntime();
 }
 
-export async function logout(): Promise<void> {
+/**
+ * Signs out.
+ *
+ * By default what is on this device stays -- the keys, the MLS state, every
+ * conversation's history -- so signing in again as the same person brings all
+ * of it back (`Session.logout` says how). `erase` takes it all, for a
+ * computer somebody else will use: nothing here can read those
+ * conversations again afterwards.
+ */
+export async function logout(options: { erase?: boolean } = {}): Promise<void> {
   const { session } = await runtime();
   closeStream();
-  await session.logout();
+  await session.logout(options);
   // The tray tooltip and the startup entry, neither of which the page owns.
   // Nothing on the web, where there is neither.
   await forgetAccount();
-  // The runtime holds an MLS device built from a secret that has just been
-  // wiped. Keeping it would mean the next sign-in on this page inherits the
-  // last account's ratchet.
+  // The runtime holds an MLS device and tokens for the session that just
+  // ended. Keeping it would mean the next sign-in on this page -- possibly as
+  // somebody else -- inherits them; the next one rebuilds from the store.
   resetRuntime();
+}
+
+/**
+ * Whose history is kept on this device while nobody is signed in, or `null`.
+ *
+ * What the sign-in form uses to say that signing in as somebody else removes
+ * it -- and that signing in as them brings it back.
+ */
+export async function keptAccount(): Promise<string | null> {
+  try {
+    return (await (await runtime()).session.keptAccount())?.handle ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -222,8 +245,8 @@ export async function logout(): Promise<void> {
  *
  * What is dropped is what `lockSession` drops -- the socket, the tokens, the
  * runtime -- and not the store: the identity key and the MLS state stay, so
- * signing in here again makes this the live device, with what it had. That is
- * the difference from `logout`, which wipes.
+ * signing in here again makes this the live device, with what it had. Signing
+ * out does the same now, unless it is asked to erase.
  */
 export function onSessionEnded(listener: () => void): () => void {
   return onRuntimeSessionEnded(() => {

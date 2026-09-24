@@ -6,8 +6,13 @@ import type { BackdropReport } from "../lib/native";
 
 export type Route = "home" | "messages" | "teams" | "profile" | "settings";
 
-/** What an open team is showing. On a phone each is a screen of its own. */
-export type TeamPane = "board" | "members" | "settings";
+/**
+ * What an open team is showing. On a phone each is a screen of its own.
+ *
+ * Two, not three: who is in the team is part of its settings, beside its name
+ * and the ways out of it, rather than a destination of its own.
+ */
+export type TeamPane = "board" | "settings";
 
 /** The sections of Settings, in the order the list draws them. */
 export type SettingsSection =
@@ -165,13 +170,14 @@ export interface Preferences {
    * so the question is asked once rather than at every sign-in. It exists
    * because the PIN used to be a *gate* — the app would not open until one
    * existed — which charged a screen for a convenience and charged it again on
-   * the sign-in after every sign-out, since signing out erases the PIN.
+   * the sign-in after every sign-out, since signing out erased the PIN.
    *
-   * Deliberately *not* reset by signing out. Signing out does erase the PIN,
-   * so the machine genuinely has none afterwards — but re-arming the offer on
-   * that fact is what put "Choose an unlock PIN" in front of the very next
-   * sign-in, which is the thing the offer was made skippable to stop doing.
-   * Asked once per machine means once; Settings sets a PIN at any time after.
+   * Deliberately *not* reset by signing out. Signing out keeps the PIN now,
+   * and "Sign out and erase" still removes it, so the machine can genuinely
+   * have none afterwards — but re-arming the offer on that fact is what put
+   * "Choose an unlock PIN" in front of the very next sign-in, which is the
+   * thing the offer was made skippable to stop doing. Asked once per machine
+   * means once; Settings sets a PIN at any time after.
    */
   pinOfferAnswered: boolean;
   /**

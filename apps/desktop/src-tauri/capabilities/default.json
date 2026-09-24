@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The complete set of things the Nexo WebView is allowed to do. §4.5 requires starting from empty and growing only deliberately. Network calls still happen in Rust and are exposed, if at all, as narrow commands — nothing here reaches the network. Filesystem access is limited to the native Save dialog and writing the file the user just named in it -- the page decrypts an attachment and hands over the bytes, and the person chooses where they land, so a sender cannot pick a destination. Opening a file no longer needs a dialog permission at all: the picker is an ordinary file input, which is what a browser gives and what the WebView answers with the same OS dialog, and the clipboard is readable as well as writable — read was added when the app took over the right-click menu inside text fields, because a text field's menu without Paste is not one; the cost is recorded in docs/THREAT-MODEL.md. The window permissions are the minimum a frameless window with a custom titlebar needs (§7.3) — drag the window, and the three Windows caption buttons.",
+  "description": "The complete set of things the Nexo WebView is allowed to do. §4.5 requires starting from empty and growing only deliberately. Network calls still happen in Rust and are exposed, if at all, as narrow commands — nothing here reaches the network. Filesystem access is limited to the native Save dialog and writing the file the user just named in it -- the page decrypts an attachment and hands over the bytes, and the person chooses where they land, so a sender cannot pick a destination. Opening a file no longer needs a dialog permission at all: the picker is an ordinary file input, which is what a browser gives and what the WebView answers with the same OS dialog, and the clipboard is readable as well as writable — read was added when the app took over the right-click menu inside text fields, because a text field's menu without Paste is not one; the cost is recorded in docs/THREAT-MODEL.md. The window permissions are the minimum a frameless window with a custom titlebar needs (§7.3) — drag the window, and the three Windows caption buttons — plus content protection, which keeps the window out of screenshots and screen recordings while a view-once photo or video is open (docs/THREAT-MODEL.md §2.13).",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -10,6 +10,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-is-maximized",
     "core:window:allow-close",
+    "core:window:allow-set-content-protected",
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-write-file",

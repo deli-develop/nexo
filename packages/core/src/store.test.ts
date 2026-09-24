@@ -115,6 +115,35 @@ describe("Store", () => {
     expect((await store.conversations()).map((c) => c.id)).toEqual(["new", "mid", "old"]);
   });
 
+  it("keeps both of two changes to one conversation made at the same time", async () => {
+    // A team renamed from its settings while the sync loop moves the same
+    // row's cursor. Read-then-put on both sides puts back whichever copy was
+    // read first, and the new name was the one that lost.
+    await store.putConversation(conversation("c1"));
+
+    const read = [await store.conversation("c1"), await store.conversation("c1")];
+    await store.putConversation({ ...read[0]!, title: "Renamed" });
+    await store.putConversation({ ...read[1]!, syncedTo: 9 });
+    expect((await store.conversation("c1"))?.title).toBeNull();
+
+    await store.putConversation(conversation("c1"));
+    await Promise.all([
+      store.updateConversation("c1", (row) => row && { ...row, title: "Renamed" }),
+      store.updateConversation("c1", (row) => row && { ...row, syncedTo: 9 }),
+    ]);
+    expect(await store.conversation("c1")).toMatchObject({ title: "Renamed", syncedTo: 9 });
+  });
+
+  it("changes a conversation only when asked to, and creates one only when told how", async () => {
+    expect(await store.updateConversation("missing", (row) => row && { ...row, syncedTo: 1 })).toBeNull();
+    expect(await store.conversation("missing")).toBeNull();
+
+    const made = await store.updateConversation("c2", (row) => row ?? conversation("c2", 4));
+    expect(made?.syncedTo).toBe(4);
+    // `null` from the change stores nothing and answers what is there.
+    expect(await store.updateConversation("c2", () => null)).toMatchObject({ id: "c2", syncedTo: 4 });
+  });
+
   it("returns only the messages of the conversation asked for, in order", async () => {
     await store.putConversation({
       id: "c1", title: null, kind: "dm", epoch: 0, syncedTo: 0,

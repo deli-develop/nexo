@@ -5,6 +5,7 @@ import {
   conversations as core,
   decodePayload,
   forwardedText,
+  preview,
   voiceMeta,
   type Payload,
   type StoredMessage,
@@ -45,6 +46,8 @@ export interface Conversation {
   last_message_outgoing: boolean | null;
   /** Whether a picture has been set. */
   has_avatar: boolean;
+  /** Which picture: changes when a new one is set, so a drawn one is re-read. */
+  avatar_version: string | null;
   /** Whether every current key here was confirmed out of band. */
   verified: boolean;
   /** Whether somebody's key changed since it was last acknowledged. */
@@ -210,6 +213,7 @@ export async function listConversations(): Promise<Conversation[]> {
         last_message_at_ms: row.updatedAtMs === 0 ? null : row.updatedAtMs,
         last_message_outgoing: row.lastMessageOutgoing ?? null,
         has_avatar: row.avatar !== undefined,
+        avatar_version: avatarVersion(row.avatar),
         // Verified means the key confirmed out of band is still the key in
         // use. A stale confirmation is not a confirmation, which is the whole
         // point of keeping both.
@@ -304,7 +308,7 @@ function toMessage(
           retracted: target.retractedAtMs !== undefined,
           // Short: a quote line is one line, and a quoted essay would push
           // the message that answers it off the screen.
-          excerpt: target.body.slice(0, 120),
+          excerpt: quoteOf(target).slice(0, 120),
         }
       : // A quote of something this device never received. The bubble says
         // "message unavailable" rather than drawing an empty quote, which
@@ -328,6 +332,7 @@ function toMessage(
         const voice = voiceMeta(payload.voice);
         if (voice) message.attachment.voice = voice;
       }
+      message.body = wordsOf(row, payload);
       break;
     case "view_once":
       message.view_once = {
@@ -357,6 +362,27 @@ function toMessage(
       break;
   }
   return message;
+}
+
+/**
+ * The words somebody wrote on a message, as opposed to what a list calls it.
+ *
+ * An attachment's row keeps `preview()` in `body` -- its caption, or else its
+ * file name or "Voice message" -- because that is what the conversation list
+ * and search read. The bubble drew that as if somebody had typed it, so every
+ * voice note arrived with a second bubble saying `voice-message.webm`, and
+ * every picture with its file name. A caption stays, edited or not: an edit
+ * rewrites `body`, and what it says is no longer either fallback.
+ */
+function wordsOf(row: StoredMessage, payload: Payload | null): string {
+  if (payload?.kind !== "attachment" || payload.body) return row.body;
+  return row.body === payload.name || row.body === preview(payload) ? "" : row.body;
+}
+
+/** What a quote of this message says: its words, or else what it is. */
+function quoteOf(row: StoredMessage): string {
+  const payload = row.payload ? decodePayload(row.payload) : null;
+  return wordsOf(row, payload) || (payload ? preview(payload) : "");
 }
 
 export async function searchMessages(
@@ -659,6 +685,23 @@ export async function openViewOnce(clientId: string): Promise<string> {
   });
   await it.store.burnViewOnce(clientId, Date.now());
   return URL.createObjectURL(new Blob([bytes as unknown as BlobPart], { type: record.mime }));
+}
+
+/**
+ * Which picture a stored `group_avatar` is, as a short string.
+ *
+ * The object key: every new picture is a new object. A drawn avatar is keyed
+ * on this, because `hasAvatar` alone stays `true` from the first picture to
+ * the last, and the first one was drawn for ever.
+ */
+export function avatarVersion(encoded: string | undefined): string | null {
+  if (encoded === undefined) return null;
+  try {
+    const payload = decodePayload(encoded);
+    return payload.kind === "group_avatar" ? payload.s3_key : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function conversationAvatar(conversationId: string): Promise<string | null> {

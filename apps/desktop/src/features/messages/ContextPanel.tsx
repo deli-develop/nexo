@@ -10,11 +10,14 @@ import { fileSize, relativeTime, safetyNumber } from "../../lib/format";
 import { confirm, notify, openUrl } from "../../lib/native";
 import { fieldFor, fileTone } from "../../lib/palette";
 import type { Conversation, Message } from "../../lib/types";
-import { IconButton } from "../../components/ui/Button";
+import { useApp } from "../../app/store";
+import { Button, IconButton } from "../../components/ui/Button";
+import { HandleAvatar } from "../../components/ui/HandleAvatar";
 import { Icon } from "../../components/ui/Icon";
 import { Panel } from "../../components/ui/Surface";
 import { cn } from "../../lib/cn";
 import { Lightbox } from "./Lightbox";
+import { peerHandle } from "./peer";
 import { pinnedLine } from "./pinned";
 import { sharedIn, type SharedAttachment } from "./shared";
 
@@ -57,6 +60,9 @@ export function ContextPanel({
   // rather than fetched: the list is the same messages, and a second source
   // would be a second thing to keep in step.
   const pinned = messages.filter((m) => m.pinned).reverse();
+  const account = useApp((s) => s.account);
+  const viewProfile = useApp((s) => s.viewProfile);
+  const peer = peerHandle(conversation, account?.handle);
   // What was shared, from the history already loaded — see `sharedIn`.
   const shared = useMemo(() => sharedIn(messages), [messages]);
   // The lightbox steps oldest to newest, the way the conversation reads.
@@ -95,6 +101,20 @@ export function ContextPanel({
       )}
     >
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
+        {/* Who this is with, and the way to their profile -- the first thing
+            a details panel is expected to answer. */}
+        {peer ? (
+          <section className="flex items-center gap-3">
+            <HandleAvatar handle={peer} name={conversation.title} size={44} />
+            <div className="min-w-0 flex-1">
+              <p className="text-text-hi truncate text-body font-medium">{conversation.title}</p>
+              <p className="text-text-lo truncate text-meta">@{peer}</p>
+            </div>
+            <Button icon="user" onClick={() => viewProfile(peer)}>
+              Profile
+            </Button>
+          </section>
+        ) : null}
         {pinned.length > 0 ? (
           <section className="space-y-3">
             {/* "on this device" is not a nicety. A shared pin has no

@@ -2104,6 +2104,153 @@ uploaded and opened.
 @mentions, "only admins can post". Also not built: a keyboard chord for the
 destination — none of the destinations has one.
 
+### Since v0.1.33: ten reports from a test pass
+
+One round of reports from using the app, sorted into fixes and changes and
+landed one at a time. Each entry says what was wrong or asked for, and what
+now happens.
+
+- **A voice message arrived with a second bubble saying
+  `voice-message.webm`.** An attachment's row keeps the list preview in
+  `body` -- its caption, or else its file name -- and the bubble drew that as
+  if somebody had typed it, so every picture came with its file name too. The
+  bubble now draws only words somebody wrote (`wordsOf` in
+  `lib/conversations.ts`), an edited caption included. A voice note with no
+  caption is previewed and quoted as "Voice message" (`preview` in
+  `core/src/payload.ts`), and a quote of one says that rather than the file
+  name. **Verified** by `lib/attachmentText.test.ts` and a `payload.test.ts`
+  case.
+
+- **A voice message is played by Nexo, not by Windows.** It was the
+  browser's `<audio controls>`: a grey strip with its own volume slider and
+  menu, drawn by the WebView inside a Nexo bubble. `SoundPlayer` replaces it
+  for voice notes and sound files alike: a round play button in the accent,
+  the recording's waveform filling in as it plays and draggable to seek, the
+  length until it starts and the position after, and 1× / 1.5× / 2×. The
+  waveform is a `slider` with arrow keys, Home and End, so nothing the native
+  control reached by keyboard was lost. Starting one sound pauses any other,
+  and leaving the conversation stops it. A recorder's WebM declares no
+  length, so Chromium cannot seek in it until it has read it through; the
+  sender's measured length is used, and the player makes the engine read the
+  file once so seeking works. **Seen** in a browser in both themes, playing a
+  generated tone. Not heard in the desktop app.
+
+- **A team's picture was never drawn.** Setting one worked -- the encrypted
+  `group_avatar` went out and every member stored it -- but the board and
+  the team list drew the generated gradient whatever was set. Both now draw
+  it through `ConversationAvatar`. A changed picture was not re-read anywhere
+  either, groups included: the avatar fetched once per `hasAvatar`, which
+  stays true from the first picture to the last, and the rename dialog's
+  "remount" was two state changes React batched into none. Avatars are now
+  keyed on the picture's object key (`avatarVersion`), and the `blob:` URL
+  they replace is revoked rather than kept for the life of the page.
+
+- **A team's new name and description did not stay.** Two causes. Nothing
+  re-read the team list after a save, so the board beside "Saved." showed
+  the old name until a sync pass noticed; the settings screen now reads it
+  again as soon as a change lands. And every writer of a conversation row
+  read it, then put back a changed copy, in two transactions: the sync loop
+  does that to every row every four seconds, so a rename that landed between
+  its read and its write was put back to the old name. All of them go through
+  `Store.updateConversation` now, one transaction each (*Conventions* in
+  `CONTEXT.md`). **Verified** by two `store.test.ts` cases, the first of which
+  shows the old pattern losing the rename. Not driven with a real team.
+
+- **Members is part of a team's settings.** It was a third pane beside Board
+  and Settings, with its own button on the board and its own entry under the
+  open team. Now Settings is the one place for everything about a team that
+  is not its posts: its picture (shown there now, so a change is seen where
+  it is made), name and description, the members with their roles and Add
+  people, handing it on, and leaving or deleting. The members list's roster
+  also feeds the hand-on picker, which used to read its own. Choosing no
+  picture no longer answers "Picture changed." **Seen** in a browser in both
+  themes, without a session, so the roster itself was not drawn.
+
+- **An animated GIF as a profile picture stood still.** The picker took
+  GIFs, but every profile picture and banner went through `ImageCropper`,
+  which draws onto a canvas and saves a JPEG -- one frame. A moving picture
+  (`lib/animated.ts`: a GIF with more than one image, or a WebP with the
+  animation flag) now skips the cropper and is uploaded as picked, up to
+  8 MB, since it cannot be scaled down and every visitor downloads all of
+  it. It is centred in the circle the way every avatar is; a still GIF is
+  cropped as before. Avatars are drawn as a CSS background from a `blob:`
+  URL, so the frames play everywhere a face is shown. Group and team
+  pictures never went through the cropper and already moved. **Verified** by
+  `lib/animated.test.ts` against GIFs laid out as encoders write them,
+  including a `0x2C` inside the pixels. No GIF was uploaded to the real
+  bucket.
+
+- **The rail and the mark are drawn like the rest of the app.** They were
+  raised white discs with drop shadows, the current page a solid black disc
+  (see *the rail is a column of discs* above) -- the only controls in the
+  window built that way, sitting on it rather than in it. They are flat now,
+  in `IconButton`'s vocabulary: a soft fill under the pointer, and the page
+  you are on tinted in the accent, the same "on" as the context panel's
+  toggle and the bottom bar's current tab. Your avatar at the foot is ringed
+  in the accent on your own profile. `--shadow-chip` is gone with them.
+  **Seen** at 1280×760 in both themes with the shell on stand-in data. Not
+  seen in the desktop app.
+- **The mark goes Home.** It was a `div` that went nowhere; it is a button
+  now, `no-drag` in the drag region, labelled "Home". Before sign-in it is
+  only the mark. **Seen** hovered in both themes; not clicked in the desktop
+  app, where the drag region is the thing to check.
+- **The top of the Messages list says "Messages".** It was your own name and
+  handle with a "⋯" of Profile, Settings and Sign out -- a second copy of the
+  face at the foot of the rail, and three things each a rail button away.
+  Every other destination's cell names the page, and now this one does.
+  **Seen** at 1280×760 in both themes with the shell on stand-in data.
+
+- **A chat leads to the person in it.** There was no way from a
+  conversation to the profile of whoever it was with; only Home's side chat
+  had one. In a one-to-one, the header's avatar and name now open their
+  profile, the details panel starts with their face, name and handle and a
+  Profile button, and the row's right-click menu starts with "View profile".
+  Who "they" are comes from the member list (`peerHandle`), never the title;
+  a group, Saved messages, or a DM whose members have not arrived yet has
+  nobody to open, and nothing is offered. **Seen** and clicked in a browser
+  on stand-in data: all three land on the Profile route.
+
+- **A view-once photo cannot be screenshotted in the desktop app.** It was
+  shown inside the bubble with "Nexo cannot stop a screenshot" beside it.
+  It now opens over the whole window (`ViewOnceViewer`), and while it is
+  open the window is excluded from capture -- `SetWindowDisplayAffinity`
+  with `WDA_EXCLUDEFROMCAPTURE`, through Tauri's content protection -- so a
+  screenshot, the Snipping Tool or a screen recording shows the window
+  blank. It is how Unigram does it on Windows and what `FLAG_SECURE` does on
+  Android. Nothing is drawn until the protection is in place, picture-in-
+  picture is off, and closing it (button or Escape) lets go of the bytes.
+  The web app cannot block anything and says so, before and while it is
+  open; the promise is the host's, not the feature's.
+  `docs/THREAT-MODEL.md` §2.13 has what it still cannot stop: a camera, a
+  capture card, a modified build, Windows 10 before 2004. **Verified** in a
+  browser with the Tauri bridge stubbed: protection is asked for when the
+  viewer opens and released when it closes, and both captions were seen;
+  `lib/capture.test.ts` covers two holds, a double release and a refusal.
+  **Not verified on Windows** -- that a real screenshot comes out blank is
+  the thing to check by hand.
+
+- **Signing out and back in keeps your chats.** Sign-out wiped the whole
+  store -- identity key, MLS groups, every conversation's history -- so the
+  next sign-in was a new device: no history, and every chat with somebody
+  you had already talked to had to be started again (and everybody you
+  talked to got a "safety number changed" warning). Now `Session.logout`
+  ends the session on the server and drops the tokens, and keeps the rest.
+  Signing back in as the same person sends the same device key, the server
+  un-retires that device, its groups still open, and whatever arrived while
+  signed out syncs in. The sign-out question says the messages stay and that
+  they are readable by anybody using the computer (nothing is encrypted at
+  rest); Settings adds **Sign out and erase**, the old wipe, for a shared
+  computer. Signing in or registering as somebody else replaces what is
+  kept -- only once the server accepts the new credentials, with a fresh
+  device key, and after a warning on the sign-in form, which also fills in
+  the kept handle. While the kept account still holds a session (an offline
+  start), another account is refused as before. `docs/THREAT-MODEL.md`
+  §2.17. **Verified** by four `session.test.ts` cases: kept and resumed with
+  the same key and history; erase; a different account replacing it only
+  after a successful login, never with the old key; and a refusal while
+  still signed in. History already wiped by an earlier sign-out cannot come
+  back; this helps from the next sign-out on. Not driven against the server.
+
 ---
 
 ## Relay (M5)

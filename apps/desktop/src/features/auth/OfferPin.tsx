@@ -20,8 +20,8 @@ import { Panel } from "../../components/ui/Surface";
  * That argument is still right about auto-lock. It was wrong about where to
  * spend it. Standing between somebody and their own messages, at every sign-in,
  * is too much to charge for a convenience — and it charged it hardest exactly
- * when things had already gone wrong, since signing out erases the PIN, so the
- * sign-in that followed a sign-out was met by the same wall again. The
+ * when things had already gone wrong, since signing out erased the PIN then, so
+ * the sign-in that followed a sign-out was met by the same wall again. The
  * discovery it was buying is worth one screen, not a toll gate: the offer is
  * made once per machine, either answer is final, and Settings keeps it
  * available afterwards.

@@ -9,7 +9,6 @@ import { cn } from "../../lib/cn";
 import { CreateTeamDialog } from "./CreateTeamDialog";
 import { TeamBoard } from "./TeamBoard";
 import { TeamList } from "./TeamList";
-import { TeamMembers } from "./TeamMembers";
 import { TeamSettings } from "./TeamSettings";
 
 /**
@@ -48,12 +47,11 @@ export function TeamsPage({ now, teams }: { now: Date; teams: TeamsState }) {
 
       {showBoard ? (
         team ? (
-          teamPane === "members" ? (
-            <TeamMembers key={team.id} team={team} />
-          ) : teamPane === "settings" ? (
+          teamPane === "settings" ? (
             <TeamSettings
               key={team.id}
               team={team}
+              onChanged={() => void teams.refresh()}
               onGone={() => {
                 closeTeam();
                 void teams.refresh();
@@ -105,8 +103,8 @@ function useOpenTeam() {
 
 /**
  * The Teams cell of the top row: a way back on a phone, a way to start one
- * everywhere. On a phone the members and settings screens are screens of their
- * own, and back from them goes to the board, not out of the team.
+ * everywhere. On a phone the settings screen, members included, is a screen
+ * of its own, and back from it goes to the board, not out of the team.
  */
 export function TeamsHeader({ teams }: { teams: TeamsState }) {
   const layout = useLayout();
@@ -128,7 +126,7 @@ export function TeamsHeader({ teams }: { teams: TeamsState }) {
           onClick={onBoard ? closeTeam : () => setTeamPane("board")}
         />
         <h1 className="font-display text-text-hi truncate text-title font-semibold tracking-[-0.01em]">
-          {onBoard ? team.name ?? "New team" : teamPane === "members" ? "Members" : "Team settings"}
+          {onBoard ? team.name ?? "New team" : "Team settings"}
         </h1>
       </div>
     );

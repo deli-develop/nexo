@@ -17,6 +17,7 @@
  * require it.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { requestDialog } from "./dialogs";
 import { inTauri } from "./runtime";
@@ -523,4 +524,53 @@ export async function getViaRelay(): Promise<string | null> {
  */
 export async function setViaRelay(address: string | null): Promise<void> {
   await invoke("set_via_relay", { address });
+}
+
+// --------------------------------------------------------- screen capture
+
+/**
+ * Whether this host can keep the window out of screenshots at all.
+ *
+ * The desktop app can: Windows lets a window exclude itself from capture
+ * (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`, which is what
+ * Tauri's content protection calls). A browser tab cannot, and nothing a page
+ * does changes that -- which is why the UI has to say which of the two it is.
+ */
+export function canBlockScreenCapture(): boolean {
+  return inTauri();
+}
+
+/** How many things want the window kept out of capture right now. */
+let captureHolds = 0;
+
+/**
+ * Keeps the window out of screenshots and screen recordings until the
+ * returned release is called -- what a view-once photo or video is shown
+ * under, the way Telegram's Windows clients and every Android messenger's
+ * `FLAG_SECURE` do it. A capture taken meanwhile shows the window blank.
+ *
+ * Counted, so two viewers cannot release each other's protection, and the
+ * release is safe to call twice. Answers whether the window is protected: in
+ * a browser it never is, and a refusal from the shell is reported the same
+ * way rather than assumed away.
+ *
+ * What it cannot do: a camera pointed at the screen, a capture card, or a
+ * modified build. `docs/THREAT-MODEL.md` §2.13.
+ */
+export async function blockScreenCapture(): Promise<{ held: boolean; release: () => void }> {
+  if (!inTauri()) return { held: false, release: () => {} };
+  captureHolds += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    captureHolds = Math.max(0, captureHolds - 1);
+    if (captureHolds === 0) void getCurrentWindow().setContentProtected(false).catch(() => {});
+  };
+  try {
+    await getCurrentWindow().setContentProtected(true);
+    return { held: true, release };
+  } catch {
+    return { held: false, release };
+  }
 }

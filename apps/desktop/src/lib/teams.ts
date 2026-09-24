@@ -10,6 +10,7 @@ import {
   type TeamRole,
 } from "@nexo/core";
 
+import { avatarVersion } from "./conversations";
 import { runtime } from "./runtime";
 
 /**
@@ -44,6 +45,8 @@ export interface Team {
    */
   devices: Record<string, string>;
   hasAvatar: boolean;
+  /** Which picture -- see `avatarVersion` in `lib/conversations.ts`. */
+  avatarVersion: string | null;
   updatedAtMs: number;
   /**
    * Whether this device joined after the team began -- its board says that
@@ -63,6 +66,7 @@ function toTeam(row: StoredConversation, me: string | undefined): Team {
     myRole: me !== undefined ? roles[me] ?? null : null,
     devices: row.memberDevices ?? {},
     hasAvatar: row.avatar !== undefined,
+    avatarVersion: avatarVersion(row.avatar),
     updatedAtMs: row.updatedAtMs,
     joinedLate: row.joinedAt !== undefined,
   };

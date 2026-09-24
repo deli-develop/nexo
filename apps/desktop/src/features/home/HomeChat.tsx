@@ -155,6 +155,7 @@ export function HomeChat({ now, width }: { now: Date; width: string }) {
       kind={conversation.kind}
       title={conversation.title}
       hasAvatar={conversation.hasAvatar ?? false}
+      version={conversation.avatarVersion}
       size={30}
     />
   ) : null;

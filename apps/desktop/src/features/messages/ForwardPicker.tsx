@@ -99,6 +99,7 @@ export function ForwardPicker({
                   kind={c.kind === "group" || c.kind === "self" ? c.kind : "dm"}
                   title={c.title ?? "Unnamed conversation"}
                   hasAvatar={c.has_avatar}
+                  version={c.avatar_version}
                   size={32}
                 />
                 <span className="min-w-0 flex-1">

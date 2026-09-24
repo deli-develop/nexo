@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { conversationAvatar } from "../../lib/conversations";
 import { Avatar } from "./Avatar";
@@ -18,33 +18,56 @@ import { Icon } from "./Icon";
  * Saved messages is none of them: it wears the pin the list's own row for it
  * wears. As a DM it was handed to `HandleAvatar`, which looked "Saved
  * messages" up as somebody's handle.
+ *
+ * A team is a group here: its picture is the same encrypted `group_avatar`.
+ * The board and the team list used to draw the gradient whatever had been
+ * set, so changing a team's picture changed nothing anybody could see.
+ *
+ * `version` says *which* picture. `hasAvatar` stays true from the first
+ * picture to the last, so without it the first one was drawn until the app
+ * restarted.
  */
 export function ConversationAvatar({
   conversationId,
   kind,
   title,
   hasAvatar,
+  version,
   size = 40,
 }: {
   conversationId: string;
-  kind: "dm" | "group" | "self";
+  kind: "dm" | "group" | "self" | "team";
   /** A DM's title is the other person's handle. */
   title: string;
   /** Whether a picture has been set, so no request is made when none has. */
   hasAvatar?: boolean;
+  /** Which picture is set -- a new one is fetched when this changes. */
+  version?: string | null | undefined;
   size?: number;
 }) {
   const [url, setUrl] = useState<string | null>(null);
+  // The URL on screen, let go of once another replaces it or the avatar
+  // goes. Every picture change and every row scrolled away used to keep its
+  // decrypted copy for as long as the page lived.
+  const shown = useRef<string | null>(null);
+  const show = (next: string | null) => {
+    const previous = shown.current;
+    shown.current = next;
+    setUrl(next);
+    if (previous && previous !== next) URL.revokeObjectURL(previous);
+  };
+  useEffect(() => () => show(null), []);
 
   useEffect(() => {
     if (!hasAvatar) {
-      setUrl(null);
+      show(null);
       return;
     }
     let cancelled = false;
     void conversationAvatar(conversationId)
       .then((next) => {
-        if (!cancelled) setUrl(next);
+        if (!cancelled) show(next);
+        else if (next) URL.revokeObjectURL(next);
       })
       .catch(() => {
         // The gradient stands. A picture that will not decrypt is not worth an
@@ -53,7 +76,7 @@ export function ConversationAvatar({
     return () => {
       cancelled = true;
     };
-  }, [conversationId, hasAvatar]);
+  }, [conversationId, hasAvatar, version]);
 
   if (url) {
     return (

@@ -54,6 +54,7 @@ function toConversation(wire: WireConversation): Conversation {
     safetyDigits: "",
     muted: false,
     hasAvatar: wire.has_avatar,
+    ...(wire.avatar_version !== null ? { avatarVersion: wire.avatar_version } : {}),
     // Spread rather than assigned: `exactOptionalPropertyTypes` is on, so an
     // optional field is either absent or a value, never explicitly undefined.
     ...(wire.last_message_at_ms !== null

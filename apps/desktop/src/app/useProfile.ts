@@ -8,6 +8,7 @@ import {
   postsBy,
   updateProfile as updateProfileCall,
   updateVisibility as updateVisibilityCall,
+  uploadImage,
   uploadImageDataUrl,
   type MyProfile,
   type Post,
@@ -38,7 +39,11 @@ export interface LiveProfile {
   save: (edit: ProfileEdit) => Promise<boolean>;
   setVisibility: (field: VisibilityField, value: Visibility) => Promise<void>;
   /** Commits a cropped image as the avatar or banner. */
-  setImage: (which: "avatar" | "banner", dataUrl: string) => Promise<void>;
+  /**
+   * A cropper's `data:` URL, or a moving picture's own bytes -- which a
+   * canvas would have flattened to one frame.
+   */
+  setImage: (which: "avatar" | "banner", image: string | { bytes: Uint8Array; mime: string }) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -108,7 +113,7 @@ export function useProfile(): LiveProfile {
   );
 
   const setImage = useCallback(
-    async (which: "avatar" | "banner", dataUrl: string) => {
+    async (which: "avatar" | "banner", image: string | { bytes: Uint8Array; mime: string }) => {
       setSaving(true);
       try {
         // Uploaded first, committed second (§5.3: objects are write-once). If
@@ -117,7 +122,9 @@ export function useProfile(): LiveProfile {
         //
         // The bytes come from the cropper rather than from disk: what gets
         // stored is the region the person chose, already capped at 1920px.
-        const key = await uploadImageDataUrl(dataUrl);
+        // A moving picture is the exception, and arrives as it was picked.
+        const key =
+          typeof image === "string" ? await uploadImageDataUrl(image) : await uploadImage(image);
         const updated = await updateProfileCall(
           which === "avatar" ? { avatar_key: key } : { banner_key: key },
         );

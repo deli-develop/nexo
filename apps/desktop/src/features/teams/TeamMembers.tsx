@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useApp } from "../../app/store";
-import { useLayout } from "../../app/useLayout";
 import { Button, IconButton } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Controls";
 import { Callout, Skeleton } from "../../components/ui/Feedback";
 import { HandleAvatar } from "../../components/ui/HandleAvatar";
-import { cn } from "../../lib/cn";
 import { asConversationError } from "../../lib/conversations";
 import { confirm } from "../../lib/native";
 import { removePerson, setRole, teamRoster, type RosterEntry, type Team, type TeamRole } from "../../lib/teams";
@@ -33,16 +31,31 @@ const SECTIONS: { role: TeamRole; title: string; about: string }[] = [
 ];
 
 /**
- * Who is in a team, and what each of them may do.
+ * Who is in a team, and what each of them may do -- a section of the team's
+ * settings rather than a screen of its own.
  *
- * Three sections, each with a plain sentence about its role, and per person a
+ * Three groups, each with a plain sentence about its role, and per person a
  * handle, when they joined, and -- only where the viewer is allowed to act on
  * that row -- a role and a remove button. What is **not** here is the point as
  * much as what is: no "last active", no "online". A roster is who is in and
  * what they may do, not a record of when anybody was last seen.
+ *
+ * It was the board's third pane, next to Board and Settings, and a second
+ * place to go to change the team. Now the settings are the one place: its
+ * name, its people, and the ways out of it. The roster it reads is handed up
+ * (`onRoster`), so the hand-on picker below it offers who is actually in.
  */
-export function TeamMembers({ team }: { team: Team }) {
-  const layout = useLayout();
+export function TeamMembers({
+  team,
+  onRoster,
+  onChanged,
+}: {
+  team: Team;
+  /** Every time the roster is read. */
+  onRoster?: (roster: RosterEntry[]) => void;
+  /** Somebody was added, removed or given another role. */
+  onChanged?: () => void;
+}) {
   const account = useApp((s) => s.account);
   const [roster, setRoster] = useState<RosterEntry[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -50,85 +63,80 @@ export function TeamMembers({ team }: { team: Team }) {
 
   const load = useCallback(async () => {
     try {
-      setRoster(await teamRoster(team.id));
+      const next = await teamRoster(team.id);
+      setRoster(next);
+      onRoster?.(next);
       setProblem(null);
     } catch (error) {
       setProblem(asConversationError(error).message);
     }
-  }, [team.id]);
+  }, [team.id, onRoster]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const changed = () => {
+    void load();
+    onChanged?.();
+  };
 
   const me = account?.handle.toLowerCase();
   const myRole = roster?.find((entry) => entry.handle.toLowerCase() === me)?.role ?? team.myRole;
   const canAdd = myRole === "owner" || myRole === "admin";
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[860px] flex-col gap-6 px-4 py-5 sm:px-6">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-display text-text-hi text-[20px] font-semibold tracking-[-0.01em]">Members</h2>
-            <p className="text-text-mid text-meta">
-              {roster ? `${roster.length} ${roster.length === 1 ? "person" : "people"}. ` : ""}
-              Only they can read {team.name ?? "this team"}.
-            </p>
-          </div>
-          {canAdd ? (
-            <Button variant="primary" icon="userPlus" onClick={() => setAdding(true)}>
-              Add people
-            </Button>
-          ) : null}
-        </header>
+    <section className="flex flex-col gap-4 border-t border-[var(--hairline)] pt-5">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-text-hi text-body font-semibold">Members</h3>
+          <p className="text-text-mid text-meta">
+            {roster ? `${roster.length} ${roster.length === 1 ? "person" : "people"}. ` : ""}
+            Only they can read {team.name ?? "this team"}.
+          </p>
+        </div>
+        {canAdd ? (
+          <Button variant="primary" icon="userPlus" onClick={() => setAdding(true)}>
+            Add people
+          </Button>
+        ) : null}
+      </header>
 
-        {problem ? <Callout tone="danger">{problem}</Callout> : null}
+      {problem ? <Callout tone="danger">{problem}</Callout> : null}
 
-        {roster === null ? (
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-14" />
-            <Skeleton className="h-14" />
-          </div>
-        ) : (
-          SECTIONS.map((section) => {
-            const people = roster.filter((entry) => entry.role === section.role);
-            if (people.length === 0 && section.role !== "member") return null;
-            return (
-              <section
-                key={section.role}
-                className={cn(
-                  "grid gap-3 border-t border-[var(--hairline)] pt-4",
-                  // The explanation beside its list when there is room, above
-                  // it on a phone.
-                  layout.phone ? "grid-cols-1" : "grid-cols-[220px_1fr]",
-                )}
-              >
-                <div>
-                  <h3 className="text-text-hi text-body font-semibold">{section.title}</h3>
-                  <p className="text-text-mid mt-1 text-meta leading-relaxed">{section.about}</p>
-                </div>
-                {people.length === 0 ? (
-                  <p className="text-text-lo text-meta">Nobody yet.</p>
-                ) : (
-                  <ul className="flex flex-col">
-                    {people.map((entry) => (
-                      <MemberRow
-                        key={entry.handle}
-                        team={team}
-                        entry={entry}
-                        myRole={myRole ?? null}
-                        isSelf={entry.handle.toLowerCase() === me}
-                        onChanged={() => void load()}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </section>
-            );
-          })
-        )}
-      </div>
+      {roster === null ? (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-14" />
+          <Skeleton className="h-14" />
+        </div>
+      ) : (
+        SECTIONS.map((section) => {
+          const people = roster.filter((entry) => entry.role === section.role);
+          if (people.length === 0 && section.role !== "member") return null;
+          return (
+            <div key={section.role} className="flex flex-col gap-1">
+              <h4 className="text-text-hi text-meta font-semibold">{section.title}</h4>
+              <p className="text-text-lo text-meta leading-relaxed">{section.about}</p>
+              {people.length === 0 ? (
+                <p className="text-text-lo py-2 text-meta">Nobody yet.</p>
+              ) : (
+                <ul className="flex flex-col">
+                  {people.map((entry) => (
+                    <MemberRow
+                      key={entry.handle}
+                      team={team}
+                      entry={entry}
+                      myRole={myRole ?? null}
+                      isSelf={entry.handle.toLowerCase() === me}
+                      onChanged={changed}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })
+      )}
 
       {adding ? (
         <AddPeopleDialog
@@ -141,10 +149,10 @@ export function TeamMembers({ team }: { team: Team }) {
             Object.entries(team.roles).map(([handle, role]) => ({ handle, role, joined_at_ms: 0 }))
           }
           onClose={() => setAdding(false)}
-          onAdded={() => void load()}
+          onAdded={changed}
         />
       ) : null}
-    </div>
+    </section>
   );
 }
 

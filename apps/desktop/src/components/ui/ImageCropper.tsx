@@ -20,6 +20,10 @@ import { Callout } from "./Feedback";
  * Output is re-encoded on a canvas at the target aspect, capped at
  * {@link MAX_EDGE} on the long edge. That cap is the point at which a 6000px
  * phone photo stops being a 12 MB upload nobody asked for.
+ *
+ * A moving picture never comes here: a canvas holds one frame, so an animated
+ * GIF left as its first. `lib/animated.ts` decides, and the caller uploads
+ * those as they were picked.
  */
 
 /** The longest edge any stored image may have. */

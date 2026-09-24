@@ -391,6 +391,34 @@ export class Store {
     );
   }
 
+  /**
+   * Changes one conversation row, read and written in one transaction.
+   *
+   * **Every change to a row that already exists goes through here**, not
+   * through `conversation` then `putConversation`. Between those two calls
+   * anything else may write the row, and the second call puts back the copy
+   * read before it: the sync loop rewrites every row every four seconds, and
+   * a team's new name, description or picture -- set a moment earlier from
+   * the settings screen -- was quietly written over with the old one. Inside
+   * one `readwrite` transaction nothing can come between the read and the
+   * write.
+   *
+   * `change` gets the row, or `null` when there is none, and answers the row
+   * to store, or `null` to store nothing. What is stored comes back.
+   */
+  async updateConversation(
+    id: string,
+    change: (row: StoredConversation | null) => StoredConversation | null,
+  ): Promise<StoredConversation | null> {
+    return transact(this.#db, "conversations", "readwrite", async (tx) => {
+      const row = (await idb.get<StoredConversation>(tx, "conversations", id)) ?? null;
+      const next = change(row);
+      if (!next) return row;
+      await idb.put(tx, "conversations", next);
+      return next;
+    });
+  }
+
   // ----------------------------------------------------------------- messages
 
   async messages(conversationId: string): Promise<StoredMessage[]> {

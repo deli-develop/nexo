@@ -61,7 +61,7 @@ logged-in user, and the UI says so rather than implying otherwise. Conversation
 metadata (who, when, how big) is visible to the server. Android is a later port
 that must not require a rewrite, which is why the layering below is strict.
 
-Current version: `0.1.32`. The authority is `[workspace.package] version` in
+Current version: `0.1.33`. The authority is `[workspace.package] version` in
 `Cargo.toml`, and `apps/desktop/src-tauri/tauri.conf.json` has to agree with it
 — the release workflow refuses a tag that does not match.
 Current state: [`STATUS.md`](STATUS.md). Milestones: [`PLAN.md`](PLAN.md).
@@ -530,8 +530,8 @@ package, and `main.tsx` imports them.
 
 #### `components/`
 
-`chrome/`: `TopBar.tsx` (142 ln — one top row across the whole app; the mark sits in a disc in the 64px cell above the rail, and on a phone the cell goes, since it only lines up with the rail),
-`IconRail.tsx` (221 ln — the 64px rail, at 768px and up: raised discs, the current one inverted, Home and Messages centred, Settings, sign-out and your own avatar (Profile) at the foot), `BottomBar.tsx`
+`chrome/`: `TopBar.tsx` (165 ln — one top row across the whole app; the mark in the 64px cell above the rail is a button to Home, drawn like a rail button, and on a phone the cell goes, since it only lines up with the rail),
+`IconRail.tsx` (221 ln — the 64px rail, at 768px and up, drawn like `IconButton`: flat, a fill on hover, the current one tinted in the accent; Home, Messages and Teams centred, Settings, sign-out and your own avatar (Profile) at the foot), `BottomBar.tsx`
 (92 ln — the same destinations across the bottom, below 768px) and
 `destinations.ts` (30 ln — **the five destinations, shared by both**, so which
 tab is second does not change when a window is resized).
@@ -548,7 +548,7 @@ this is the index.
 |---|---|---|
 | `Controls.tsx` | 410 | `Field`, `TextArea`, `Select`, `Toggle`, `Tabs`, `FactRow` — the whole form vocabulary. |
 | `stickers.tsx` | 302 | The bundled sticker pack, drawn in the repo (rule 3 is why they are not fetched). |
-| `Icon.tsx` | 295 | The hand-drawn icon set, one `<path>` each. |
+| `Icon.tsx` | 318 | The hand-drawn icon set, one `<path>` each. |
 | `ContextMenu.tsx` | 276 | The floating surface every menu in the app is drawn on. |
 | `EmojiPicker.tsx` | 251 | The full standard set, bundled. |
 | `ImageCropper.tsx` | 206 | Choosing which part of a picture to use, before it is uploaded. |
@@ -559,7 +559,7 @@ this is the index.
 | `DialogHost.tsx` | 98 | Where everything the app has to say is drawn. Modals **queue**, they do not stack. |
 | `Button.tsx` | 88 | `Button`, `IconButton`. |
 | `Surface.tsx` | 69 | `Panel` — the glass pane. Asks for `glass-0`…`glass-3`, never writes `backdrop-filter` itself. |
-| `ConversationAvatar.tsx` | 69 | Whatever a conversation should look like. |
+| `ConversationAvatar.tsx` | 110 | Whatever a conversation — or a team — should look like. Keyed on `version` (the picture's object key, `avatarVersion` in `lib/conversations.ts`): `hasAvatar` stays true from the first picture to the last, so without it a changed picture was never drawn. Revokes the `blob:` it replaces. |
 | `Avatar.tsx` | 62 | A generated avatar, from a seed. |
 | `Modal.tsx` | 59 | A dialog drawn over the whole window. |
 | `BrandMark.tsx` | 59 | The Nexo mark, as paths rather than type. |
@@ -572,10 +572,10 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `AuthPage.tsx` | 198 | The one screen reachable without an account. Never says whether a handle exists. Says why it is back when the server ended the session (`endedFor`). |
+| `AuthPage.tsx` | 228 | The one screen reachable without an account. Never says whether a handle exists. Says why it is back when the server ended the session (`endedFor`). Fills in the handle whose history this device kept (`keptAccount`), and warns before anybody else's sign-in or registration replaces it. |
 | `LockScreen.tsx` | 193 | The lock screen. The PIN when there is one, the password otherwise. A `null` from `unlockWithPin` is the **only** thing that means a wrong PIN; the other failures arrive as errors with a `kind`. |
 | `OfferPin.tsx` | 139 | The unlock PIN, offered **once per machine** and skippable. It used to be a gate; the reasoning for the change is in its header. |
-| `useSignOut.ts` | 61 | Signing out, in one place, with the busy flag around the *question* and not only the answer. |
+| `useSignOut.ts` | 83 | Signing out, in one place, with the busy flag around the *question* and not only the answer. `signOut()` keeps this device's history and says who could read it; `signOut({ erase: true })` is Settings' "Sign out and erase". |
 
 **`home/`** — the feed.
 
@@ -597,13 +597,15 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `MessageList.tsx` | 1 474 | The bubbles, and `buildRows` (grouping). `grouping.test.ts` imports that from here — there is no `grouping.ts`. |
-| `ConversationList.tsx` | 962 | The list, the folders, the multi-selection. |
+| `MessageList.tsx` | 1 438 | The bubbles, and `buildRows` (grouping). `grouping.test.ts` imports that from here — there is no `grouping.ts`. |
+| `SoundPlayer.tsx` | 326 | Nexo's own player for a voice note or a sound file: play/pause, the waveform as a seekable `slider`, the time, a speed. Replaced `<audio controls>`. **One sound plays at a time.** |
+| `ConversationList.tsx` | 1021 | The list, the folders, the multi-selection. |
 | `MessagesPage.tsx` | 614 | Rail, list, chat, context panel. |
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |
-| `MessagesHeader.tsx` | 489 | The Messages cells of the top row. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
+| `ViewOnceViewer.tsx` | 115 | A view-once photo or clip over the whole window, drawn only once `blockScreenCapture` has kept the window out of screenshots (desktop app); says plainly on the web that a browser cannot. No picture-in-picture. |
+| `MessagesHeader.tsx` | 524 | The Messages cells of the top row: the title ("Messages" — it used to be your own name and a "⋯" menu), the conversation — whose avatar and name open the other person's profile in a DM (`peerHandle`) — and the actions. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
 | `Composer.tsx` | 390 | Typing, attaching, recording. |
-| `ContextPanel.tsx` | 504 | The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
+| `ContextPanel.tsx` | 554 | In a DM it opens with who it is with and a Profile button. The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
 | `useRecorder.ts` | 213 | Voice recording, and the waveform that describes it. |
 | `ConversationSearch.tsx` | 155 | Searching inside the conversation you are looking at. |
 | `ForwardPicker.tsx` | 127 | Choosing where a message goes next. |
@@ -619,9 +621,9 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `TeamsPage.tsx` | 144 | The list beside the open team — board, members or settings (`teamPane`), each a screen of its own on a phone — one pane at a time on a phone; opening a team marks it opened, reads its roster, clears its unread. Also `TeamsHeader`, its cell of the top row (a way back on a phone, "New team" everywhere). |
-| `TeamList.tsx` | 151 | Search, *Teams* / *Invites*, and Board · Members hung under the open team — Invites is teams you were added to and have not opened on this device (`opened` in `conversationOverrides`). |
-| `TeamBoard.tsx` | 162 | The header (the team's marker, member count, the switcher, the one line on what the server sees), the composer, pinned posts, the rest, an unreadable post **in its place**, and "Posts from before you joined aren't on this device." |
+| `TeamsPage.tsx` | 142 | The list beside the open team — board or settings (`teamPane`), each a screen of its own on a phone — one pane at a time on a phone; opening a team marks it opened, reads its roster, clears its unread. Also `TeamsHeader`, its cell of the top row (a way back on a phone, "New team" everywhere). |
+| `TeamList.tsx` | 158 | Search, *Teams* / *Invites*, and Board · Settings hung under the open team — Invites is teams you were added to and have not opened on this device (`opened` in `conversationOverrides`). |
+| `TeamBoard.tsx` | 168 | The header (the team's marker, member count, the switcher, the one line on what the server sees), the composer, pinned posts, the rest, an unreadable post **in its place**, and "Posts from before you joined aren't on this device." |
 | `TeamComposer.tsx` | 117 | Title, words, files — and **"Visible to the N members of … End-to-end encrypted."** where you write, the mirror of the feed's "Posts are public". Files are sealed and uploaded before the post names them. |
 | `TeamPostCard.tsx` | 139 | One post. No votes, no public line; taken back and admin-removed posts stay as a line saying so. |
 | `TeamComments.tsx` | 213 | Comments and one level of answers; "Reply" only on the top level. |
@@ -629,9 +631,9 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `postMenu.ts` | 75 | What the menu offers and in what order — **destructive last**: the author's "Take back" before an admin's "Remove for everyone". Tested like `messages/menu.ts`. |
 | `TeamFiles.tsx` | 106 | A post's files, opened on this device; a picture that will not open says so. |
 | `CreateTeamDialog.tsx` | 81 | Name and description; says what a team is before anybody makes one. |
-| `TeamMembers.tsx` | 229 | Owner, Admins, Members, each with a sentence on what the role may do; per person handle and *Joined*, and a role and remove button **only where the viewer may act**. No "last active", ever. |
+| `TeamMembers.tsx` | 237 | **A section of `TeamSettings`**, not a pane: Owner, Admins, Members, each with a sentence on what the role may do; per person handle and *Joined*, and a role and remove button **only where the viewer may act**. No "last active", ever. |
 | `AddPeopleDialog.tsx` | 290 | *Search* or *From a group*; a typed handle is offered as-is (private accounts are not in search); every row that cannot be added **says why**. "They'll see posts from now on, not earlier ones." |
-| `TeamSettings.tsx` | 215 | Name, description, picture (owner and admins), hand on (owner), leave, delete (owner) — each saying what it can and cannot reach. |
+| `TeamSettings.tsx` | 237 | Everything about a team that is not its posts: name, description, picture with a preview (owner and admins), the members (`TeamMembers`, whose roster also feeds the hand-on picker), hand on (owner), leave, delete (owner) — each saying what it can and cannot reach. Re-reads the team list after every change (`onChanged`). |
 | `roles.ts` | 83 | The server's role rules mirrored for what the UI offers, and `addRow` — a person's state in the add dialog (addable, already in, blocked by you, full, refused). Tested. |
 | `Author.tsx`, `useTeamBoard.ts` | 85 | Who wrote something (a device, through the team's device list, or "Somebody who has left"), and the board re-read after every sync. |
 
@@ -655,21 +657,22 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 
 | File | Ln | Wraps |
 |---|---|---|
-| `conversations.ts` | 780 | The 45 conversation commands. |
-| `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
+| `conversations.ts` | 901 | The 45 conversation commands. |
+| `native.ts` | 576 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater — and `blockScreenCapture`, the window's content protection (`WDA_EXCLUDEFROMCAPTURE`), held while a view-once is open. Not an IPC command: Tauri's window API, allowed by `core:window:allow-set-content-protected` in the capability file. |
 | `feed.ts` | 341 | Feed, posts, comments, profiles; uploading a picture, and fetching one as a `blob:` URL. |
 | `images.ts` | 102 | Pictures from object storage for `RemoteImage`: one `blob:` URL per key, shared and reference-counted, revoked once nothing draws it. |
 | `people.ts` | 129 | Search, invitations, reporting (`report`, for all three subjects the server takes). |
 | `stories.ts` | 75 | Stories. Its errors narrow with `asConversationError`, because that is what the Rust side answers in. |
 | `types.ts` | 270 | The shapes the UI renders. |
-| `auth.ts` | 181 | Register, login, restore, the PIN, password, sign-out, delete. |
+| `auth.ts` | 297 | Register, login, restore, the PIN, password, sign-out (keeping or erasing), `keptAccount`, delete. |
 | `dialogs.ts` | 163 | In-app dialogs and toasts (`confirm`, `notify`) — not OS dialogs. |
 | `format.ts` | 116 | Relative time, sizes, counts. |
 | `palette.ts` | 83 | Deterministic colour from a string. |
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
+| `animated.ts` | 72 | **No `invoke`** — whether a picture moves (a GIF with more than one frame, a WebP with the animation flag), read from its bytes. A moving profile picture or banner skips `ImageCropper`, whose canvas keeps one frame. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
-| `teams.ts` | 152 | Teams: `listTeams` (from this device's store — a team with no name yet is `null`, drawn as "New team"), and thin wrappers over `packages/core/src/teams.ts` for everything else. |
+| `teams.ts` | 187 | Teams: `listTeams` (from this device's store — a team with no name yet is `null`, drawn as "New team"), and thin wrappers over `packages/core/src/teams.ts` for everything else. |
 | `blocks.ts` | 53 | Blocking, and `confirmBlock`: the one wording every place that offers it asks with (a profile, a post's menu). |
 | `cn.ts` | 5 | Class-name join. |
 
@@ -682,7 +685,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-27 vitest files, 184 tests, run by `pnpm test`. They cluster on the pure
+30 vitest files, 195 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -691,7 +694,7 @@ components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection · shared
               teams: postMenu · roles
-lib/          auth · dialogs · format · forward · images · media · viewonce
+lib/          animated · attachmentText · auth · capture · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```
 
@@ -713,7 +716,8 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | File | Ln | Owns |
 |---|---|---|
 | `src/conversations.ts` | 1 463 | The MLS orchestration: start, send, sync, discover, and the revision rules; `removeFrom` / `removeDevice` (routing first, then the commit). Also where a team's payloads land: `team_pin` / `team_remove` — and in a team, `rename`, `team_meta` and `group_avatar` — are **checked against the roster as they arrive** and dropped from anybody who does not moderate; an unreadable envelope in a team leaves a placeholder row; a Welcome's envelope id is kept as `joinedAt`. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
-| `src/store.ts` | 1 052 | Everything this device keeps, over IndexedDB. `teamMarks` holds a board's honoured pins and removals; a taken-back team post or comment keeps its skeleton (kind, id, post) so the board can place it. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
+| `src/session.ts` | 374 | One signed-in device: register, login (reusing the kept identity and MLS state for the same account; a fresh device, and the kept one replaced, for another), resume, `logout` (keeps the store unless `erase`), delete, change password. The one door to the signed-in `Context`. |
+| `src/store.ts` | 1 091 | Everything this device keeps, over IndexedDB. **A conversation row is changed through `updateConversation`**, one transaction, never read-then-put (*Conventions*). `teamMarks` holds a board's honoured pins and removals; a taken-back team post or comment keeps its skeleton (kind, id, post) so the board can place it. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
 | `src/payload.ts` | 449 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`, the team kinds included. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 309 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
 | `src/idb.ts` | 313 | A promise over IndexedDB and the schema ladder (`SCHEMA_VERSION` **4**), written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
@@ -1043,13 +1047,22 @@ failed silently.
   writes both rows in one transaction. The port once stored the whole payload
   in `messages` and never filled `viewOnce`, so every view-once was unopenable
   *and* unburnable; `openable` is read from the table, never from the payload.
-- **Signing out wipes in a `finally`, and the wipe is one transaction.** The
-  Rust client once reported a successful sign-out with the database, its key
-  and the PIN all still on disk, because one failed step skipped the ones after
-  it. `Session.logout` asks the server to end the session and wipes in a
-  `finally`, and `Store.wipe` clears every object store in one transaction, so
-  no step can skip another. `Session.deleteAccount` is the other way round,
-  server first: a refusal must leave this device able to reach the account.
+- **Signing out keeps the store; erasing is the option, and it is one
+  transaction.** `Session.logout()` asks the server to end the session and,
+  in a `finally`, drops the tokens and clears the refresh token -- the
+  account, identity key, MLS state and history stay, so signing in again as
+  the same person is the same device returning, groups and chats intact. It
+  used to wipe everything, and every sign-in after a sign-out was a new
+  device that could read none of its old conversations. `logout({ erase:
+  true })` ("Sign out and erase" in Settings) is the old wipe: `Store.wipe`
+  clears every object store in one transaction, so no step can skip another
+  -- the Rust client once reported a successful sign-out with its database,
+  key and PIN still on disk. Signing in as a **different** account replaces
+  what is kept, only after the server accepts the credentials, with a fresh
+  device key (the login upserts on the key); while the stored account still
+  holds a refresh token, another account is refused instead.
+  `Session.deleteAccount` is the other way round, server first: a refusal
+  must leave this device able to reach the account.
 - **A conversation's title is not a handle.** `title` is a label — for a DM
   with no member list yet it is literally `"Unnamed conversation"` — and
   looking it up as an account sends a doomed request on every render.
@@ -1095,6 +1108,15 @@ failed silently.
   composer. A **group's** message with no group is still skipped: an invitee
   can sync between the routing row and its Welcome and see history it was
   never meant to read. `remember` carries the field over like the others.
+- **A conversation row is changed with `updateConversation`, never read and
+  then put.** `Store.updateConversation(id, change)` reads and writes in one
+  `readwrite` transaction; `conversation()` followed by `putConversation()`
+  is two, and anything may write the row between them. The sync loop
+  rewrites every row every four seconds (`remember`, `moveCursor`,
+  `recordInGroup`), so a read-then-put there put back a copy read before a
+  rename landed, and a team's new name, description or picture was written
+  over with the old one. `putConversation` is for a row being created whole
+  (`createTeam`); every change to one that exists goes through the other.
 - **`syncAll` syncs what the server lists, not what the store holds.** A row
   the account has left, been removed from, or seen deleted stays in the local
   store with its history, and the server answers its sync with 404. `sync`
@@ -1130,7 +1152,7 @@ failed silently.
   every refresh token) calls `onSessionEnded` exactly once; `Session` clears
   the dead refresh token and calls its `onEnded`; `lib/auth.ts::onSessionEnded`
   drops socket, tokens and runtime; `App` returns to `AuthPage` with
-  `endedFor`. **The store is kept**, unlike `logout`: signing in there again
+  `endedFor`. **The store is kept**, as `logout` now keeps it too: signing in there again
   reuses the identity key, un-retires that device row and keeps its history.
   Before this, every screen swallowed `signed_out` and the app stayed drawn
   over a dead session. An unreachable refresh is not an ending.

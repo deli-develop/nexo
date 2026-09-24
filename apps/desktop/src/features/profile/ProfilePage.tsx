@@ -2,7 +2,9 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useApp } from "../../app/store";
 import { cn } from "../../lib/cn";
-import { relativeTime, safetyNumber } from "../../lib/format";
+import { fileSize, relativeTime, safetyNumber } from "../../lib/format";
+import { isAnimated } from "../../lib/animated";
+import { feed as coreFeed } from "@nexo/core";
 import { copyText, notify, openUrl, pickFile } from "../../lib/native";
 import { fieldFor, hashString } from "../../lib/palette";
 import { useProfile } from "../../app/useProfile";
@@ -51,6 +53,12 @@ export interface ProfileEdits {
 }
 
 /**
+ * The largest moving picture a profile takes. It cannot be scaled down the way
+ * a still one is, so this is what every visitor downloads, every time.
+ */
+const MAX_ANIMATED_BYTES = 8 * 1024 * 1024;
+
+/**
  * Profile (§6.3).
  *
  * Banner at 3:1 with the avatar overlapping its lower-left, which is the same
@@ -92,6 +100,24 @@ export function ProfilePage({ now }: { now: Date }) {
       images: true,
     });
     if (!picked) return;
+    // A moving picture skips the cropper. It draws onto a canvas, a canvas
+    // holds one frame, and an animated GIF came out as its first frame and
+    // never moved again. Uploaded as picked instead, and centred in the
+    // circle by the same `object-fit: cover` that draws every avatar.
+    if (isAnimated(picked.bytes)) {
+      URL.revokeObjectURL(picked.url);
+      if (picked.bytes.byteLength > MAX_ANIMATED_BYTES) {
+        await notify(
+          "That picture is too big",
+          `A moving picture can be up to ${MAX_ANIMATED_BYTES / (1024 * 1024)} MB, because everybody who sees your profile downloads all of it. This one is ${fileSize(picked.bytes.byteLength)}.`,
+        );
+        return;
+      }
+      const mime = coreFeed.sniffImage(picked.bytes);
+      if (!mime) return;
+      await live.setImage(which, { bytes: picked.bytes, mime });
+      return;
+    }
     // The picker already handed us an object URL for exactly these bytes, so
     // there is nothing to read back — the round trip this used to make was
     // the file being loaded a second time.

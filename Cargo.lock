@@ -3937,7 +3937,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexo-crypto"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aes-gcm",
  "ed25519-dalek",
@@ -3954,7 +3954,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-crypto-wasm"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "argon2",
  "console_error_panic_hook",
@@ -3971,7 +3971,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-desktop"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "serde",
  "serde_json",
@@ -3998,7 +3998,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-protocol"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "serde",
  "serde_json",
@@ -4008,7 +4008,7 @@ dependencies = [
 
 [[package]]
 name = "nexo-server"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "anyhow",
  "argon2",

@@ -50,10 +50,14 @@ beforeEach(async () => {
   password.deriveVerifier.mockClear();
 });
 
-function create(fetch: typeof globalThis.fetch): { session: Session; transport: Transport } {
+function create(
+  fetch: typeof globalThis.fetch,
+  onEnded?: () => void,
+): { session: Session; transport: Transport } {
   const transport = new Transport({ baseUrl: "https://api.example", fetch });
   const session = new Session({
     transport, store, crypto, password,
+    ...(onEnded ? { onEnded } : {}),
     uuid: () => "22222222-2222-4222-8222-222222222222",
     randomBytes: (length) => new Uint8Array(length).fill(3),
   });
@@ -140,6 +144,37 @@ describe("Session", () => {
     expect(await session.resume()).toBeNull();
     expect(await store.refreshToken()).toBeNull();
     expect(await store.account()).toMatchObject({ handle: "alice" });
+  });
+
+  it("hears when the server ends a session in use, and keeps what is on the device", async () => {
+    await store.persistSignIn(
+      { userId: 7, handle: "alice", displayName: "Alice" },
+      { deviceId: tokens(1).device_id, secret: Uint8Array.of(9) },
+      "refresh-1", Uint8Array.of(5),
+    );
+    // Signed in elsewhere since: the refresh this session holds is revoked.
+    const fetch = vi.fn(async (input: URL | RequestInfo) => {
+      const url = String(input);
+      if (url.endsWith("/refresh") && vi.mocked(fetch).mock.calls.length === 1) {
+        return answer(200, tokens(2));
+      }
+      return answer(401, { message: "revoked" });
+    }) as typeof globalThis.fetch;
+    const onEnded = vi.fn(async () => {
+      // After the dead token is gone, so a restart does not spend it again.
+      expect(await store.refreshToken()).toBeNull();
+    });
+    const { session, transport } = create(fetch, onEnded);
+    await session.resume();
+
+    await expect(transport.getAuth("/v1/me")).rejects.toMatchObject({ kind: "invalid_credentials" });
+
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(await store.refreshToken()).toBeNull();
+    // Signing in here again picks this device back up, history and all.
+    expect(await store.account()).toMatchObject({ handle: "alice" });
+    expect(await store.identity()).not.toBeNull();
+    expect(await store.mlsState()).toEqual(Uint8Array.of(5));
   });
 
   it("wipes locally even when server logout fails", async () => {

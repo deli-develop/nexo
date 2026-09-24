@@ -96,7 +96,7 @@ export function ForwardPicker({
               >
                 <ConversationAvatar
                   conversationId={c.conversation_id}
-                  kind={c.kind === "group" ? "group" : "dm"}
+                  kind={c.kind === "group" || c.kind === "self" ? c.kind : "dm"}
                   title={c.title ?? "Unnamed conversation"}
                   hasAvatar={c.has_avatar}
                   size={32}

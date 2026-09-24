@@ -20,6 +20,13 @@ export interface SessionOptions {
   now?: () => number;
   uuid?: () => string;
   randomBytes?: (length: number) => Uint8Array;
+  /**
+   * The server ended this session while it was in use -- see
+   * `TransportOptions.onSessionEnded`. Runs after the dead refresh token is
+   * gone from the store; what is on this device stays, so signing in again
+   * here picks it back up.
+   */
+  onEnded?: () => void | Promise<void>;
 }
 
 /** One signed-in device, independent of React and its host platform. */
@@ -44,6 +51,12 @@ export class Session {
     this.#uuid = options.uuid ?? (() => globalThis.crypto.randomUUID());
     this.#randomBytes = options.randomBytes ?? ((length) => globalThis.crypto.getRandomValues(new Uint8Array(length)));
     this.#transport.setRotationHandler((tokens) => this.#store.setRefreshToken(tokens.refresh_token));
+    const onEnded = options.onEnded;
+    this.#transport.setEndedHandler(async () => {
+      // Not spent again on the next start: it would only be refused again.
+      await this.#store.clearRefreshToken();
+      await onEnded?.();
+    });
   }
 
   /** A new device retries publishing its first KeyPackages on sync. */

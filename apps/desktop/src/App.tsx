@@ -21,7 +21,7 @@ import { AuthPage } from "./features/auth/AuthPage";
 import { LockScreen } from "./features/auth/LockScreen";
 import { OfferPin } from "./features/auth/OfferPin";
 import { SettingsHeader, SettingsPage } from "./features/settings/SettingsPage";
-import { pinStatus, restoreSession, type Account } from "./lib/auth";
+import { onSessionEnded, pinStatus, restoreSession, type Account } from "./lib/auth";
 import { myProfile } from "./lib/feed";
 import { setCloseToTray, startRelay } from "./lib/native";
 import { DialogHost } from "./components/ui/DialogHost";
@@ -240,7 +240,31 @@ export function App() {
     };
   }, [setAccount]);
 
-  const onSignedIn = useCallback((next: Account) => setAccount(next), [setAccount]);
+  // The handle of a session the server ended while it was on screen, so the
+  // sign-in form can say why it is back rather than appear from nowhere.
+  const [endedFor, setEndedFor] = useState<string | null>(null);
+
+  // Signing in on another device retires this one, and the server now refuses
+  // it at once. Nothing here can outlive that: back to the sign-in form, with
+  // what is on this device kept for the next sign-in (`onSessionEnded`).
+  useEffect(
+    () =>
+      onSessionEnded(() => {
+        const ended = useApp.getState().account;
+        setEndedFor(ended?.handle ?? null);
+        setLocked(false);
+        setAccount(null);
+      }),
+    [setAccount, setLocked],
+  );
+
+  const onSignedIn = useCallback(
+    (next: Account) => {
+      setEndedFor(null);
+      setAccount(next);
+    },
+    [setAccount],
+  );
 
   // The signed-in person's own picture, fetched once per session.
   //
@@ -354,7 +378,12 @@ export function App() {
             is an account -- otherwise the window cannot be moved or closed. */}
         <TopBar maximized={maximized} />
         <div className="min-h-0 flex-1">
-          {checked && !account ? <AuthPage onSignedIn={onSignedIn} /> : null}
+          {checked && !account ? (
+            <AuthPage
+              onSignedIn={onSignedIn}
+              {...(endedFor ? { endedFor } : {})}
+            />
+          ) : null}
         </div>
       </div>
       <DialogHost />

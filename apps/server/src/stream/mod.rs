@@ -16,7 +16,7 @@ use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
 use axum::http::HeaderMap;
 use axum::http::header::{AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::{Router, routing::get};
 use futures_util::{SinkExt, StreamExt};
 use nexo_protocol::{ClientEvent, ConversationId, ServerEvent};

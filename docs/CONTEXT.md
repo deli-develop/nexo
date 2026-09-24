@@ -305,7 +305,7 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `src/invites.rs` | 321 | Invitations, and `may_reach` — **the private-account gate the delivery service calls before creating a conversation or adding anybody to one**. |
 | `src/auth/mod.rs` | 754 | Register, login, refresh, logout, change-password, delete-account. |
 | `src/auth/tokens.rs` | 345 | Access and refresh tokens, **rotation, and the reuse-is-theft response**. |
-| `src/auth/bearer.rs` | 142 | Who is calling: the extractor every authenticated route depends on. |
+| `src/auth/bearer.rs` | 196 | Who is calling: the extractor every authenticated route depends on. A token that verifies is not enough — `Caller::current` refuses a device a later sign-in retired, with one indexed lookup. |
 | `src/auth/password.rs` | 117 | Argon2id verifiers. The server never sees a password. |
 | `src/auth/salt.rs` | 98 | The per-account salt, and why an unknown handle still gets a (decoy) one. |
 | `src/media.rs` | 480 | Presigned S3 URLs for upload and download. |
@@ -572,7 +572,7 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `AuthPage.tsx` | 177 | The one screen reachable without an account. Never says whether a handle exists. |
+| `AuthPage.tsx` | 198 | The one screen reachable without an account. Never says whether a handle exists. Says why it is back when the server ended the session (`endedFor`). |
 | `LockScreen.tsx` | 193 | The lock screen. The PIN when there is one, the password otherwise. A `null` from `unlockWithPin` is the **only** thing that means a wrong PIN; the other failures arrive as errors with a `kind`. |
 | `OfferPin.tsx` | 139 | The unlock PIN, offered **once per machine** and skippable. It used to be a gate; the reasoning for the change is in its header. |
 | `useSignOut.ts` | 61 | Signing out, in one place, with the busy flag around the *question* and not only the answer. |
@@ -715,7 +715,7 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 | `src/conversations.ts` | 1 463 | The MLS orchestration: start, send, sync, discover, and the revision rules; `removeFrom` / `removeDevice` (routing first, then the commit). Also where a team's payloads land: `team_pin` / `team_remove` — and in a team, `rename`, `team_meta` and `group_avatar` — are **checked against the roster as they arrive** and dropped from anybody who does not moderate; an unreadable envelope in a team leaves a placeholder row; a Welcome's envelope id is kept as `joinedAt`. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
 | `src/store.ts` | 1 052 | Everything this device keeps, over IndexedDB. `teamMarks` holds a board's honoured pins and removals; a taken-back team post or comment keeps its skeleton (kind, id, post) so the board can place it. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
 | `src/payload.ts` | 449 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`, the team kinds included. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
-| `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
+| `src/transport.ts` | 309 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
 | `src/idb.ts` | 313 | A promise over IndexedDB and the schema ladder (`SCHEMA_VERSION` **4**), written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
 | `src/types.ts` | 140 | The wire, mirroring `crates/protocol`, which stays the authority. |
 | `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
@@ -848,7 +848,7 @@ it is expensive.
 | The session ends by itself | A rotated refresh token that never reached the store. See the rotation rule in [Conventions](#conventions-that-will-trip-you-up) |
 | A server test passes locally and fails for somebody else | It asserted on a global listing in a shared database, or `.sqlx/` was not regenerated |
 | Nothing in the app works at all — sign-in, feed, messages | Ask `api.delidev.net` itself: `curl -i https://api.delidev.net/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.delidev.net` answers 502* |
-| Somebody says they wrote, and the chat shows nothing — or "Can't be read on this device" | This device holds no MLS group for it: its Welcome went to another device signed in as the same person. **One device per account**, so every sign-in — the web app in a browser included — retires the other and deletes its KeyPackages. `inGroup` on the stored row says which; the refill arithmetic in the provider blob (50 + n × 30 KeyPackages, none consumed by a join) is the tell. Nothing recovers what was sent; `openWith` leaves the dead DM and starts a new one. See *A conversation the server lists* in [Conventions](#conventions-that-will-trip-you-up) |
+| Somebody says they wrote, and the chat shows nothing — or "Can't be read on this device" | This device holds no MLS group for it: its Welcome went to another device signed in as the same person. **One device per account**, so every sign-in — the web app in a browser included — retires the other and deletes its KeyPackages. `inGroup` on the stored row says which; the refill arithmetic in the provider blob (50 + n × 30 KeyPackages, none consumed by a join) is the tell. Nothing recovers what was sent; `openWith` leaves the dead DM and starts a new one. The retired client is now refused at once and drops to the sign-in form (*A session the server ends* in [Conventions](#conventions-that-will-trip-you-up)); signing in there again makes it the live device. See *A conversation the server lists* in [Conventions](#conventions-that-will-trip-you-up) |
 | Every upload fails — profile picture, banner, feed image, chat attachment — while sign-in, messages and posts work; the message is "Can't reach the server: Failed to fetch" | The **buckets' CORS**, not the API's. `curl -si -X OPTIONS https://fsn1.your-objectstorage.com/nexo-enc/probe -H "Origin: http://tauri.localhost" -H "Access-Control-Request-Method: PUT" -H "Access-Control-Request-Headers: content-type"` — a `403` means no rule matches that origin. [`OPS.md`](OPS.md) Phase 8, *Bucket CORS* |
 | `nexo-server` restart-loops after an edit to `/etc/nexo/nexo.env` | It refuses a half-finished deployment by design: the S3 block and `NEXO_CORS_ORIGINS` are each all-or-nothing and checked at startup. `journalctl -u nexo-server -n 60` names the one that failed |
 | The app starts with no window, or a window property in `tauri.conf.json` is ignored | The main window says `"create": false` and is built by `windows::create_main_window` in `lib.rs`'s `setup`, found by `"label": "main"`. A `setup` that returns early, or a renamed label, is no window at all |
@@ -1119,6 +1119,21 @@ failed silently.
   account also means a device signed in after another can find the account's
   Saved messages holds no group here; `startSelf` leaves that one (the only
   way the server makes another) and starts a new one on this device.
+- **A session the server ends is noticed once, and ends the app's session.**
+  Signing in retires every other device of the account, and a retired
+  device's access token went on verifying for up to fifteen minutes, so the
+  replaced app kept syncing and never said anything. Two halves now. The
+  server: `Caller` (and the `/v1/stream` upgrade) checks `devices.retired_at`
+  on every request, so a retired device gets 401 at once — which costs one
+  query per request, and a database error there is a 500, never a 401. The
+  page: a 401 makes `Transport` refresh, and the refused refresh (login revoked
+  every refresh token) calls `onSessionEnded` exactly once; `Session` clears
+  the dead refresh token and calls its `onEnded`; `lib/auth.ts::onSessionEnded`
+  drops socket, tokens and runtime; `App` returns to `AuthPage` with
+  `endedFor`. **The store is kept**, unlike `logout`: signing in there again
+  reuses the identity key, un-retires that device row and keeps its history.
+  Before this, every screen swallowed `signed_out` and the app stayed drawn
+  over a dead session. An unreachable refresh is not an ending.
 - **The server's tests share one development database and never clean up.**
   `apps/server/tests/*` connect to `DATABASE_URL` and skip when it is absent;
   they invent unique handles so they do not collide, but every run leaves its

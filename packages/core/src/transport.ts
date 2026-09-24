@@ -34,6 +34,16 @@ export interface TransportOptions {
    * session layer's job, and this is how it hears about it.
    */
   onTokensRotated?: (tokens: SessionTokens) => void | Promise<void>;
+  /**
+   * Called once when the server refuses the refresh token itself.
+   *
+   * That is the session ending from the server's side: signed in on another
+   * device (one device per account retires this one), signed out elsewhere,
+   * or simply expired. No retry can bring it back, and every call after it
+   * fails the same way -- so without this the page went on drawing a
+   * signed-in app whose every request was quietly refused.
+   */
+  onSessionEnded?: () => void | Promise<void>;
   /** Injectable for tests. Defaults to the global. */
   fetch?: typeof globalThis.fetch;
 }
@@ -53,17 +63,24 @@ export class Transport {
   #pendingRotation: SessionTokens | null = null;
   #persisting: Promise<void> | null = null;
   #onRotated: TransportOptions["onTokensRotated"];
+  #onEnded: TransportOptions["onSessionEnded"];
   readonly #fetch: typeof globalThis.fetch;
 
   constructor(options: TransportOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.#onRotated = options.onTokensRotated;
+    this.#onEnded = options.onSessionEnded;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
   /** The session layer installs its durable refresh-token hand-off here. */
   setRotationHandler(handler: NonNullable<TransportOptions["onTokensRotated"]>): void {
     this.#onRotated = handler;
+  }
+
+  /** The session layer hears here that the server has ended it. */
+  setEndedHandler(handler: NonNullable<TransportOptions["onSessionEnded"]>): void {
+    this.#onEnded = handler;
   }
 
   /** Adopt a session, after signing in or restoring one from the store. */
@@ -175,6 +192,14 @@ export class Transport {
       } catch (error) {
         if (error instanceof TransportError && error.kind === "invalid_credentials") {
           this.clear();
+          // Once: the refresh token is gone now, so a later caller's
+          // `#refresh` returns false before it gets here. A handler that
+          // fails must not turn "signed out" into some other error.
+          try {
+            await this.#onEnded?.();
+          } catch {
+            // The session is over whatever the handler managed.
+          }
           return false;
         }
         // In particular, a failed persistence callback is not an expired

@@ -590,6 +590,72 @@ async fn changing_a_password_needs_a_token_at_all() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+/// Signing in elsewhere ends this device's access at once, not when its access
+/// token next expires.
+///
+/// A wrong verifier on purpose: a token the server still accepts gets as far
+/// as the password check and is answered 403, so the 401 can only mean the
+/// token itself was refused -- and nothing is changed either way.
+#[tokio::test]
+async fn a_device_retired_by_a_later_sign_in_is_refused_at_once() {
+    let app = app_or_skip!();
+    let handle = unique_handle();
+
+    let (status, first) = post(
+        &app,
+        "/v1/auth/register",
+        json!({
+            "handle": handle,
+            "display_name": "Test Account",
+            "pw_salt": salt(), "pw_verifier": verifier("right"),
+            "identity_pubkey": pubkey(),
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "register: {first}");
+
+    // Another identity key is another device -- a browser, say.
+    let (status, second) = post(
+        &app,
+        "/v1/auth/login",
+        json!({"handle": handle, "pw_verifier": verifier("right"), "identity_pubkey": pubkey()}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "login: {second}");
+
+    let attempt = json!({
+        "pw_verifier": verifier("wrong"),
+        "new_pw_salt": salt(),
+        "new_pw_verifier": verifier("other"),
+    });
+
+    let (status, body) = post_auth(
+        &app,
+        "/v1/auth/change-password",
+        first["access_token"].as_str().unwrap(),
+        attempt.clone(),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the replaced device's token still verifies, and must be refused anyway: {body}"
+    );
+
+    let (status, body) = post_auth(
+        &app,
+        "/v1/auth/change-password",
+        second["access_token"].as_str().unwrap(),
+        attempt,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "the device that signed in last is the live one: {body}"
+    );
+}
+
 /// Deleting an account is not something a stolen session can do.
 ///
 /// The same reasoning as change-password, which this route sits beside: a

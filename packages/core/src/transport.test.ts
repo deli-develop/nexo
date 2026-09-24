@@ -153,6 +153,39 @@ describe("Transport", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it("reports a refused refresh once, however many calls met it", async () => {
+    // Signing in on another device retires this one: every call is refused,
+    // and so is the refresh. That has to reach the page as "signed out",
+    // once, rather than as a stream of failures each screen swallows.
+    const fetch = vi.fn(async () => jsonResponse(401, { message: "revoked" }));
+    const onSessionEnded = vi.fn();
+    const transport = new Transport({ baseUrl: "https://api.example", fetch, onSessionEnded });
+    transport.adopt(tokens(1));
+
+    const results = await Promise.allSettled([
+      transport.getAuth("/v1/feed"),
+      transport.getAuth("/v1/conversations"),
+    ]);
+    await expect(transport.getAuth("/v1/me")).rejects.toMatchObject({ kind: "invalid_credentials" });
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(onSessionEnded).toHaveBeenCalledTimes(1);
+    expect(transport.signedIn).toBe(false);
+  });
+
+  it("does not call an unreachable refresh the end of a session", async () => {
+    const fetch = vi.fn(async (url: URL | RequestInfo) => {
+      if (String(url).endsWith("/v1/auth/refresh")) throw new TypeError("Failed to fetch");
+      return jsonResponse(401, {});
+    });
+    const onSessionEnded = vi.fn();
+    const transport = new Transport({ baseUrl: "https://api.example", fetch, onSessionEnded });
+    transport.adopt(tokens(1));
+
+    await expect(transport.getAuth("/v1/feed")).rejects.toMatchObject({ kind: "unreachable" });
+    expect(onSessionEnded).not.toHaveBeenCalled();
+  });
+
   it("carries the epoch out of a 409 instead of flattening it", async () => {
     // A commit that lost a race. The caller has to resync to this epoch, and
     // throwing away the number would make it guess.

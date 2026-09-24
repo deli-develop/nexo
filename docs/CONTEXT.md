@@ -305,7 +305,7 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `src/invites.rs` | 321 | Invitations, and `may_reach` — **the private-account gate the delivery service calls before creating a conversation or adding anybody to one**. |
 | `src/auth/mod.rs` | 754 | Register, login, refresh, logout, change-password, delete-account. |
 | `src/auth/tokens.rs` | 345 | Access and refresh tokens, **rotation, and the reuse-is-theft response**. |
-| `src/auth/bearer.rs` | 142 | Who is calling: the extractor every authenticated route depends on. |
+| `src/auth/bearer.rs` | 196 | Who is calling: the extractor every authenticated route depends on. A token that verifies is not enough — `Caller::current` refuses a device a later sign-in retired, with one indexed lookup. |
 | `src/auth/password.rs` | 117 | Argon2id verifiers. The server never sees a password. |
 | `src/auth/salt.rs` | 98 | The per-account salt, and why an unknown handle still gets a (decoy) one. |
 | `src/media.rs` | 480 | Presigned S3 URLs for upload and download. |

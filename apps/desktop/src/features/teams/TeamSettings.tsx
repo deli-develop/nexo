@@ -25,7 +25,20 @@ import {
  * member's device only from the owner or an admin. Leaving and deleting are
  * the server's, and say what they can and cannot reach.
  */
-export function TeamSettings({ team, onGone }: { team: Team; onGone: () => void }) {
+export function TeamSettings({
+  team,
+  onChanged,
+  onGone,
+}: {
+  team: Team;
+  /**
+   * Something here changed the team: read the list again. It used to wait for
+   * the next sync pass to notice, and the board beside a "Saved." went on
+   * showing the old name.
+   */
+  onChanged: () => void;
+  onGone: () => void;
+}) {
   const account = useApp((s) => s.account);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [name, setName] = useState(team.name ?? "");
@@ -50,6 +63,7 @@ export function TeamSettings({ team, onGone }: { team: Team; onGone: () => void 
     setSaved(null);
     try {
       await action();
+      onChanged();
       if (done) setSaved(done);
     } catch (error) {
       setProblem(asConversationError(error).message);

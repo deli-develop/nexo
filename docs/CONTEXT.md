@@ -1096,6 +1096,15 @@ failed silently.
   composer. A **group's** message with no group is still skipped: an invitee
   can sync between the routing row and its Welcome and see history it was
   never meant to read. `remember` carries the field over like the others.
+- **A conversation row is changed with `updateConversation`, never read and
+  then put.** `Store.updateConversation(id, change)` reads and writes in one
+  `readwrite` transaction; `conversation()` followed by `putConversation()`
+  is two, and anything may write the row between them. The sync loop
+  rewrites every row every four seconds (`remember`, `moveCursor`,
+  `recordInGroup`), so a read-then-put there put back a copy read before a
+  rename landed, and a team's new name, description or picture was written
+  over with the old one. `putConversation` is for a row being created whole
+  (`createTeam`); every change to one that exists goes through the other.
 - **`syncAll` syncs what the server lists, not what the store holds.** A row
   the account has left, been removed from, or seen deleted stays in the local
   store with its history, and the server answers its sync with 404. `sync`

@@ -2145,6 +2145,17 @@ now happens.
   keyed on the picture's object key (`avatarVersion`), and the `blob:` URL
   they replace is revoked rather than kept for the life of the page.
 
+- **A team's new name and description did not stay.** Two causes. Nothing
+  re-read the team list after a save, so the board beside "Saved." showed
+  the old name until a sync pass noticed; the settings screen now reads it
+  again as soon as a change lands. And every writer of a conversation row
+  read it, then put back a changed copy, in two transactions: the sync loop
+  does that to every row every four seconds, so a rename that landed between
+  its read and its write was put back to the old name. All of them go through
+  `Store.updateConversation` now, one transaction each (*Conventions* in
+  `CONTEXT.md`). **Verified** by two `store.test.ts` cases, the first of which
+  shows the old pattern losing the rename. Not driven with a real team.
+
 ---
 
 ## Relay (M5)

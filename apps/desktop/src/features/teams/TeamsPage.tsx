@@ -54,6 +54,7 @@ export function TeamsPage({ now, teams }: { now: Date; teams: TeamsState }) {
             <TeamSettings
               key={team.id}
               team={team}
+              onChanged={() => void teams.refresh()}
               onGone={() => {
                 closeTeam();
                 void teams.refresh();

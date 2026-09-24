@@ -37,13 +37,10 @@ export async function refreshRoster(
   const roster = await transport.getAuth<RosterEntry[]>(
     `/v1/teams/${encodeURIComponent(conversationId)}/members`,
   );
-  const existing = await store.conversation(conversationId);
-  if (existing) {
-    await store.putConversation({
-      ...existing,
-      roles: Object.fromEntries(roster.map((entry) => [entry.handle, entry.role])),
-    });
-  }
+  await store.updateConversation(conversationId, (existing) => existing && {
+    ...existing,
+    roles: Object.fromEntries(roster.map((entry) => [entry.handle, entry.role])),
+  });
   return roster;
 }
 

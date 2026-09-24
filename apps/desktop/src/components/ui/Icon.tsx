@@ -258,6 +258,7 @@ const glyphs = {
      weight as everything else here. Marks a video where there is no room for
      a control -- a gallery tile's poster frame, not a player. */
   play: <path d="M8.5 5.8 18.5 12l-10 6.2z" />,
+  pause: <path d="M9 6v12M15 6v12" />,
   music: (
     <>
       <path d="M9 18V5.5l10-2V16" />

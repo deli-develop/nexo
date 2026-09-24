@@ -2121,6 +2121,20 @@ now happens.
   name. **Verified** by `lib/attachmentText.test.ts` and a `payload.test.ts`
   case.
 
+- **A voice message is played by Nexo, not by Windows.** It was the
+  browser's `<audio controls>`: a grey strip with its own volume slider and
+  menu, drawn by the WebView inside a Nexo bubble. `SoundPlayer` replaces it
+  for voice notes and sound files alike: a round play button in the accent,
+  the recording's waveform filling in as it plays and draggable to seek, the
+  length until it starts and the position after, and 1× / 1.5× / 2×. The
+  waveform is a `slider` with arrow keys, Home and End, so nothing the native
+  control reached by keyboard was lost. Starting one sound pauses any other,
+  and leaving the conversation stops it. A recorder's WebM declares no
+  length, so Chromium cannot seek in it until it has read it through; the
+  sender's measured length is used, and the player makes the engine read the
+  file once so seeking works. **Seen** in a browser in both themes, playing a
+  generated tone. Not heard in the desktop app.
+
 ---
 
 ## Relay (M5)

@@ -35,8 +35,7 @@ import {
   saveAttachment,
   type AttachmentEntry,
 } from "../../lib/conversations";
-import { Waveform } from "./Composer";
-import { formatDuration } from "./useRecorder";
+import { SoundPlayer } from "./SoundPlayer";
 import { fieldFor, fileTone } from "../../lib/palette";
 import type {
   Attachment,
@@ -1210,17 +1209,16 @@ function AttachedMedia({
 }
 
 /**
- * Sound, in one of two dresses.
+ * Sound, in one of two dresses, played by Nexo's own player.
  *
- * A voice message is round, narrow and named for what it is, because that is
+ * A voice message is round, narrow and nothing but the player, because that is
  * what people expect one to look like and because its name -- `recording.wav`,
  * or worse -- says nothing worth reading. A track keeps its file name above the
  * player, because with music the name *is* the content.
  *
- * Both use the browser's own controls. A custom scrubber would mean owning
- * seeking, buffering and keyboard access to save one row of chrome, and the
- * native one is already reachable by keyboard and already speaks the platform's
- * language for "play".
+ * Both used to be the browser's own `<audio controls>`, which on Windows is a
+ * grey strip from another app sitting inside a Nexo bubble. `SoundPlayer` says
+ * what it kept from that control and why.
  */
 function SoundRow({
   attachment,
@@ -1236,55 +1234,23 @@ function SoundRow({
     <div
       onContextMenu={onContextMenu}
       className={cn(
-        "bg-surface-2 ring-line flex flex-col gap-1.5 p-2.5 ring-1",
-        voice ? "rounded-bubble w-[320px]" : "rounded-panel w-[340px]",
+        "bg-surface-2 ring-line flex flex-col gap-2 ring-1",
+        voice ? "rounded-bubble w-[280px] max-w-full py-2 pr-3 pl-2" : "rounded-panel w-[340px] max-w-full p-2.5",
       )}
     >
-      <span className="flex items-center gap-2">
-        <Icon
-          name={voice ? "mic" : "music"}
-          size={14}
-          className="text-accent-soft shrink-0"
-        />
-        {/*
-          A recording carries its own waveform, so the row shows that instead of
-          a file name it was never given one worth reading -- `voice-1725…webm`
-          tells nobody anything. A sound file somebody attached keeps its name,
-          because they chose it.
-        */}
-        {attachment.voice ? (
-          <>
-            <Waveform peaks={attachment.voice.peaks} className="min-w-0 flex-1" />
-            <span className="text-text-lo shrink-0 font-mono text-[11px] tabular-nums">
-              {formatDuration(attachment.voice.durationMs)}
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="text-text-hi min-w-0 flex-1 truncate text-[12px]">
-              {voice ? "Voice message" : attachment.name}
-            </span>
-            <span className="text-text-lo shrink-0 font-mono text-[11px]">
-              {fileSize(attachment.size)}
-            </span>
-          </>
-        )}
-      </span>
-      {url ? (
-        <audio
-          src={url}
-          controls
-          preload="metadata"
-          className="h-8 w-full"
-          aria-label={voice ? `Voice message, ${attachment.name}` : attachment.name}
-        />
-      ) : (
-        // Held at the height the player will take, so the bubble does not jump
-        // under the cursor the moment the bytes arrive.
-        <span className="text-text-lo flex h-8 items-center text-[11px]">
-          Decrypting…
+      {voice ? null : (
+        <span className="flex items-center gap-2">
+          <Icon name="music" size={14} className="text-accent-soft shrink-0" />
+          <span className="text-text-hi min-w-0 flex-1 truncate text-[12px]">{attachment.name}</span>
+          <span className="text-text-lo shrink-0 font-mono text-[11px]">{fileSize(attachment.size)}</span>
         </span>
       )}
+      <SoundPlayer
+        url={url}
+        peaks={attachment.voice?.peaks}
+        durationMs={attachment.voice?.durationMs}
+        label={voice ? "Voice message" : attachment.name}
+      />
     </div>
   );
 }

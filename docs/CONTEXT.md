@@ -548,7 +548,7 @@ this is the index.
 |---|---|---|
 | `Controls.tsx` | 410 | `Field`, `TextArea`, `Select`, `Toggle`, `Tabs`, `FactRow` — the whole form vocabulary. |
 | `stickers.tsx` | 302 | The bundled sticker pack, drawn in the repo (rule 3 is why they are not fetched). |
-| `Icon.tsx` | 295 | The hand-drawn icon set, one `<path>` each. |
+| `Icon.tsx` | 318 | The hand-drawn icon set, one `<path>` each. |
 | `ContextMenu.tsx` | 276 | The floating surface every menu in the app is drawn on. |
 | `EmojiPicker.tsx` | 251 | The full standard set, bundled. |
 | `ImageCropper.tsx` | 206 | Choosing which part of a picture to use, before it is uploaded. |
@@ -597,7 +597,8 @@ it, because nothing readable may sit in the DOM behind a gate.
 
 | File | Ln | Owns |
 |---|---|---|
-| `MessageList.tsx` | 1 474 | The bubbles, and `buildRows` (grouping). `grouping.test.ts` imports that from here — there is no `grouping.ts`. |
+| `MessageList.tsx` | 1 431 | The bubbles, and `buildRows` (grouping). `grouping.test.ts` imports that from here — there is no `grouping.ts`. |
+| `SoundPlayer.tsx` | 326 | Nexo's own player for a voice note or a sound file: play/pause, the waveform as a seekable `slider`, the time, a speed. Replaced `<audio controls>`. **One sound plays at a time.** |
 | `ConversationList.tsx` | 962 | The list, the folders, the multi-selection. |
 | `MessagesPage.tsx` | 614 | Rail, list, chat, context panel. |
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |

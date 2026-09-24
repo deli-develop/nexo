@@ -396,21 +396,45 @@ function Encryption({
   // they matched", beside a green shield. That is the overstatement rule 5
   // exists to prevent, in the one place in the app where being wrong about
   // what is proven matters most.
+  //
+  // "No number" is not only a group, though, and the group's sentence used to
+  // be said about every conversation without one -- a DM whose other key this
+  // device had not recorded was told it was "not a one-to-one conversation".
+  // Each reason gets its own sentence, and none offers anything to compare.
   if (groups.length === 0) {
+    const shutOut = conversation.unreadable === true;
     return (
       <section className="space-y-3">
         <SectionHead label="Encryption" />
         <p className="text-text-mid text-meta leading-relaxed">
           <Icon
-            name="shield"
+            name={shutOut ? "key" : "shield"}
             size={13}
-            className="text-text-lo mr-1.5 inline align-[-2px]"
+            className={`${shutOut ? "text-warning" : "text-text-lo"} mr-1.5 inline align-[-2px]`}
           />
-          Messages here are end-to-end encrypted, and only the people in this
-          conversation can read them. There is nothing to compare: safety
-          numbers are a fingerprint over two people&rsquo;s keys, so they exist
-          in a one-to-one conversation and not in a group. To verify somebody
-          here, open the conversation you have with them alone.
+          {shutOut ? (
+            <>
+              This device holds no keys for this conversation: it was set up
+              for another device signed in as you. There is nothing here to
+              compare, and nothing sent here can be opened on this one.
+            </>
+          ) : conversation.kind === "group" ? (
+            <>
+              Messages here are end-to-end encrypted, and only the people in
+              this conversation can read them. There is nothing to compare:
+              safety numbers are a fingerprint over two people&rsquo;s keys, so
+              they exist in a one-to-one conversation and not in a group. To
+              verify somebody here, open the conversation you have with them
+              alone.
+            </>
+          ) : (
+            <>
+              Messages here are end-to-end encrypted. There is no safety number
+              yet: it is a fingerprint over your key and {conversation.title}
+              &rsquo;s, and this device has not recorded theirs. It appears
+              after the conversation next syncs.
+            </>
+          )}
         </p>
       </section>
     );

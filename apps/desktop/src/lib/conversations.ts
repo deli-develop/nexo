@@ -50,6 +50,12 @@ export interface Conversation {
   /** Whether somebody's key changed since it was last acknowledged. */
   key_changed: boolean;
   key_changed_at_ms: number | null;
+  /**
+   * Whether this device is shut out of it for good: listed for this account,
+   * with no MLS group here to read or send with. Its Welcome went to another
+   * device signed in as the same person.
+   */
+  unreadable: boolean;
 }
 
 export interface Message {
@@ -215,6 +221,9 @@ export async function listConversations(): Promise<Conversation[]> {
           ),
         key_changed: changed.length > 0,
         key_changed_at_ms: changed[0]?.changedAtMs ?? null,
+        // Only `false` is evidence. Absent means no sync has been able to
+        // tell yet, and a conversation is not called unreadable on a guess.
+        unreadable: row.inGroup === false,
       } satisfies Conversation;
     }),
   );

@@ -50,6 +50,7 @@ function toConversation(wire: WireConversation): Conversation {
     verified: wire.verified,
     keyChanged: wire.key_changed,
     keyChangedAtMs: wire.key_changed_at_ms,
+    ...(wire.unreadable ? { unreadable: true } : {}),
     safetyDigits: "",
     muted: false,
     hasAvatar: wire.has_avatar,

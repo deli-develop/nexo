@@ -892,15 +892,19 @@ export function ConversationRow({
   // it has one and otherwise falls back to the preview the core sent with the
   // conversation itself. Only when there is neither is a conversation really
   // empty, and saying "No messages yet" about a full one reads as data loss.
+  // So does saying it about one this device is shut out of, where somebody
+  // may be writing and nothing here can open it.
   const preview = last?.undecryptable
     ? "Can't decrypt this message"
     : last?.body
       ? last.body
       : last?.attachments?.length
         ? `${last.attachments.length} attachment${last.attachments.length > 1 ? "s" : ""}`
-        : conversation.lastMessage
-          ? conversation.lastMessage
-          : "No messages yet";
+        : conversation.unreadable
+          ? "Can't be read on this device"
+          : conversation.lastMessage
+            ? conversation.lastMessage
+            : "No messages yet";
 
   return (
     <>

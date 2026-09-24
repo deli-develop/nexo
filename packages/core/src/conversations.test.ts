@@ -502,7 +502,7 @@ describe("syncing", () => {
     await store.putConversation({
       id: "c1", title: "Trip", kind: "group", epoch: 1, syncedTo: 5,
       lastMessage: "see you", lastMessageOutgoing: true, updatedAtMs: 0,
-      avatar: '{"kind":"group_avatar"}',
+      avatar: '{"kind":"group_avatar"}', inGroup: false,
     });
 
     await conversations.discover(ctx);
@@ -510,6 +510,9 @@ describe("syncing", () => {
     const after = await store.conversation("c1");
     expect(after?.avatar).toBe('{"kind":"group_avatar"}');
     expect(after?.lastMessageOutgoing).toBe(true);
+    // Dropping this would put "No messages yet" back over a conversation this
+    // device cannot read, for the few seconds until the next quiet pass.
+    expect(after?.inGroup).toBe(false);
   });
 
   it("an explicit open lifts a removal without replaying deleted history", async () => {
@@ -648,7 +651,10 @@ describe("syncing", () => {
   });
 
   it("does not reload a conversation with yourself on every quiet pass", async () => {
-    const { ctx, store, crypto } = await context([{ status: 200, body: [] }]);
+    const { ctx, store, crypto } = await context([
+      { status: 200, body: [] },
+      { status: 200, body: [] },
+    ]);
     await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
     await store.putConversation({
       id: "c1", title: null, kind: "self", epoch: 1, syncedTo: 5, lastMessage: null, updatedAtMs: 0,
@@ -657,10 +663,13 @@ describe("syncing", () => {
     const load = vi.spyOn(crypto, "loadGroup");
 
     await conversations.sync(ctx, "c1");
+    await conversations.sync(ctx, "c1");
 
     // Nobody else is in it, so nothing will ever be recorded, and "nothing
-    // recorded yet" would otherwise be true on every pass for ever.
-    expect(load).not.toHaveBeenCalled();
+    // recorded yet" would otherwise be true on every pass for ever. The one
+    // load is the first pass asking whether this device is in it at all.
+    expect(load).toHaveBeenCalledTimes(1);
+    expect((await store.conversation("c1"))?.inGroup).toBe(true);
   });
 
   it("flags a changed key on a later sync, which is what the warning is for", async () => {
@@ -773,6 +782,131 @@ describe("syncing", () => {
     expect(outcome.messages).toBe(0);
     expect((await store.conversation("c1"))?.syncedTo).toBe(7);
     expect(await store.reactions("c1")).toHaveLength(1);
+  });
+
+  it("reports a DM this device was never let into, and marks it", async () => {
+    // What a replaced device sees: the conversation is listed for this
+    // account, its Welcome opens for some other device, and every message
+    // after it is one this device was sent and will never read. It used to be
+    // skipped, and the chat said "No messages yet" to somebody being written to.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { ctx, store, crypto } = await context([
+      {
+        status: 200,
+        body: [
+          envelope({ envelope_id: 1, ciphertext: "c001", is_commit: true }),
+          envelope({ envelope_id: 2, ciphertext: "1100" }),
+          envelope({ envelope_id: 3, ciphertext: "aa03" }),
+        ],
+      },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: "ada", kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.peeks.set(0x11, "welcome");
+    crypto.joinThrows = true;
+
+    const outcome = await conversations.sync(ctx, "c1");
+
+    expect(outcome).toMatchObject({ joined: false, failed: 1, skipped: 2, messages: 0 });
+    const row = await store.conversation("c1");
+    expect(row?.inGroup).toBe(false);
+    expect(row?.syncedTo).toBe(3);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a group's history from before this device's Welcome", async () => {
+    // An invitee can sync between the routing row and the Welcome, and what
+    // it sees then is the group's past -- not something to report.
+    const { ctx, store } = await context([
+      { status: 200, body: [envelope({ envelope_id: 4 })] },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: "Trip", kind: "group", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+
+    const outcome = await conversations.sync(ctx, "c1");
+
+    expect(outcome).toMatchObject({ failed: 0, skipped: 1 });
+    expect((await store.conversation("c1"))?.inGroup).toBeUndefined();
+  });
+
+  it("does not mark a DM seen between its commit and its Welcome", async () => {
+    const { ctx, store } = await context([
+      { status: 200, body: [envelope({ envelope_id: 1, ciphertext: "c001", is_commit: true })] },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: "ada", kind: "dm", epoch: 1, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+
+    const outcome = await conversations.sync(ctx, "c1");
+
+    expect(outcome).toMatchObject({ failed: 0, skipped: 1 });
+    expect((await store.conversation("c1"))?.inGroup).toBeUndefined();
+  });
+
+  it("marks a quiet conversation it holds no group for, and a later Welcome clears it", async () => {
+    // A row from before anything asked: its envelopes were skipped long ago,
+    // so only a quiet pass can find out.
+    const { ctx, store, crypto } = await context([
+      { status: 200, body: [] },
+      {
+        status: 200,
+        body: [
+          envelope({ envelope_id: 9, ciphertext: "1100" }),
+          envelope({ envelope_id: 10, ciphertext: "aa0a" }),
+        ],
+      },
+    ]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: "ada", kind: "dm", epoch: 1, syncedTo: 8, lastMessage: null, updatedAtMs: 0,
+    });
+
+    await conversations.sync(ctx, "c1");
+    expect((await store.conversation("c1"))?.inGroup).toBe(false);
+
+    crypto.peeks.set(0x11, "welcome");
+    crypto.answers.push({
+      kind: "message", sender: "them", epoch: 2n,
+      plaintext: new TextEncoder().encode(JSON.stringify({ kind: "text", body: "hi" })),
+    });
+    const outcome = await conversations.sync(ctx, "c1");
+
+    expect(outcome).toMatchObject({ joined: true, messages: 1, failed: 0 });
+    expect((await store.conversation("c1"))?.inGroup).toBe(true);
+  });
+
+  it("keeps syncing the rest when the account is no longer in one conversation", async () => {
+    // Left, removed, or deleted: the server answers "No such conversation"
+    // for it, and that one refusal used to end the pass for every other
+    // conversation too -- which is what leaving a dead DM from one client
+    // would do to the other the next time it was signed in.
+    const { ctx, store, calls } = await context([
+      { status: 200, body: [{
+        conversation_id: "c2", kind: "dm", epoch: 1, latest_envelope_id: 3, members: ["me", "ada"],
+      }] },
+      { status: 200, body: [] },
+    ]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    await store.putConversation({
+      id: "gone", title: "bo", kind: "dm", epoch: 1, syncedTo: 4, lastMessage: "bye", updatedAtMs: 2,
+    });
+    await store.putConversation({
+      id: "c2", title: "ada", kind: "dm", epoch: 1, syncedTo: 3, lastMessage: null, updatedAtMs: 1,
+    });
+
+    await conversations.syncAll(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/v1/conversations",
+      "/v1/conversations/c2/sync?since_id=3",
+    ]);
+    // Its history is still this device's to read.
+    expect((await store.conversation("gone"))?.lastMessage).toBe("bye");
   });
 
   it("counts a message that will not decrypt rather than hiding it", async () => {

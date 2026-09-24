@@ -675,8 +675,17 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
     // safety number until somebody wrote. Once per conversation — after that
     // there is a baseline and a quiet pass leaves the group alone. Never for
     // a conversation with yourself, which has nobody to record.
-    if (before && before.kind !== "self" && (await ctx.store.peers(conversationId)).length === 0) {
-      await recordMembership(ctx, conversationId, ctx.crypto.loadGroup(ctx.device, conversationId, clock(ctx)));
+    const unrecorded = before !== null && before.kind !== "self" &&
+      (await ctx.store.peers(conversationId)).length === 0;
+    // And whether this device is in it at all, once, for a row written before
+    // anything asked. A quiet pass is the moment that can be answered: the
+    // cursor has moved, so the Welcome that would have let this device in came
+    // with what moved it, or it is not coming.
+    const unassessed = before !== null && before.syncedTo > 0 && before.inGroup === undefined;
+    if (before && (unrecorded || unassessed)) {
+      const group = ctx.crypto.loadGroup(ctx.device, conversationId, clock(ctx));
+      await recordMembership(ctx, conversationId, group);
+      if (before.syncedTo > 0) await recordInGroup(ctx, conversationId, group !== undefined);
     }
     return outcome;
   }
@@ -723,15 +732,31 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
     }
   }
 
+  // A conversation of two, or with yourself, has no history from before this
+  // device: it began here, or with the one Welcome meant for it. So when this
+  // device cannot get in, nothing in it was ever meant for anybody else, and
+  // that is a failure to say out loud rather than history to skip. A group is
+  // different -- see the `!group` branch below.
+  const oneToOne = ["dm", "self"].includes((await ctx.store.conversation(conversationId))?.kind ?? "");
+  // Set when this pass met something of that kind this device could not open.
+  let unopened = false;
+
   // Pass one: joins.
   let joinedAt: number | null = null;
   for (const [envelope, bytes] of decoded) {
     if (ctx.crypto.peek(bytes) !== "welcome") continue;
     try {
       ctx.crypto.joinGroup(ctx.device, bytes, clock(ctx));
-    } catch {
-      // A Welcome for somebody else, or one this device is already past.
-      // Neither is an error; pass two counts it as skipped.
+    } catch (error) {
+      // A Welcome for somebody else, or one this device is already past. In a
+      // group neither is an error -- every invitation travels in the one
+      // stream -- and pass two counts it as skipped. A DM's only Welcome is
+      // for whoever did not send it; when that is us and it will not open,
+      // the reason is the one clue anybody will get, so it is kept.
+      if (oneToOne && envelope.sender_device_id !== mine) {
+        unopened = true;
+        console.warn(`a Welcome in ${conversationId} did not open on this device`, error);
+      }
       continue;
     }
     joinedAt = envelope.envelope_id;
@@ -778,9 +803,18 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
       continue;
     }
     if (!group) {
-      // A message for a group this device is not in. Not a failure to read —
-      // there is nothing here to read it with.
-      outcome.skipped += 1;
+      // A message for a group this device is not in: nothing here to read it
+      // with. In a group that can be history from before this device was
+      // added -- the routing row lands before the Welcome, and a sync can fall
+      // in between -- and history is skipped. In a conversation of two it is
+      // a message somebody sent this device that it will never open, and rule
+      // 7 says that is reported. A commit is not a message and is not counted.
+      if (oneToOne && !envelope.is_commit) {
+        outcome.failed += 1;
+        unopened = true;
+      } else {
+        outcome.skipped += 1;
+      }
       continue;
     }
 
@@ -841,8 +875,26 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
   // moves, so a crash between the two re-runs a comparison rather than skipping
   // one. Recording is idempotent — the same members change nothing twice.
   await recordMembership(ctx, conversationId, group);
+  // Only a pass that shows it: a commit alone, with no Welcome yet, is what
+  // an invitee sees in the moment between the two being sent, and says
+  // nothing either way.
+  if (group) await recordInGroup(ctx, conversationId, true);
+  else if (unopened) await recordInGroup(ctx, conversationId, false);
   await moveCursor(ctx, conversationId, cursor, group);
   return outcome;
+}
+
+/**
+ * Writes down whether this device holds the group, when that changed.
+ *
+ * `false` is what the UI reads as "this device cannot read this
+ * conversation", so it is set only on evidence (`sync` says which) and it
+ * does not stick: a Welcome that later lets this device in sets it back.
+ */
+async function recordInGroup(ctx: Context, conversationId: string, inGroup: boolean): Promise<void> {
+  const row = await ctx.store.conversation(conversationId);
+  if (!row || row.inGroup === inGroup) return;
+  await ctx.store.putConversation({ ...row, inGroup });
 }
 
 /**
@@ -883,6 +935,11 @@ async function recordMembership(
  * Welcome sits inside a conversation nothing ever asks about.
  */
 export async function discover(ctx: Context): Promise<string[]> {
+  return (await discoverListing(ctx)).fresh;
+}
+
+/** [`discover`], and every conversation the server still lists for this account. */
+async function discoverListing(ctx: Context): Promise<{ fresh: string[]; listed: Set<string> }> {
   const listed = await ctx.transport.getAuth<ConversationSummary[]>("/v1/conversations");
   const known = new Map((await ctx.store.conversations())
     .map((conversation) => [conversation.id, conversation.title] as const));
@@ -929,14 +986,20 @@ export async function discover(ctx: Context): Promise<string[]> {
     }
     if (!known.has(id)) fresh.push(id);
   }
-  return fresh;
+  return { fresh, listed: new Set(listed.map((summary) => summary.conversation_id)) };
 }
 
 /** Discover, then sync everything. What a client does when it starts. */
 export async function syncAll(ctx: Context): Promise<SyncOutcome> {
-  await discover(ctx);
+  const { listed } = await discoverListing(ctx);
   const total: SyncOutcome = { messages: 0, commits: 0, skipped: 0, failed: 0, joined: false };
   for (const conversation of await ctx.store.conversations()) {
+    // Only what the server still lists for this account. A row it does not --
+    // left, removed by somebody else, deleted -- answers "No such
+    // conversation", and one refusal used to end the whole pass: nothing
+    // synced anywhere, and nothing said why. The history stays on this device;
+    // there is just nothing more to fetch for it.
+    if (!listed.has(conversation.id)) continue;
     const one = await sync(ctx, conversation.id);
     total.messages += one.messages;
     total.commits += one.commits;
@@ -1344,6 +1407,7 @@ async function remember(
   }
   if (existing?.description !== undefined) conversation.description = existing.description;
   if (existing?.joinedAt !== undefined) conversation.joinedAt = existing.joinedAt;
+  if (existing?.inGroup !== undefined) conversation.inGroup = existing.inGroup;
   if (existing?.roles !== undefined) conversation.roles = existing.roles;
   if (summary.member_devices !== undefined) {
     conversation.memberDevices = Object.fromEntries(

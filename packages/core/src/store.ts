@@ -78,6 +78,17 @@ export interface StoredConversation {
    */
   joinedAt?: number;
   /**
+   * Whether this device holds the MLS group, as the last sync that could tell
+   * found it. Absent until one could.
+   *
+   * `false` is a conversation the server lists this account in and this
+   * device will never read: its Welcome went to another device -- one signed
+   * in as the same person before this one, or since -- and MLS has no way in
+   * after the fact. Every envelope in it used to be skipped without a word,
+   * which drew a conversation somebody was writing in as "No messages yet".
+   */
+  inGroup?: boolean;
+  /**
    * Device id to handle, from the server's conversation list.
    *
    * MLS names devices and a team's roster names handles; this is the only

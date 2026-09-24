@@ -218,6 +218,12 @@ export interface Conversation {
    */
   keyChanged?: boolean;
   keyChangedAtMs?: number | null;
+  /**
+   * This device can neither read nor write here, and never will: the
+   * conversation was set up for another device signed in as the same person.
+   * The chat says so instead of "No messages yet", and offers a new one.
+   */
+  unreadable?: boolean;
   /** 60 digits, rendered as 12 groups of 5 (§4.1). */
   safetyDigits: string;
   /** Whether the conversation has a picture of its own. */

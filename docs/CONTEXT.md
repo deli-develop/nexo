@@ -61,7 +61,7 @@ logged-in user, and the UI says so rather than implying otherwise. Conversation
 metadata (who, when, how big) is visible to the server. Android is a later port
 that must not require a rewrite, which is why the layering below is strict.
 
-Current version: `0.1.31`. The authority is `[workspace.package] version` in
+Current version: `0.1.32`. The authority is `[workspace.package] version` in
 `Cargo.toml`, and `apps/desktop/src-tauri/tauri.conf.json` has to agree with it
 — the release workflow refuses a tag that does not match.
 Current state: [`STATUS.md`](STATUS.md). Milestones: [`PLAN.md`](PLAN.md).
@@ -848,6 +848,7 @@ it is expensive.
 | The session ends by itself | A rotated refresh token that never reached the store. See the rotation rule in [Conventions](#conventions-that-will-trip-you-up) |
 | A server test passes locally and fails for somebody else | It asserted on a global listing in a shared database, or `.sqlx/` was not regenerated |
 | Nothing in the app works at all — sign-in, feed, messages | Ask `api.delidev.net` itself: `curl -i https://api.delidev.net/v1/health`. A 502 from Caddy means `nexo-server` is not running on the box, not that the client is wrong — `/v1/health` needs no database and no token, so anything but 200 is the service. The runbook is [`OPS.md`](OPS.md) *When `api.delidev.net` answers 502* |
+| Somebody says they wrote, and the chat shows nothing — or "Can't be read on this device" | This device holds no MLS group for it: its Welcome went to another device signed in as the same person. **One device per account**, so every sign-in — the web app in a browser included — retires the other and deletes its KeyPackages. `inGroup` on the stored row says which; the refill arithmetic in the provider blob (50 + n × 30 KeyPackages, none consumed by a join) is the tell. Nothing recovers what was sent; `openWith` leaves the dead DM and starts a new one. See *A conversation the server lists* in [Conventions](#conventions-that-will-trip-you-up) |
 | Every upload fails — profile picture, banner, feed image, chat attachment — while sign-in, messages and posts work; the message is "Can't reach the server: Failed to fetch" | The **buckets' CORS**, not the API's. `curl -si -X OPTIONS https://fsn1.your-objectstorage.com/nexo-enc/probe -H "Origin: http://tauri.localhost" -H "Access-Control-Request-Method: PUT" -H "Access-Control-Request-Headers: content-type"` — a `403` means no rule matches that origin. [`OPS.md`](OPS.md) Phase 8, *Bucket CORS* |
 | `nexo-server` restart-loops after an edit to `/etc/nexo/nexo.env` | It refuses a half-finished deployment by design: the S3 block and `NEXO_CORS_ORIGINS` are each all-or-nothing and checked at startup. `journalctl -u nexo-server -n 60` names the one that failed |
 | The app starts with no window, or a window property in `tauri.conf.json` is ignored | The main window says `"create": false` and is built by `windows::create_main_window` in `lib.rs`'s `setup`, found by `"label": "main"`. A `setup` that returns early, or a renamed label, is no window at all |
@@ -1080,6 +1081,27 @@ failed silently.
   ```
 
   Forgetting this fails on someone else's machine, not yours.
+- **A conversation the server lists is not one this device can read.** The
+  server's membership is by *account*; MLS membership is by *device*, and a
+  device gets in only through a Welcome addressed to one of its KeyPackages.
+  After a sign-out, or a sign-in on another client, conversations exist that
+  this device will never open. `sync` used to skip every envelope in them as
+  "not for this device", so the chat said "No messages yet" while somebody
+  wrote into it. Now `StoredConversation.inGroup` records what a sync could
+  tell: `false` when a DM's or Saved messages' Welcome will not open or a
+  message arrives with no group, or when a quiet pass finds no group behind a
+  cursor that has moved; `true` whenever the group is there. `listConversations`
+  turns `false` into `unreadable`, and the chat shows `ShutOut` instead of a
+  composer. A **group's** message with no group is still skipped: an invitee
+  can sync between the routing row and its Welcome and see history it was
+  never meant to read. `remember` carries the field over like the others.
+- **`syncAll` syncs what the server lists, not what the store holds.** A row
+  the account has left, been removed from, or seen deleted stays in the local
+  store with its history, and the server answers its sync with 404. `sync`
+  throws on that, and `syncAll` used to let it end the whole pass — every
+  other conversation stopped syncing and nothing said why. It now skips rows
+  `discoverListing` did not see. Leaving is not rare: `openWith` leaves a dead
+  DM, and the other client signed in as the same person still holds it.
 - **A conversation can have one member, and `kind` has four values.**
   `'dm'`, `'group'`, `'self'` and `'team'`. `'self'` is the conversation
   somebody has with themselves, an ordinary one-member MLS group whose fan-out

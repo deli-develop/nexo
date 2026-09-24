@@ -426,6 +426,78 @@ function StartConversation({
   );
 }
 
+/**
+ * What a conversation this device is shut out of shows instead of a chat.
+ *
+ * Nothing in the app can repair it. MLS lets a device in only through a
+ * Welcome, and this one's went to another device signed in as the same person
+ * -- one from before a sign-out, or the web app signed in since. What can be
+ * done is a new conversation, which `startConversation` already knows how to
+ * make out of this one: it leaves the dead DM and starts a fresh one, whose
+ * Welcome comes here.
+ *
+ * Only a DM gets the button. A group cannot be restarted by one member, and
+ * Saved messages has its own way back; both still say what is wrong.
+ */
+function ShutOut({
+  conversation,
+  onStarted,
+  footer = false,
+}: {
+  conversation: Conversation;
+  /// A new conversation exists; reload the list.
+  onStarted: () => void;
+  /// Under a history this device still holds, rather than in place of one.
+  footer?: boolean;
+}) {
+  const account = useApp((s) => s.account);
+  const open = useApp((s) => s.openConversation);
+  const [busy, setBusy] = useState(false);
+  const handle = peerHandle(conversation, account?.handle);
+
+  const title = "This device can't read this conversation";
+  const body = handle
+    ? `It was set up for another device signed in as you — which happens after signing in somewhere else, or signing out and back in. Nothing sent here can be opened on this one, now or later. Starting a new conversation with ${conversation.title} leaves this one and makes one that works here.`
+    : "It was set up for another device signed in as you — which happens after signing in somewhere else, or signing out and back in. Nothing sent here can be opened on this one, now or later.";
+
+  const action = handle ? (
+    <Button
+      variant="primary"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          open(await startConversation(handle));
+          onStarted();
+        } catch (error) {
+          await notify(
+            "Couldn't start a new conversation",
+            asConversationError(error).message,
+          );
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? "Starting…" : "Start a new conversation"}
+    </Button>
+  ) : undefined;
+
+  if (footer) {
+    return (
+      <Callout tone="warning" icon="key" title={`${title}.`} className="mx-3 mb-3">
+        {body}
+        {action ? <div className="mt-2.5">{action}</div> : null}
+      </Callout>
+    );
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4">
+      <EmptyState icon="key" title={title} body={body} action={action} />
+    </div>
+  );
+}
+
 function ChatPane({
   conversation,
   messages,
@@ -525,7 +597,26 @@ function ChatPane({
           Not on a phone. There the keyboard comes up under the composer and
           the thumb expects it at the foot of the screen; halfway up, behind
           its own hairline, it read as a box left floating over the page. */}
-      {messages.length === 0 ? (
+      {conversation.unreadable ? (
+        // No composer: there is no group here to encrypt with, so a send
+        // would fail -- and inviting somebody to write where nothing they
+        // write can be read is the thing this replaces.
+        messages.length === 0 ? (
+          <ShutOut conversation={conversation} onStarted={onChanged} />
+        ) : (
+          <>
+            <MessageList
+              messages={messages}
+              now={now}
+              conversation={conversation}
+              onChanged={onChanged}
+              onReply={setReplyingTo}
+              onForward={setForwarding}
+            />
+            <ShutOut conversation={conversation} onStarted={onChanged} footer />
+          </>
+        )
+      ) : messages.length === 0 ? (
         <>
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4">
             <EmptyState

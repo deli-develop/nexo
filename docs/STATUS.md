@@ -2166,6 +2166,20 @@ now happens.
   picture no longer answers "Picture changed." **Seen** in a browser in both
   themes, without a session, so the roster itself was not drawn.
 
+- **An animated GIF as a profile picture stood still.** The picker took
+  GIFs, but every profile picture and banner went through `ImageCropper`,
+  which draws onto a canvas and saves a JPEG -- one frame. A moving picture
+  (`lib/animated.ts`: a GIF with more than one image, or a WebP with the
+  animation flag) now skips the cropper and is uploaded as picked, up to
+  8 MB, since it cannot be scaled down and every visitor downloads all of
+  it. It is centred in the circle the way every avatar is; a still GIF is
+  cropped as before. Avatars are drawn as a CSS background from a `blob:`
+  URL, so the frames play everywhere a face is shown. Group and team
+  pictures never went through the cropper and already moved. **Verified** by
+  `lib/animated.test.ts` against GIFs laid out as encoders write them,
+  including a `0x2C` inside the pixels. No GIF was uploaded to the real
+  bucket.
+
 ---
 
 ## Relay (M5)

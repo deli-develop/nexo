@@ -668,6 +668,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `format.ts` | 116 | Relative time, sizes, counts. |
 | `palette.ts` | 83 | Deterministic colour from a string. |
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
+| `animated.ts` | 72 | **No `invoke`** — whether a picture moves (a GIF with more than one frame, a WebP with the animation flag), read from its bytes. A moving profile picture or banner skips `ImageCropper`, whose canvas keeps one frame. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
 | `teams.ts` | 187 | Teams: `listTeams` (from this device's store — a team with no name yet is `null`, drawn as "New team"), and thin wrappers over `packages/core/src/teams.ts` for everything else. |
@@ -683,7 +684,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-28 vitest files, 188 tests, run by `pnpm test`. They cluster on the pure
+29 vitest files, 192 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -692,7 +693,7 @@ components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection · shared
               teams: postMenu · roles
-lib/          attachmentText · auth · dialogs · format · forward · images · media · viewonce
+lib/          animated · attachmentText · auth · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```
 

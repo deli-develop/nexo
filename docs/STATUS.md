@@ -2180,6 +2180,17 @@ now happens.
   including a `0x2C` inside the pixels. No GIF was uploaded to the real
   bucket.
 
+- **The rail and the mark are drawn like the rest of the app.** They were
+  raised white discs with drop shadows, the current page a solid black disc
+  (see *the rail is a column of discs* above) -- the only controls in the
+  window built that way, sitting on it rather than in it. They are flat now,
+  in `IconButton`'s vocabulary: a soft fill under the pointer, and the page
+  you are on tinted in the accent, the same "on" as the context panel's
+  toggle and the bottom bar's current tab. Your avatar at the foot is ringed
+  in the accent on your own profile. `--shadow-chip` is gone with them.
+  **Seen** at 1280×760 in both themes with the shell on stand-in data. Not
+  seen in the desktop app.
+
 ---
 
 ## Relay (M5)

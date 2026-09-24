@@ -10,19 +10,17 @@ import { DESTINATIONS, type Destination } from "./destinations";
 /**
  * The 64px rail, at 768px and up (§7.3).
  *
- * A column of discs. Every button is a raised circle standing on the rail, and
- * the one you are on is the same circle inverted -- the ink colour as the fill,
- * the surface as the glyph. That is the whole state system: no accent bar, no
- * tint, no badge. It used to be bare icons with a 3px accent marker on the
- * window edge, and the marker was the only thing that said where you were; a
- * filled disc says it from across the room, and it says it without spending
- * the accent, which stays reserved for "this one" in the content.
+ * Drawn in the same vocabulary as every other button in the window: flat,
+ * no shadow, a soft fill under the pointer, and the one you are on tinted in
+ * the accent -- the same "on" the context panel's toggle and the bottom bar's
+ * current tab wear. It was a column of raised white discs with drop shadows,
+ * the current one inverted to solid black, and it was the only thing in the
+ * app built that way: it sat on the window rather than in it.
  *
  * Three groups, top to bottom. The mark, which is drawn in `TopBar`'s cell
- * above this column in the same disc so the two read as one rail. The run of
- * destinations you look at, centred in the column. And at the foot, the things
- * about *you*: Settings, sign-out, and your own face, which is how you get to
- * your profile.
+ * above this column and takes you Home. The run of destinations you look at,
+ * centred in the column. And at the foot, the things about *you*: Settings,
+ * sign-out, and your own face, which is how you get to your profile.
  *
  * **Profile is at the foot here, and third in the bottom bar.** It moved for
  * the same reason Settings did: the run is where you go to look at something,
@@ -98,23 +96,23 @@ function destination(route: Route): Destination {
 }
 
 /**
- * The disc every rail button is drawn as.
+ * The shape every rail button is drawn as: `IconButton`'s, at the rail's size.
  *
  * `enabled:` on the hover and the press for the reason `Button.tsx` gives: a
  * disabled control keeps its cursor and its title, and loses only its
- * response. The press moves the disc a pixel into the rail, the same gesture
- * as every bodied button in the library.
+ * response.
  */
-const disc =
-  "relative flex size-11 shrink-0 items-center justify-center rounded-full " +
-  "shadow-[var(--shadow-chip)] " +
-  "transition-[background-color,color,transform] duration-[var(--motion-fast)] ease-[var(--ease-state)] " +
-  "enabled:active:translate-y-px disabled:cursor-not-allowed disabled:text-text-disabled";
+const railButton =
+  "relative flex size-11 shrink-0 items-center justify-center rounded-control outline-none " +
+  "transition-[background-color,color] duration-[var(--motion-fast)] ease-[var(--ease-state)] " +
+  "focus-visible:ring-2 focus-visible:ring-accent " +
+  "disabled:cursor-not-allowed disabled:text-text-disabled";
 
-const resting = "bg-surface-1 text-text-mid enabled:hover:bg-surface-2 enabled:hover:text-text-hi";
+const resting =
+  "text-text-mid enabled:hover:bg-fill-hover enabled:hover:text-text-hi enabled:active:bg-fill-active";
 
-/** Inverted: the ink as the fill. Hover changes nothing -- you are already here. */
-const current = "bg-text-hi text-surface-1";
+/** The accent tint `IconButton` uses for "on", deepening under the pointer rather than letting go. */
+const current = "bg-accent/16 text-accent-soft enabled:hover:bg-accent/24";
 
 function RailButton({
   icon,
@@ -137,13 +135,13 @@ function RailButton({
       aria-label={unread > 0 ? `${label}, ${unread} unread` : label}
       title={label}
       aria-current={active ? "page" : undefined}
-      className={cn(disc, active ? current : resting)}
+      className={cn(railButton, active ? current : resting)}
     >
-      <Icon name={icon} size={19} />
-      {/* On the disc's rim at one o'clock, ringed in the rail's own colour so
-          it reads as sitting on the edge rather than stuck over it. */}
+      <Icon name={icon} size={20} />
+      {/* At the glyph's shoulder, ringed in the rail's own colour so it reads
+          as sitting on the button rather than stuck over it. */}
       {unread > 0 ? (
-        <span className="bg-accent ring-surface-0 absolute top-0.5 right-0.5 size-2.5 rounded-full ring-2" />
+        <span className="bg-accent ring-surface-0 absolute top-2 right-2 size-2.5 rounded-full ring-2" />
       ) : null}
     </button>
   );
@@ -157,9 +155,8 @@ function RailButton({
  * for the one action someone reaches for when they want to stop being signed
  * in on a machine.
  *
- * Red only on hover, and only the glyph. A destructive action that is red at
- * rest is red for the hours nobody is going near it, and the colour stops
- * meaning anything; a red disc would be the loudest thing on the rail.
+ * Red only on hover. A destructive action that is red at rest is red for the
+ * hours nobody is going near it, and the colour stops meaning anything.
  */
 function SignOutButton() {
   const { signOut, busy } = useSignOut();
@@ -171,9 +168,9 @@ function SignOutButton() {
       disabled={busy}
       aria-label="Sign out"
       title="Sign out"
-      className={cn(disc, "bg-surface-1 text-text-mid enabled:hover:bg-surface-2 enabled:hover:text-danger")}
+      className={cn(railButton, "text-text-mid enabled:hover:bg-danger/12 enabled:hover:text-danger")}
     >
-      <Icon name="logout" size={19} />
+      <Icon name="logout" size={20} />
     </button>
   );
 }
@@ -181,10 +178,10 @@ function SignOutButton() {
 /**
  * Your own profile, drawn as your face.
  *
- * The picture fills the disc, so it cannot invert the way a glyph does. Here
- * is a ring instead, in the same ink colour the other discs fill with, and set
- * off from the picture by a gap in the rail's colour so it reads as a
- * selection around the avatar rather than a border on it.
+ * A picture cannot take a tint the way a glyph does, so here "you are on it"
+ * is a ring in the accent, set off from the picture by a gap in the rail's
+ * colour so it reads as a selection around the avatar rather than a border on
+ * it.
  */
 function ProfileButton({
   label,
@@ -206,19 +203,18 @@ function ProfileButton({
       title={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "ring-offset-surface-0 relative flex size-11 shrink-0 items-center justify-center rounded-full",
-        "transition-[box-shadow,transform] duration-[var(--motion-fast)] ease-[var(--ease-state)] active:translate-y-px",
+        "ring-offset-surface-0 relative flex size-11 shrink-0 items-center justify-center rounded-full outline-none",
+        "transition-[box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-state)]",
+        "focus-visible:ring-accent focus-visible:ring-2 focus-visible:ring-offset-2",
         // The offset only with a ring: on its own it draws a solid 2px band
         // in the rail's colour, opaque over a rail that is not.
-        active
-          ? "ring-text-hi ring-2 ring-offset-2"
-          : "hover:ring-line-strong shadow-[var(--shadow-chip)] hover:ring-2 hover:ring-offset-2",
+        active ? "ring-accent ring-2 ring-offset-2" : "hover:ring-line-strong hover:ring-2 hover:ring-offset-2",
       )}
     >
       {avatarKey ? (
-        <RemoteImage imageKey={avatarKey} alt="" className="size-11 rounded-full" fit="cover" />
+        <RemoteImage imageKey={avatarKey} alt="" className="size-9 rounded-full" fit="cover" />
       ) : (
-        <Avatar seed={account?.handle ?? "you"} name={account?.display_name ?? "You"} size={44} />
+        <Avatar seed={account?.handle ?? "you"} name={account?.display_name ?? "You"} size={36} />
       )}
     </button>
   );

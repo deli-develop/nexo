@@ -150,7 +150,7 @@ here because everything else lives inside them.
 |---|---|
 | `TopBar` | The one chrome row: wordmark, page cell, caption buttons. Carries the drag region and the three Windows caption buttons the capability file allows. |
 | `PageTitleCell` | Title + actions cell rendered into the `TopBar` per route. |
-| `IconRail` | The 64px destination rail: raised discs (`--shadow-chip`), the current one inverted, your own avatar as Profile at the foot. Takes unread counts per destination — Messages and Teams each get their own dot. |
+| `IconRail` | The 64px destination rail, drawn like `IconButton`: flat, a fill on hover, the current one tinted in the accent (`bg-accent/16 text-accent-soft`); your own avatar as Profile at the foot, ringed in the accent when you are on it. Takes unread counts per destination — Messages and Teams each get their own dot. |
 
 ## Feature components worth knowing about
 

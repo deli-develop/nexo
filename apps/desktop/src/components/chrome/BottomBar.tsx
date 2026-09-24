@@ -1,11 +1,11 @@
 import { cn } from "../../lib/cn";
-import { useApp } from "../../app/store";
+import { useApp, type Route } from "../../app/store";
 import { Icon } from "../ui/Icon";
 import { Panel } from "../ui/Surface";
 import { DESTINATIONS, type Destination } from "./destinations";
 
 /**
- * The phone's navigation: four destinations across the bottom.
+ * The phone's navigation: five destinations across the bottom.
  *
  * The same list `IconRail` draws down the side, in the same order, so which
  * tab is second does not change when a window is resized or a tablet turned.
@@ -26,7 +26,7 @@ import { DESTINATIONS, type Destination } from "./destinations";
  * `env(safe-area-inset-bottom)` is added to the padding, with a floor for the
  * phones and browsers that report nothing.
  */
-export function BottomBar({ unread }: { unread: number }) {
+export function BottomBar({ unread }: { unread: Partial<Record<Route, number>> }) {
   const route = useApp((s) => s.route);
   const go = useApp((s) => s.go);
 
@@ -43,7 +43,7 @@ export function BottomBar({ unread }: { unread: number }) {
             key={destination.route}
             destination={destination}
             active={route === destination.route}
-            unread={destination.route === "messages" ? unread : 0}
+            unread={unread[destination.route] ?? 0}
             onClick={() => go(destination.route)}
           />
         ))}
@@ -71,8 +71,9 @@ function TabButton({
       onClick={onClick}
       aria-label={unread > 0 ? `${label}, ${unread} unread` : label}
       aria-current={active ? "page" : undefined}
-      // 56px tall and a quarter of the width: comfortably past the 44px a
-      // thumb needs, and the whole cell is the target rather than the glyph.
+      // 56px tall and a fifth of the width: comfortably past the 44px a
+      // thumb needs on the narrowest phone (375 / 5 = 75), and the whole cell
+      // is the target rather than the glyph.
       className={cn(
         "relative flex min-h-14 flex-1 flex-col items-center justify-center gap-1 rounded-control",
         "transition-colors duration-[var(--motion-fast)] ease-[var(--ease-state)]",

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE conversations SET kind = 'group'\n         WHERE id = $1 AND kind = 'dm'\n           AND (SELECT count(*) FROM conversation_members WHERE conversation_id = $1) > 2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d10790570fed3d2ef296d525cbe509ccbb22518254cab18161a1f9795164f98f"
+}

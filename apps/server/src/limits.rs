@@ -136,8 +136,13 @@ pub struct Limits {
     pub reactions: RateLimit,
     /// Editing a profile, changing visibility, blocking.
     pub profile: RateLimit,
-    /// Adding or removing conversation members.
+    /// Adding or removing conversation members, and a team's roles.
     pub membership: RateLimit,
+    /// Starting a team.
+    ///
+    /// Per hour rather than per minute: nobody starts ten teams in an hour by
+    /// hand, and every one is a conversation row and an owner row that stays.
+    pub teams: RateLimit,
     /// Minting, listing and revoking invitations.
     pub invites: RateLimit,
 }
@@ -154,6 +159,7 @@ impl Default for Limits {
             reactions: RateLimit::new(120, Duration::from_secs(60)),
             profile: RateLimit::new(30, Duration::from_secs(60)),
             membership: RateLimit::new(30, Duration::from_secs(60)),
+            teams: RateLimit::new(10, Duration::from_secs(60 * 60)),
             invites: RateLimit::new(60, Duration::from_secs(60)),
         }
     }
@@ -178,6 +184,7 @@ impl Limits {
             reactions: RateLimit::new(u32::MAX, forever),
             profile: RateLimit::new(u32::MAX, forever),
             membership: RateLimit::new(u32::MAX, forever),
+            teams: RateLimit::new(u32::MAX, forever),
             invites: RateLimit::new(u32::MAX, forever),
         }
     }
@@ -259,6 +266,7 @@ mod tests {
             ("reactions", &limits.reactions),
             ("profile", &limits.profile),
             ("membership", &limits.membership),
+            ("teams", &limits.teams),
             ("invites", &limits.invites),
         ] {
             assert!(

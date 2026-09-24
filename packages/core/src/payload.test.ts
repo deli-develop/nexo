@@ -6,8 +6,10 @@ import {
   encodePayload,
   encodePayloadString,
   forwardedText,
+  payloadId,
   preview,
   voiceMeta,
+  type Payload,
 } from "./payload";
 
 /**
@@ -154,5 +156,51 @@ describe("voiceMeta", () => {
     ]) {
       expect(voiceMeta(value)).toBeUndefined();
     }
+  });
+
+  describe("teams", () => {
+    const post: Payload = {
+      kind: "team_post",
+      id: "p1",
+      title: "Monday",
+      body: "Standup moves to 10:00",
+      files: [
+        {
+          s3_key: "enc/team/a",
+          key: "aa",
+          nonce: "bb",
+          sha256: "cc",
+          name: "a.png",
+          mime: "image/png",
+          size: 512,
+        },
+      ],
+    };
+
+    it("reads every team kind as known, not as a newer version's", () => {
+      // The same five names `crates/protocol` asserts. One missing from
+      // `KNOWN` would draw an ordinary post as "needs a newer version".
+      const payloads: Payload[] = [
+        { kind: "team_meta", description: "Design crew" },
+        post,
+        { kind: "team_comment", id: "c1", post: "p1", parent: "c0", body: "Works for me" },
+        { kind: "team_pin", post: "p1", pinned: true },
+        { kind: "team_remove", target: "c1" },
+      ];
+      for (const payload of payloads) {
+        expect(decodePayload(encodePayload(payload))).toEqual(payload);
+      }
+    });
+
+    it("names posts and comments, and nothing else a team sends", () => {
+      expect(payloadId(post)).toBe("p1");
+      expect(payloadId({ kind: "team_comment", id: "c1", post: "p1", body: "x" })).toBe("c1");
+      expect(payloadId({ kind: "team_pin", post: "p1", pinned: false })).toBeUndefined();
+      expect(payloadId({ kind: "team_remove", target: "p1" })).toBeUndefined();
+    });
+
+    it("previews nothing, because a team is not in the conversation list", () => {
+      expect(preview(post)).toBe("");
+    });
   });
 });

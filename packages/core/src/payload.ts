@@ -133,6 +133,74 @@ export interface StoryPayload {
 }
 
 /**
+ * A file in object storage and the key that opens it. `SealedFile` in
+ * `crates/protocol`: the file half of an attachment, so a team post can carry
+ * several. The key never leaves an MLS message.
+ */
+export interface SealedFile {
+  s3_key: string;
+  key: string;
+  nonce: string;
+  sha256: string;
+  name: string;
+  mime: string;
+  size: number;
+  segmented?: boolean;
+}
+
+/**
+ * The most files a team post's reader draws. `TEAM_POST_MAX_FILES` in
+ * `crates/protocol`; the rest are counted and said, not silently dropped.
+ */
+export const TEAM_POST_MAX_FILES = 10;
+
+/**
+ * What a team says about itself besides its name and picture, which are a
+ * `rename` and a `group_avatar` like any conversation's. Empty clears it.
+ */
+export interface TeamMetaPayload {
+  kind: "team_meta";
+  description: string;
+}
+
+/** A post on a team's board. Always named: everything else points at it. */
+export interface TeamPostPayload {
+  kind: "team_post";
+  id: string;
+  title?: string;
+  body: string;
+  files?: SealedFile[];
+}
+
+/**
+ * A comment on a post, or an answer to a top-level comment — one level, which
+ * the receiver checks, because nobody else can.
+ */
+export interface TeamCommentPayload {
+  kind: "team_comment";
+  id: string;
+  post: string;
+  parent?: string;
+  body: string;
+}
+
+/** Pin or unpin. Honoured only from an owner or admin at arrival. */
+export interface TeamPinPayload {
+  kind: "team_pin";
+  post: string;
+  pinned: boolean;
+}
+
+/**
+ * An admin's "remove for everyone": a request, like a retract, honoured only
+ * from an owner or admin. The author's own take-back is a `retract`.
+ */
+export interface TeamRemovePayload {
+  kind: "team_remove";
+  target: string;
+}
+
+/**
  * A payload this build cannot read.
  *
  * Produced only by [`decodePayload`] and never sent — it is what a client does
@@ -159,6 +227,11 @@ export type Payload =
   | ViewOncePayload
   | GroupAvatarPayload
   | StoryPayload
+  | TeamMetaPayload
+  | TeamPostPayload
+  | TeamCommentPayload
+  | TeamPinPayload
+  | TeamRemovePayload
   | UnsupportedPayload;
 
 /**
@@ -251,6 +324,11 @@ const KNOWN = new Set([
   "view_once",
   "group_avatar",
   "story",
+  "team_meta",
+  "team_post",
+  "team_comment",
+  "team_pin",
+  "team_remove",
 ]);
 
 const encoder = new TextEncoder();
@@ -360,6 +438,8 @@ export function payloadId(payload: Payload): string | undefined {
     case "reply":
     case "attachment":
     case "view_once":
+    case "team_post":
+    case "team_comment":
       return payload.id;
     case "sticker":
       return payload.message_id;

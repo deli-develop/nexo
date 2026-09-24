@@ -360,7 +360,12 @@ export async function searchMessages(
     options?.conversationId ?? null,
     options?.limit ?? 50,
   );
-  return hits.map((hit) => ({
+  // Searching Messages searches messages. A team's posts are indexed like
+  // any message, and are found from inside the team, not from here.
+  const teams = options?.conversationId
+    ? new Set<string>()
+    : new Set((await store.conversations()).filter((c) => c.kind === "team").map((c) => c.id));
+  return hits.filter((hit) => !teams.has(hit.conversationId)).map((hit) => ({
     envelope_id: hit.id,
     conversation_id: hit.conversationId,
     body: hit.body,

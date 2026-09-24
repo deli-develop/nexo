@@ -36,6 +36,7 @@ export type UnlistenFn = () => void;
 const typingHandlers = new Set<(event: TypingEvent) => void>();
 const envelopeHandlers = new Set<(event: EnvelopeEvent) => void>();
 const resyncHandlers = new Set<() => void>();
+const membershipHandlers = new Set<(event: EnvelopeEvent) => void>();
 
 let stream: Stream | null = null;
 
@@ -60,6 +61,10 @@ export async function drainStream(): Promise<void> {
         for (const handler of typingHandlers) handler(event);
       } else if (event.type === "envelope") {
         for (const handler of envelopeHandlers) {
+          handler({ conversation_id: event.conversation_id });
+        }
+      } else if (event.type === "membership") {
+        for (const handler of membershipHandlers) {
           handler({ conversation_id: event.conversation_id });
         }
       }
@@ -89,6 +94,17 @@ export function onTyping(handler: (event: TypingEvent) => void): Promise<Unliste
 export function onEnvelope(handler: (event: EnvelopeEvent) => void): Promise<UnlistenFn> {
   envelopeHandlers.add(handler);
   return Promise.resolve(() => envelopeHandlers.delete(handler));
+}
+
+/**
+ * Listens for "who is in this team, or what they may do, changed".
+ *
+ * A nudge with nothing in it but the team: the roster route is what says what
+ * changed. For you it can also mean you are no longer in it.
+ */
+export function onMembership(handler: (event: EnvelopeEvent) => void): Promise<UnlistenFn> {
+  membershipHandlers.add(handler);
+  return Promise.resolve(() => membershipHandlers.delete(handler));
 }
 
 /**

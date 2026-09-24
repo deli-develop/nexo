@@ -4,7 +4,10 @@ import { persist } from "zustand/middleware";
 import type { Account } from "../lib/auth";
 import type { BackdropReport } from "../lib/native";
 
-export type Route = "home" | "messages" | "profile" | "settings";
+export type Route = "home" | "messages" | "teams" | "profile" | "settings";
+
+/** What an open team is showing. On a phone each is a screen of its own. */
+export type TeamPane = "board" | "members" | "settings";
 
 /** The sections of Settings, in the order the list draws them. */
 export type SettingsSection =
@@ -41,6 +44,14 @@ export interface ConversationOverride {
    * keeps talking and that you have finished with.
    */
   archived?: boolean;
+  /**
+   * A team this device has opened at least once.
+   *
+   * What the Teams list's *Invites* tab is: teams somebody added you to that
+   * you have not looked at yet. Per device, like everything here -- a team
+   * opened on the phone is still new on the desktop.
+   */
+  opened?: boolean;
 }
 
 /**
@@ -290,6 +301,22 @@ interface AppState {
    */
   settingsSection: SettingsSection | null;
   activeConversationId: string;
+  /**
+   * The team whose board is open, or `""` for none.
+   *
+   * Beside the open conversation rather than folded into it: a team is a
+   * conversation underneath, but opening one must not open it in Messages,
+   * where it is not listed. Not persisted, for the same reason the open
+   * conversation is not.
+   */
+  activeTeamId: string;
+  /** Which part of the open team is showing. Back to the board on every open. */
+  teamPane: TeamPane;
+  /**
+   * Whether the new-team dialog is open. Here because two places open it --
+   * the top row's button and the empty list's -- and one dialog answers both.
+   */
+  createTeamOpen: boolean;
   /** User intent for the context panel, before the viewport gets a say. */
   contextPanelOpen: boolean;
   /**
@@ -366,6 +393,11 @@ interface AppState {
   openConversation: (id: string) => void;
   /** Close the open conversation. On a phone this is what Back does. */
   closeConversation: () => void;
+  openTeam: (id: string) => void;
+  /** Close the open team. On a phone this is what Back does. */
+  closeTeam: () => void;
+  setTeamPane: (pane: TeamPane) => void;
+  setCreateTeamOpen: (open: boolean) => void;
   toggleContextPanel: () => void;
   setContextSheet: (open: boolean) => void;
   /** `null` goes back to the list of sections. */
@@ -375,6 +407,8 @@ interface AppState {
   requestFeedRefresh: () => void;
   setBackdropReport: (report: BackdropReport) => void;
   toggleConversationFlag: (id: string, flag: "pinned" | "archived") => void;
+  /** Remembers that a team has been opened on this device. */
+  markTeamOpened: (id: string) => void;
   /** `until` is a timestamp, or `null` to unmute. `Infinity` never expires. */
   muteConversation: (id: string, until: number | null) => void;
   /** Drops every choice made about a conversation that no longer exists. */
@@ -395,6 +429,9 @@ export const useApp = create<AppState>()(
       conversationSearchOpen: false,
       settingsSection: null,
       activeConversationId: "",
+      activeTeamId: "",
+      teamPane: "board",
+      createTeamOpen: false,
       contextPanelOpen: true,
       contextSheetOpen: false,
       homeSearchQuery: "",
@@ -440,12 +477,31 @@ export const useApp = create<AppState>()(
         }),
       closeConversation: () =>
         set({ activeConversationId: "", conversationSearchOpen: false, contextSheetOpen: false }),
+      openTeam: (id) =>
+        set((s) => {
+          const { [id]: _gone, ...unreadMark } = s.unreadMark;
+          return { activeTeamId: id, teamPane: "board", unreadMark };
+        }),
+      closeTeam: () => set({ activeTeamId: "", teamPane: "board" }),
+      setTeamPane: (teamPane) => set({ teamPane }),
+      setCreateTeamOpen: (createTeamOpen) => set({ createTeamOpen }),
       toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
       setContextSheet: (contextSheetOpen) => set({ contextSheetOpen }),
       openSettingsSection: (settingsSection) => set({ settingsSection }),
       setConversationSearch: (open) => set({ conversationSearchOpen: open }),
       setHomeSearchQuery: (query) => set({ homeSearchQuery: query }),
       requestFeedRefresh: () => set((s) => ({ feedRefreshRequest: s.feedRefreshRequest + 1 })),
+      markTeamOpened: (id) =>
+        set((s) =>
+          s.conversationOverrides[id]?.opened
+            ? s
+            : {
+                conversationOverrides: {
+                  ...s.conversationOverrides,
+                  [id]: { ...s.conversationOverrides[id], opened: true },
+                },
+              },
+        ),
       toggleConversationFlag: (id, flag) =>
         set((s) => {
           const current = s.conversationOverrides[id] ?? {};
@@ -485,6 +541,7 @@ export const useApp = create<AppState>()(
             unread,
             // A conversation that is gone cannot stay open behind the list.
             activeConversationId: s.activeConversationId === id ? "" : s.activeConversationId,
+            activeTeamId: s.activeTeamId === id ? "" : s.activeTeamId,
           };
         }),
       addUnread: (id, count) =>

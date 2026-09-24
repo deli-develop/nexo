@@ -52,6 +52,12 @@ export interface Group {
    */
   members(): Member[];
   addMember(device: Device, keyPackage: Uint8Array): StagedCommit;
+  /**
+   * Removes a device, by the id `members()` gives it. A staged commit with no
+   * Welcome; once confirmed the group has rekeyed and the removed device reads
+   * nothing sent afterwards. Throws when the device is not in the group.
+   */
+  removeMember(device: Device, deviceId: string): StagedCommit;
   confirmCommit(device: Device, nowMs: number): bigint;
   abandonCommit(device: Device): void;
   encrypt(device: Device, plaintext: Uint8Array): Uint8Array;

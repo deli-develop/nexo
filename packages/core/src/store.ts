@@ -66,6 +66,54 @@ export interface StoredConversation {
    * them.
    */
   avatar?: string;
+  /** A team's description, from its latest `team_meta`. Absent elsewhere. */
+  description?: string;
+  /**
+   * The envelope id of the Welcome this device joined from.
+   *
+   * Absent when this device made the conversation. Everything at or before it
+   * is history this device was never part of -- MLS gives a new member nothing
+   * earlier, and the server has no copy anybody can open -- so a team's board
+   * says so where that history would be, rather than drawing an empty past.
+   */
+  joinedAt?: number;
+  /**
+   * Device id to handle, from the server's conversation list.
+   *
+   * MLS names devices and a team's roster names handles; this is the only
+   * bridge between them, and what lets a receiver ask "is the device that sent
+   * this pin an admin's?".
+   */
+  memberDevices?: Record<string, string>;
+  /**
+   * A team's roles by handle, as last read from `/v1/teams/{id}/members`.
+   * Absent until read, and absent on everything that is not a team.
+   */
+  roles?: Record<string, TeamRole>;
+}
+
+/** What somebody may do in a team. The server's three, and no others. */
+export type TeamRole = "owner" | "admin" | "member";
+
+/**
+ * A pin or an admin's removal on a team's board, as it was honoured.
+ *
+ * Written only when the sender was an owner or admin at the moment it
+ * arrived -- a mark from anybody else is dropped, not stored and hidden, so
+ * nothing about it can resurface if that person is promoted later.
+ */
+export interface StoredTeamMark {
+  /** `conversation|kind|target`, so a later mark replaces an earlier one. */
+  id: string;
+  conversationId: string;
+  kind: "pin" | "remove";
+  /** The post or comment, by its `id`. */
+  target: string;
+  /** Pinned or not. Always true for a removal, which cannot be undone. */
+  on: boolean;
+  /** Who did it, as a device id, or `self`. */
+  byDeviceId: string;
+  atMs: number;
 }
 
 /** One message, already decrypted, as history. */
@@ -432,8 +480,13 @@ export class Store {
         revised.retractedAtMs = change.retractedAtMs;
         // The payload can hold the text too — an attachment's caption, a
         // reply's body. Taking back the message and leaving that behind would
-        // be taking back nothing.
-        delete revised.payload;
+        // be taking back nothing. A team post or comment keeps its skeleton:
+        // which post a comment was on, and that a post was a post, so the
+        // board can still say "taken back" in the right place. Its words, its
+        // title and its files go.
+        const skeleton = teamSkeleton(message.payload);
+        if (skeleton === undefined) delete revised.payload;
+        else revised.payload = skeleton;
       }
       await unindexMessage(tx, message.id);
       await idb.put(tx, "messages", revised);
@@ -767,7 +820,7 @@ export class Store {
     const names: StoreName[] = [
       "conversations", "messages", "searchTerms", "outbox", "reactions",
       "pinnedMessages", "viewOnce", "drafts", "folderMembers",
-      "conversationPeers", "forgottenConversations",
+      "conversationPeers", "forgottenConversations", "teamMarks",
     ];
     await transact(this.#db, names, "readwrite", async (tx) => {
       const conversation = await idb.get<StoredConversation>(tx, "conversations", conversationId);
@@ -789,7 +842,7 @@ export class Store {
         if (entry.conversationId === conversationId) await idb.delete(tx, "outbox", entry.id);
       }
 
-      for (const name of ["reactions", "pinnedMessages", "viewOnce", "folderMembers", "conversationPeers"] as const) {
+      for (const name of ["reactions", "pinnedMessages", "viewOnce", "folderMembers", "conversationPeers", "teamMarks"] as const) {
         const rows = await idb.getAllByIndex<{ id?: string; clientId?: string }>(
           tx, name, "byConversation", conversationId,
         );
@@ -815,6 +868,26 @@ export class Store {
     await transact(this.#db, "forgottenConversations", "readwrite", (tx) =>
       idb.delete(tx, "forgottenConversations", conversationId),
     );
+  }
+
+  // --------------------------------------------------------------- team marks
+
+  /** Every honoured pin and removal on one team's board. */
+  async teamMarks(conversationId: string): Promise<StoredTeamMark[]> {
+    return transact(this.#db, "teamMarks", "readonly", (tx) =>
+      idb.getAllByIndex<StoredTeamMark>(tx, "teamMarks", "byConversation", conversationId),
+    );
+  }
+
+  /** Writes a mark, replacing any earlier one of the same kind on the same target. */
+  async setTeamMark(mark: Omit<StoredTeamMark, "id">): Promise<void> {
+    await transact(this.#db, "teamMarks", "readwrite", (tx) =>
+      idb.put(tx, "teamMarks", { ...mark, id: Store.teamMarkId(mark.conversationId, mark.kind, mark.target) }),
+    );
+  }
+
+  static teamMarkId(conversationId: string, kind: StoredTeamMark["kind"], target: string): string {
+    return `${conversationId}|${kind}|${target}`;
   }
 
   // ---------------------------------------------------------- peer identities
@@ -926,6 +999,34 @@ export class Store {
       for (const name of names) await idb.clear(tx, name);
     });
   }
+}
+
+/**
+ * What a taken-back team post or comment keeps: its kind, its name, and for a
+ * comment where it hung. `undefined` for anything else, whose payload goes.
+ */
+function teamSkeleton(payload: string | undefined): string | undefined {
+  if (payload === undefined) return undefined;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(payload) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+  if (parsed.kind === "team_post") {
+    return JSON.stringify({ kind: "team_post", id: parsed.id, body: "" });
+  }
+  if (parsed.kind === "team_comment") {
+    const skeleton: Record<string, unknown> = {
+      kind: "team_comment",
+      id: parsed.id,
+      post: parsed.post,
+      body: "",
+    };
+    if (parsed.parent !== undefined) skeleton.parent = parsed.parent;
+    return JSON.stringify(skeleton);
+  }
+  return undefined;
 }
 
 /** One message into history, and the conversation's summary moved with it. */

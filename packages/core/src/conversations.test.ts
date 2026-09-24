@@ -43,6 +43,10 @@ class FakeGroup implements Group {
     this.staged = { message: Uint8Array.of(0xc0), welcome: Uint8Array.of(0x11, 0x00) };
     return this.staged;
   }
+  removeMember(_device: Device, _deviceId: string): StagedCommit {
+    this.staged = { message: Uint8Array.of(0xc1), welcome: undefined };
+    return this.staged;
+  }
   confirmCommit(): bigint {
     this.confirmed += 1;
     this.epoch += 1n;
@@ -485,6 +489,29 @@ describe("syncing", () => {
     expect((await store.forgottenConversations()).has("c1")).toBe(false);
   });
 
+  it("keeps a group's picture and who wrote last across a discover", async () => {
+    // `discover` rewrites every row it lists, on every pass of the sync loop.
+    // It used to write only the fields it knew, so a group's picture lasted
+    // until the next pass -- a few seconds -- and so did the flag that stops
+    // your own last message counting as unread.
+    const { ctx, store } = await context([{ status: 200, body: [{
+      conversation_id: "c1", kind: "group", epoch: 1,
+      latest_envelope_id: 5, members: ["me", "ada", "bo"],
+    }] }]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    await store.putConversation({
+      id: "c1", title: "Trip", kind: "group", epoch: 1, syncedTo: 5,
+      lastMessage: "see you", lastMessageOutgoing: true, updatedAtMs: 0,
+      avatar: '{"kind":"group_avatar"}',
+    });
+
+    await conversations.discover(ctx);
+
+    const after = await store.conversation("c1");
+    expect(after?.avatar).toBe('{"kind":"group_avatar"}');
+    expect(after?.lastMessageOutgoing).toBe(true);
+  });
+
   it("an explicit open lifts a removal without replaying deleted history", async () => {
     const { ctx, store, crypto } = await context([{ status: 200, body: [{
       conversation_id: "c1", kind: "dm", epoch: 1,
@@ -873,5 +900,188 @@ describe("revisions", () => {
         conversations.EDIT_WINDOW_MS + conversations.RECEIVER_GRACE_MS + 1,
       ),
     ).toBe(false);
+  });
+});
+
+
+// ---------------------------------------------------------------------- teams
+
+describe("a team, as it arrives", () => {
+  const encode = (payload: unknown) => new TextEncoder().encode(JSON.stringify(payload));
+
+  /** A team this device is in, with ada an admin and bo a member. */
+  async function team(answers: Answer[]) {
+    const harness = await context(answers);
+    await harness.store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await harness.store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+    await harness.store.putConversation({
+      id: "c1", title: "Crew", kind: "team", epoch: 1, syncedTo: 0,
+      lastMessage: null, updatedAtMs: 0,
+      memberDevices: { "dev-ada": "ada", "dev-bo": "bo" },
+      roles: { me: "owner", ada: "admin", bo: "member" },
+    });
+    harness.crypto.createGroup();
+    return harness;
+  }
+
+  it("honours a pin from an admin and drops one from a member", async () => {
+    const { ctx, store, crypto } = await team([{
+      status: 200,
+      body: [
+        envelope({ envelope_id: 1, sender_device_id: "dev-bo" }),
+        envelope({ envelope_id: 2, sender_device_id: "dev-bo" }),
+        envelope({ envelope_id: 3, sender_device_id: "dev-ada" }),
+      ],
+    }]);
+    crypto.answers.push(
+      { kind: "message", sender: "dev-bo", epoch: 1n, plaintext: encode({ kind: "team_pin", post: "p1", pinned: true }) },
+      { kind: "message", sender: "dev-bo", epoch: 1n, plaintext: encode({ kind: "team_remove", target: "p2" }) },
+      { kind: "message", sender: "dev-ada", epoch: 1n, plaintext: encode({ kind: "team_pin", post: "p3", pinned: true }) },
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await conversations.sync(ctx, "c1");
+
+    // Only the admin's. The member's pin and removal are not stored, so a
+    // later promotion cannot bring them back.
+    const marks = await store.teamMarks("c1");
+    expect(marks.map((m) => [m.kind, m.target, m.byDeviceId])).toEqual([["pin", "p3", "dev-ada"]]);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks the server again about a device it has not seen before deciding", async () => {
+    const { ctx, store, crypto, calls } = await team([
+      { status: 200, body: [envelope({ envelope_id: 1, sender_device_id: "dev-cy" })] },
+      // `discover`: cy is in the team now, on a device this one had not seen.
+      { status: 200, body: [{
+        conversation_id: "c1", kind: "team", epoch: 1, latest_envelope_id: 1,
+        members: ["me", "ada", "bo", "cy"],
+        member_devices: [
+          { handle: "ada", device_id: "dev-ada" },
+          { handle: "bo", device_id: "dev-bo" },
+          { handle: "cy", device_id: "dev-cy" },
+        ],
+      }] },
+      // The roster: and cy was made an admin.
+      { status: 200, body: [
+        { handle: "me", role: "owner", joined_at_ms: 0 },
+        { handle: "cy", role: "admin", joined_at_ms: 1 },
+      ] },
+    ]);
+    crypto.answers.push({
+      kind: "message", sender: "dev-cy", epoch: 1n,
+      plaintext: encode({ kind: "team_remove", target: "p9" }),
+    });
+
+    await conversations.sync(ctx, "c1");
+
+    expect(calls.map((c) => c.path)).toContain("/v1/teams/c1/members");
+    expect((await store.teamMarks("c1")).map((m) => m.target)).toEqual(["p9"]);
+  });
+
+  it("keeps a post's words in the row, where an edit and a take-back reach them", async () => {
+    const { ctx, store, crypto } = await team([{
+      status: 200,
+      body: [envelope({ envelope_id: 1, sender_device_id: "dev-ada" })],
+    }]);
+    crypto.answers.push({
+      kind: "message", sender: "dev-ada", epoch: 1n,
+      plaintext: encode({ kind: "team_comment", id: "k1", post: "p1", body: "Agreed" }),
+    });
+
+    await conversations.sync(ctx, "c1");
+
+    const [row] = await store.messages("c1");
+    expect(row).toMatchObject({ body: "Agreed", clientId: "k1" });
+
+    // Taken back: the words go, and so does everything else but where it hung.
+    await store.reviseMessage("c1", "k1", { body: "", retractedAtMs: 5 });
+    const [after] = await store.messages("c1");
+    expect(JSON.parse(after!.payload!)).toEqual({ kind: "team_comment", id: "k1", post: "p1", body: "" });
+  });
+
+  it("puts a card where a post it cannot read would have been, in a team only", async () => {
+    const { ctx, store, crypto } = await team([{
+      status: 200,
+      body: [envelope({ envelope_id: 7, sender_device_id: "dev-ada", server_timestamp_ms: 1234 })],
+    }]);
+    crypto.answers.push("throw");
+
+    const outcome = await conversations.sync(ctx, "c1");
+
+    expect(outcome.failed).toBe(1);
+    const [row] = await store.messages("c1");
+    expect(row).toMatchObject({ id: 7, sentAtMs: 1234, payload: conversations.UNREADABLE });
+    expect(row!.clientId).toBeUndefined();
+  });
+
+  it("remembers the Welcome it joined from, so the board can say what is missing", async () => {
+    const { ctx, store, crypto } = await context([{
+      status: 200,
+      body: [
+        envelope({ envelope_id: 4, ciphertext: "aa04" }),
+        envelope({ envelope_id: 5, ciphertext: "1100" }),
+      ],
+    }]);
+    await store.setIdentity({ deviceId: "mine", secret: Uint8Array.of(1) });
+    await store.putConversation({
+      id: "c1", title: null, kind: "team", epoch: 0, syncedTo: 0, lastMessage: null, updatedAtMs: 0,
+    });
+    crypto.peeks.set(0x11, "welcome");
+
+    await conversations.sync(ctx, "c1");
+
+    expect((await store.conversation("c1"))?.joinedAt).toBe(5);
+  });
+
+  it("gives a team no name until one is sent, rather than naming it after its members", async () => {
+    const { ctx, store } = await context([{ status: 200, body: [{
+      conversation_id: "c1", kind: "team", epoch: 2, latest_envelope_id: 3,
+      members: ["me", "ada", "bo"],
+    }] }]);
+    await store.setAccount({ userId: 1, handle: "me", displayName: "Me" });
+
+    await conversations.discover(ctx);
+
+    const found = await store.conversation("c1");
+    expect(found?.kind).toBe("team");
+    expect(found?.title).toBeNull();
+  });
+
+  it("lets only an owner or admin rename a team; a group still lets anybody", async () => {
+    const { ctx, store, crypto } = await team([{
+      status: 200,
+      body: [
+        envelope({ envelope_id: 1, sender_device_id: "dev-bo" }),
+        envelope({ envelope_id: 2, sender_device_id: "dev-bo" }),
+        envelope({ envelope_id: 3, sender_device_id: "dev-ada" }),
+      ],
+    }]);
+    crypto.answers.push(
+      { kind: "message", sender: "dev-bo", epoch: 1n, plaintext: encode({ kind: "rename", title: "Hijacked" }) },
+      { kind: "message", sender: "dev-bo", epoch: 1n, plaintext: encode({ kind: "team_meta", description: "nope" }) },
+      { kind: "message", sender: "dev-ada", epoch: 1n, plaintext: encode({ kind: "rename", title: "Design crew" }) },
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await conversations.sync(ctx, "c1");
+
+    const row = await store.conversation("c1");
+    expect(row?.title).toBe("Design crew");
+    expect(row?.description).toBeUndefined();
+  });
+
+  it("keeps a team a team when a third person is added", async () => {
+    const { ctx, store, crypto } = await team([
+      { status: 200, body: { device_id: "dev-cy", key_package: "beef" } },
+      { status: 204, body: undefined },
+      { status: 200, body: { envelope_id: 1, epoch: 2 } },
+      { status: 200, body: { envelope_id: 2, epoch: 2 } },
+    ]);
+    crypto.group!.memberCount = 3;
+
+    await conversations.addTo(ctx, "c1", "cy");
+
+    expect((await store.conversation("c1"))?.kind).toBe("team");
   });
 });

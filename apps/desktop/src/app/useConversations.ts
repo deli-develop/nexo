@@ -197,7 +197,10 @@ export function useConversations(
   const loadList = useCallback(async () => {
     try {
       const wire = await listConversations();
-      setConversations(wire.map(toConversation));
+      // A team is a conversation underneath and is not one here: its posts
+      // are read on its board, and a row for it in Messages would open a chat
+      // view of something that is not a chat.
+      setConversations(wire.filter((c) => c.kind !== "team").map(toConversation));
     } catch (error) {
       const e = asConversationError(error);
       // Not being signed in is the ordinary state before login, not a problem

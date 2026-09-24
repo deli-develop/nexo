@@ -50,7 +50,11 @@ export function ForwardPicker({
         if (cancelled) return;
         // Archived ones are out: they are the conversations somebody put away,
         // and a picker is not the place to bring them back.
-        setConversations(found.filter((c) => !overrides[c.conversation_id]?.archived));
+        // Teams are out too: a forward into one would land on its board as
+        // a post from somebody who meant to send a message.
+        setConversations(
+          found.filter((c) => c.kind !== "team" && !overrides[c.conversation_id]?.archived),
+        );
       })
       .catch((error) => {
         if (!cancelled) setProblem(asConversationError(error).message);

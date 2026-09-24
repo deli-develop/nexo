@@ -2001,6 +2001,106 @@ the ring on the avatar on Profile, the hover state of the discs and of
 sign-out, and the unread dot on the rim of Messages. Not seen in the desktop
 app, and not with a real profile picture.
 
+### Since v0.1.31: a private account could be added to a group
+
+- **Adding someone now asks `may_reach`, as starting a conversation always
+  did.** `add_member` checked only that the caller was a member, so anybody
+  could start a conversation with anyone and then add a private account to it
+  — the private account's promise, "cannot be written to by somebody new", was
+  kept at one door and not the other. The question is asked of whoever does
+  the adding: someone already in touch with the private account may bring it
+  in, a stranger gets the same `refused` a block gives.
+
+**Verified** by `a_private_account_cannot_be_added_by_somebody_new` in
+`apps/server/tests/delivery.rs`, which fails without the fix (the stranger's
+add answered 204) and passes with it.
+
+### Since v0.1.31: the server keeps ciphertext, and the docs now say so
+
+- **Nothing deletes an envelope.** `THREAT-MODEL.md`, `OPS.md`,
+  `TELEGRAM-FEATURES.md` and four code comments said delivered ciphertext is
+  deleted on acknowledgement and undelivered ciphertext after 30 days. Walking
+  the code: `acknowledge` sets `delivered_at`, and no code anywhere reads it or
+  deletes a row. Every envelope stays until its conversation or its sending
+  device is deleted. It is still ciphertext nobody can open, so what changed is
+  what the documents claim, not what anybody can read.
+- **Not fixed, and why.** `delivered_at` is one stamp per envelope, set by the
+  first member to acknowledge, so a sweep on it would delete group messages
+  other members had not fetched. Deleting needs delivery recorded per
+  recipient, which is a design of its own. `BRIEF.md` §4.3 and `PLAN.md` are
+  left stating the intent.
+
+### Since v0.1.31: a group's picture outlived one sync pass
+
+- **`discover` kept only the fields it knew.** It rewrites every conversation
+  it lists, and the sync loop runs it every few seconds; the row it wrote had
+  no `avatar` and no `lastMessageOutgoing`. So a group's picture showed until
+  the next pass and then was gone, and a conversation whose newest message was
+  your own could be counted as unread again. Both are carried over now.
+
+**Verified** by "keeps a group's picture and who wrote last across a discover"
+in `packages/core/src/conversations.test.ts`.
+
+### Since v0.1.31: Teams
+
+A fifth destination, between Messages and Profile. A team is a private board
+of posts for up to 200 people, with an owner, admins and members, and
+everything in it end-to-end encrypted. It is a conversation underneath —
+`kind = 'team'`, one MLS group, the ordinary envelopes and sync — so nothing
+was built beside the delivery path.
+
+- **Server** (`apps/server/src/teams.rs`, migration `20260923120000_teams`):
+  create, list, roster (handle, role, joined — no activity field), role
+  changes, transfer, leave, delete. Adds and removals stay on
+  `/v1/conversations/{id}/members`, with the team rules added there: only the
+  owner and admins add or remove; an admin cannot remove the owner or another
+  admin; 200 people at most; a block or a private account without a way in is
+  refused. A team with a third member stays a team (the DM→group rule no
+  longer touches it). Every roster change publishes a `membership` nudge on
+  the socket, and a removed member's open socket stops carrying the team.
+- **Protocol 6**: `team_meta`, `team_post`, `team_comment`, `team_pin`,
+  `team_remove`, and the `membership` event. Name and picture reuse `rename`
+  and the encrypted `group_avatar`; reactions, edits and take-backs are the
+  ordinary ones.
+- **Client core** (`packages/core/src/teams.ts`, `board.ts`, `roster.ts`):
+  posts and comments are rows in `messages`, so edit, take back and react
+  work unchanged. Pins, admin removals, renames, descriptions and pictures are
+  **judged on arrival** against the roster and dropped from anybody who does
+  not moderate. An unreadable post leaves a card in its place; a device that
+  joined late records where, and the board says earlier posts are not here.
+  The page can now **remove somebody from an MLS group** (`removeMember` in
+  the wasm facade) — it could not before.
+- **The app**: the Teams list (search, *Teams* / *Invites*, Board · Members
+  under the open team), the board (header with the team's marker and one line
+  on what the server sees, a composer that says "Visible to the N members of
+  … End-to-end encrypted.", pinned first, posts with files, comments one level
+  deep, reactions, edit and take back, pin and remove for everyone), the
+  members screen, the add-people dialog, and settings (name, description,
+  picture, hand on, leave, delete). The Teams badge counts team posts; the
+  Messages badge, list, search and forward picker leave teams out.
+
+**Verified:** `tests/teams.rs` (13 server cases against Postgres, among them
+the one-owner race, the 201st member, blocks and private accounts at the door,
+and a removed member's socket); 52 protocol tests; `board.test.ts` and seven
+receive-path cases in core; **three devices over the real MLS module**
+(`packages/crypto-wasm/src/teams.test.ts`) — members read what was posted
+while they were in, a removed member cannot read the next post even with the
+ciphertext in hand, a late member reads nothing earlier and the board says
+so; the post menu's order and the add dialog's row states in vitest. The list,
+board, menus, members screen and add dialog were looked at in a browser at
+1280 and 375 px, on stand-in data.
+
+**Not verified:** anything with two real accounts — no session could be
+opened here. The by-hand pass in the Teams brief (§10: create, add, post with
+a picture, comment and react from the other side, promote, pin, remove, add a
+third account, transfer, leave, delete, on the Windows build and at phone
+width) has not been done. Neither has a picture in a post actually been
+uploaded and opened.
+
+**P1, not built:** the Files tab, pinned-post hand-off to new members,
+@mentions, "only admins can post". Also not built: a keyboard chord for the
+destination — none of the destinations has one.
+
 ---
 
 ## Relay (M5)

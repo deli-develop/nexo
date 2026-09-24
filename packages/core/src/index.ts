@@ -24,8 +24,10 @@ export type {
   StoredPeer,
   StoredReaction,
   StoredStory,
+  StoredTeamMark,
   StoredViewOnce,
   SearchHit,
+  TeamRole,
 } from "./store";
 export { SCHEMA_VERSION } from "./idb";
 export * as conversations from "./conversations";
@@ -35,6 +37,20 @@ export * as pin from "./pin";
 export * as feed from "./feed";
 export * as attachments from "./attachments";
 export * as blocks from "./blocks";
+export * as teams from "./teams";
+export type { AddOutcome, PostDraft, TeamSummary } from "./teams";
+export { buildBoard } from "./board";
+export type {
+  Board,
+  BoardComment,
+  BoardItem,
+  BoardPost,
+  BoardReaction,
+  BoardState,
+  UnreadableCard,
+  UnsupportedCard,
+} from "./board";
+export type { RosterEntry } from "./roster";
 export { Stream } from "./stream";
 export type { Context, SyncOutcome } from "./conversations";
 export type {
@@ -57,6 +73,7 @@ export type {
 export type {
   EnvelopeEvent,
   PresenceEvent,
+  MembershipEvent,
   ReceiptEvent,
   ServerEvent,
   StreamOptions,
@@ -69,6 +86,7 @@ export {
   forwardedText,
   isReactionEmoji,
   MAX_PEAKS,
+  TEAM_POST_MAX_FILES,
   payloadId,
   preview,
   voiceMeta,
@@ -81,6 +99,12 @@ export type {
   RenamePayload,
   ReplyPayload,
   RetractPayload,
+  SealedFile,
+  TeamCommentPayload,
+  TeamMetaPayload,
+  TeamPinPayload,
+  TeamPostPayload,
+  TeamRemovePayload,
   TextPayload,
   UnsupportedPayload,
   VoiceMeta,

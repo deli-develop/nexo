@@ -9,6 +9,7 @@ import {
   viewOnceBubble,
   type Payload,
 } from "./payload";
+import { moderates, refreshRoster, roleOfDevice } from "./roster";
 import { Store, type StoredConversation, type StoredMessage } from "./store";
 import type { Transport } from "./transport";
 import type {
@@ -392,11 +393,78 @@ export async function addTo(ctx: Context, conversationId: string, handle: string
   if (local) {
     await ctx.store.putConversation({
       ...local,
-      kind: group.memberCount > 2 ? "group" : local.kind,
+      // A 1:1 that gains a third person is a group, as the server decides too.
+      // Nothing else changes kind: a team with a third member is still a team.
+      kind: local.kind === "dm" && group.memberCount > 2 ? "group" : local.kind,
       epoch,
     });
   }
   if (staged.welcome) await sendEnvelope(ctx, conversationId, staged.welcome, epoch, false);
+}
+
+/**
+ * Takes somebody out: routing first, then the MLS commit for each of their
+ * devices.
+ *
+ * Routing first because it is the step with a rule on it -- in a team, only
+ * the server knows whether the caller may remove this person, and a commit
+ * sent before asking would remove them from the group whatever the answer.
+ * Their devices are looked up before the routing row goes, because afterwards
+ * the server no longer lists them.
+ */
+export async function removeFrom(
+  ctx: Context,
+  conversationId: string,
+  handle: string,
+): Promise<void> {
+  requireGroup(ctx, conversationId);
+  let devices = await devicesOf(ctx, conversationId, handle);
+  if (devices.length === 0) {
+    await discover(ctx);
+    devices = await devicesOf(ctx, conversationId, handle);
+  }
+  await ctx.transport.postAuth<void>(`/v1/conversations/${conversationId}/members/remove`, {
+    handle,
+  });
+  for (const deviceId of devices) await removeDevice(ctx, conversationId, deviceId);
+}
+
+/**
+ * The MLS half of a removal, for one device. Staged like every commit: sent,
+ * then confirmed if the server took it, abandoned if not.
+ *
+ * Also what closes the gap a routing-only removal leaves -- somebody who left
+ * a team took their own row away, and an owner's or admin's device commits
+ * them out of the group when it notices (`teams.reconcile`).
+ */
+export async function removeDevice(
+  ctx: Context,
+  conversationId: string,
+  deviceId: string,
+): Promise<void> {
+  const group = requireGroup(ctx, conversationId);
+  if (!group.members().some((member) => member.deviceId === deviceId)) return;
+  const staged = group.removeMember(ctx.device, deviceId);
+  try {
+    await sendEnvelope(ctx, conversationId, staged.message, Number(group.epoch), true);
+  } catch (error) {
+    group.abandonCommit(ctx.device);
+    await persist(ctx);
+    throw error;
+  }
+  const epoch = Number(group.confirmCommit(ctx.device, clock(ctx)));
+  await persist(ctx);
+  await recordMembership(ctx, conversationId, group);
+  const local = await ctx.store.conversation(conversationId);
+  if (local) await ctx.store.putConversation({ ...local, epoch });
+}
+
+async function devicesOf(ctx: Context, conversationId: string, handle: string): Promise<string[]> {
+  const devices = (await ctx.store.conversation(conversationId))?.memberDevices ?? {};
+  const wanted = handle.toLowerCase();
+  return Object.entries(devices)
+    .filter(([, owner]) => owner.toLowerCase() === wanted)
+    .map(([deviceId]) => deviceId);
 }
 
 async function sendEnvelope(
@@ -670,6 +738,15 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
     outcome.joined = true;
     await persist(ctx);
   }
+  // Where this device came in. Kept, because a team's board has to say that
+  // what came before is not here -- and the next sync will not see this
+  // Welcome again to be asked.
+  if (joinedAt !== null) {
+    const row = await ctx.store.conversation(conversationId);
+    if (row && row.joinedAt === undefined) {
+      await ctx.store.putConversation({ ...row, joinedAt });
+    }
+  }
 
   let cursor = since;
   const group: Group | undefined = ctx.crypto.loadGroup(ctx.device, conversationId, clock(ctx));
@@ -715,6 +792,22 @@ export async function sync(ctx: Context, conversationId: string): Promise<SyncOu
       // message nobody can read is something somebody needs to be told about.
       outcome.failed += 1;
       await persist(ctx);
+      // On a team's board it is also said *where*: a card in the place the
+      // post would have been, so the board does not read as though nothing
+      // was posted then. It has no name, so nothing can point at it.
+      if ((await ctx.store.conversation(conversationId))?.kind === "team") {
+        await ctx.store.appendMessage(
+          {
+            id: envelope.envelope_id,
+            conversationId,
+            senderDeviceId: envelope.sender_device_id,
+            body: "",
+            sentAtMs: envelope.server_timestamp_ms,
+            payload: UNREADABLE,
+          },
+          envelope.envelope_id,
+        );
+      }
       continue;
     }
     await persist(ctx);
@@ -823,7 +916,10 @@ export async function discover(ctx: Context): Promise<string[]> {
     // name devices, and an invitee learns of a conversation only through this
     // list. Without the handle there is nothing to call it but "Unnamed".
     const others = summary.members.filter((member) => member !== me);
+    // A team is not named after its members: its name is the first `rename`
+    // somebody sends, and until then it has none (the UI says "New team").
     const title = summary.kind === "self" ? SELF_TITLE
+      : summary.kind === "team" ? undefined
       : others.length === 1 ? others[0]
       : others.length > 1 ? others.join(", ") : undefined;
     await remember(ctx, summary, title);
@@ -879,6 +975,7 @@ async function applyIncoming(
 
   switch (payload.kind) {
     case "rename":
+      if (await teamRefuses(ctx, conversationId, from)) return false;
       await setTitle(ctx, conversationId, payload.title);
       return false;
 
@@ -963,17 +1060,43 @@ async function applyIncoming(
     }
 
     case "group_avatar":
+      if (await teamRefuses(ctx, conversationId, from)) return false;
       // The payload is kept, not the picture: it holds the key, and the bytes
       // are fetched when something actually needs to draw them.
       await setAvatar(ctx, conversationId, JSON.stringify(payload));
       return false;
+
+    case "team_meta":
+      if (await teamRefuses(ctx, conversationId, from)) return false;
+      await setDescription(ctx, conversationId, payload.description);
+      return false;
+
+    case "team_pin":
+    case "team_remove": {
+      // Honoured only from an owner or an admin, asked now. The server could
+      // not ask: it never saw that this was a pin. A mark from anybody else
+      // is dropped rather than stored, so a later promotion cannot revive it.
+      if (!(await moderatesNow(ctx, conversationId, from))) {
+        console.warn(`ignored a ${payload.kind} from a device that does not moderate this team`);
+        return false;
+      }
+      await ctx.store.setTeamMark({
+        conversationId,
+        kind: payload.kind === "team_pin" ? "pin" : "remove",
+        target: payload.kind === "team_pin" ? payload.post : payload.target,
+        on: payload.kind === "team_pin" ? payload.pinned : true,
+        byDeviceId: from,
+        atMs: at,
+      });
+      return false;
+    }
 
     default: {
       const message: StoredMessage = {
         id: envelope.envelope_id,
         conversationId,
         senderDeviceId: from,
-        body: preview(payload),
+        body: bodyOf(payload),
         sentAtMs: at,
       };
       const name = payloadId(payload);
@@ -1047,6 +1170,24 @@ async function applyOwn(
       await setAvatar(ctx, conversationId, JSON.stringify(payload));
       return;
 
+    case "team_meta":
+      await setDescription(ctx, conversationId, payload.description);
+      return;
+
+    case "team_pin":
+    case "team_remove":
+      // `teams.ts` offers these only to an owner or admin; the receivers make
+      // up their own minds regardless.
+      await ctx.store.setTeamMark({
+        conversationId,
+        kind: payload.kind === "team_pin" ? "pin" : "remove",
+        target: payload.kind === "team_pin" ? payload.post : payload.target,
+        on: payload.kind === "team_pin" ? payload.pinned : true,
+        byDeviceId: "self",
+        atMs: at,
+      });
+      return;
+
     case "view_once":
       // Ours to show, never ours to open: the bubble, and no key kept once
       // the server has the envelope.
@@ -1071,7 +1212,7 @@ async function applyOwn(
         // `null`, not our device id: MLS names the sender and we are it. The
         // thread uses exactly this to decide which side a bubble sits on.
         senderDeviceId: null,
-        body: preview(payload),
+        body: bodyOf(payload),
         sentAtMs: at,
         clientId: clientMsgId,
       };
@@ -1195,6 +1336,22 @@ async function remember(
     // invitation sorted to the bottom is an invitation nobody finds.
     updatedAtMs: existing?.updatedAtMs ?? clock(ctx),
   };
+  // Carried over, not reset: `discover` rewrites this row on every pass, and a
+  // field it does not know about would otherwise last only until the next one.
+  if (existing?.avatar !== undefined) conversation.avatar = existing.avatar;
+  if (existing?.lastMessageOutgoing !== undefined) {
+    conversation.lastMessageOutgoing = existing.lastMessageOutgoing;
+  }
+  if (existing?.description !== undefined) conversation.description = existing.description;
+  if (existing?.joinedAt !== undefined) conversation.joinedAt = existing.joinedAt;
+  if (existing?.roles !== undefined) conversation.roles = existing.roles;
+  if (summary.member_devices !== undefined) {
+    conversation.memberDevices = Object.fromEntries(
+      summary.member_devices.map((member) => [member.device_id, member.handle]),
+    );
+  } else if (existing?.memberDevices !== undefined) {
+    conversation.memberDevices = existing.memberDevices;
+  }
   await ctx.store.putConversation(conversation);
 }
 
@@ -1227,6 +1384,63 @@ async function setAvatar(ctx: Context, conversationId: string, encoded: string):
   if (!existing) return;
   await ctx.store.putConversation({ ...existing, avatar: encoded });
 }
+
+async function setDescription(ctx: Context, conversationId: string, description: string): Promise<void> {
+  const existing = await ctx.store.conversation(conversationId);
+  if (!existing) return;
+  await ctx.store.putConversation({ ...existing, description });
+}
+
+/**
+ * What a message row's `body` holds: the words somebody wrote.
+ *
+ * A team post or comment is not previewed -- teams are not in the
+ * conversation list -- but its words still belong in `body`, which is what an
+ * edit rewrites and a take-back empties.
+ */
+function bodyOf(payload: Payload): string {
+  if (payload.kind === "team_post" || payload.kind === "team_comment") return payload.body;
+  return preview(payload);
+}
+
+/**
+ * Whether the device that sent something moderates this team now.
+ *
+ * Read from the roster kept beside the team. When the device or its owner's
+ * role is not in it -- somebody added or promoted since this device last
+ * looked -- the roster and the device list are read again once. Offline, or
+ * still unknown after that, the answer is no: a pin nobody can vouch for is
+ * not applied.
+ */
+async function moderatesNow(ctx: Context, conversationId: string, deviceId: string): Promise<boolean> {
+  const role = roleOfDevice(await ctx.store.conversation(conversationId), deviceId);
+  if (role !== undefined) return moderates(role);
+  try {
+    await discover(ctx);
+    await refreshRoster(ctx.transport, ctx.store, conversationId);
+  } catch {
+    return false;
+  }
+  return moderates(roleOfDevice(await ctx.store.conversation(conversationId), deviceId));
+}
+
+/**
+ * Whether a team refuses something from this device: its name, description or
+ * picture changed by somebody who does not moderate it.
+ *
+ * A group lets anybody in it rename it; a team has an owner and admins, and
+ * the name is theirs to change. Checked on arrival for the reason pins are --
+ * the server cannot see that this is a rename. Never refuses outside a team.
+ */
+async function teamRefuses(ctx: Context, conversationId: string, deviceId: string): Promise<boolean> {
+  if ((await ctx.store.conversation(conversationId))?.kind !== "team") return false;
+  if (await moderatesNow(ctx, conversationId, deviceId)) return false;
+  console.warn("ignored a change to a team's name, description or picture from a non-moderator");
+  return true;
+}
+
+/** What an unreadable team post's placeholder row carries, and nothing else. */
+export const UNREADABLE = JSON.stringify({ kind: "unreadable" });
 
 const HEX = "0123456789abcdef";
 

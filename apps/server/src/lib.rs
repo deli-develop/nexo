@@ -36,6 +36,7 @@ pub mod state;
 pub mod storage;
 pub mod stories;
 pub mod stream;
+pub mod teams;
 
 pub use auth::TokenKeys;
 pub use state::AppState;
@@ -180,6 +181,7 @@ pub fn router(state: AppState) -> Router {
         .merge(stories::router())
         .merge(follows::router())
         .merge(stream::router())
+        .merge(teams::router())
         .layer(TraceLayer::new_for_http());
 
     // Applied outermost, so a preflight is answered before anything else runs.

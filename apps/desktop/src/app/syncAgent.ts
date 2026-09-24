@@ -119,8 +119,11 @@ async function handleArrivals(result: SyncResult): Promise<void> {
     arrival,
     decision: arrivalDecision({
       conversationId: arrival.conversation_id,
-      activeConversationId: state.activeConversationId,
-      onMessagesRoute: state.route === "messages",
+      // An open team board is read the way an open conversation is: what
+      // arrives on it while it is on screen is not unread.
+      activeConversationId:
+        state.route === "teams" ? state.activeTeamId : state.activeConversationId,
+      onMessagesRoute: state.route === "messages" || state.route === "teams",
       windowFocused,
       muted: isMuted(state.conversationOverrides[arrival.conversation_id], now),
     }),

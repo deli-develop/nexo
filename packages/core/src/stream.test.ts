@@ -128,6 +128,18 @@ describe("Stream", () => {
     socket.stop();
   });
 
+  it("passes the membership nudge through", async () => {
+    const seen: ServerEvent[] = [];
+    const socket = stream({ onEvent: (event) => seen.push(event) });
+    socket.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    sockets[0]!.onmessage!({ data: '{"type":"membership","conversation_id":"t1"}' });
+
+    expect(seen).toEqual([{ type: "membership", conversation_id: "t1" }]);
+    socket.stop();
+  });
+
   it("drops a typing notice when there is no socket rather than queueing it", async () => {
     const socket = stream();
     socket.typing("c1");

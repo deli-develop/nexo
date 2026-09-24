@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, m.role,\n                (SELECT count(*) FROM conversation_members all_m\n                 WHERE all_m.conversation_id = c.id) AS \"member_count!\",\n                (EXTRACT(EPOCH FROM c.created_at) * 1000)::BIGINT AS \"created_at_ms!\"\n         FROM conversations c\n         JOIN conversation_members m ON m.conversation_id = c.id\n         WHERE m.user_id = $1 AND c.kind = 'team'\n         ORDER BY c.created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "member_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at_ms!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "2b2b3907c397f62fd69f1ad66f1cacbabe528bdb7d6c7db9bbe4edfa59467f49"
+}

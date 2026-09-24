@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.handle, m.role,\n                (EXTRACT(EPOCH FROM m.joined_at) * 1000)::BIGINT AS \"joined_at_ms!\"\n         FROM conversation_members m\n         JOIN users u ON u.id = m.user_id\n         WHERE m.conversation_id = $1\n         ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,\n                  m.joined_at, u.handle",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "handle",
+        "type_info": {
+          "Custom": {
+            "name": "citext",
+            "kind": "Simple"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "joined_at_ms!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "d5055f698adba276ab513f8d5af4b8a701176f54a851dfe09bdd7a5f448ed41c"
+}

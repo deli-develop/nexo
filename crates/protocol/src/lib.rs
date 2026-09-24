@@ -24,8 +24,12 @@ pub use uuid::Uuid as MessageId;
 /// name of its own, so a later reaction, edit or retraction can refer to it.
 /// 4 takes the Meet&Greet types away again — the map is gone, and a build
 /// that still speaks 3 would expect endpoints this server no longer has. 5
-/// does the same for calls: no `Payload::Call`, no signalling, no relay.
-pub const PROTOCOL_VERSION: u16 = 5;
+/// does the same for calls: no `Payload::Call`, no signalling, no relay. 6
+/// adds teams: the `team_*` payloads and [`ServerEvent::Membership`]. Nothing
+/// older changes shape, and a build that speaks 5 reads a team payload as one
+/// it needs a newer version for and drops the event, which is the fallback
+/// both were written to have.
+pub const PROTOCOL_VERSION: u16 = 6;
 
 /// A conversation identifier. One MLS group per conversation; a 1:1 chat is a
 /// two-member group with no special-casing (§4.2).
@@ -56,6 +60,41 @@ pub struct Envelope {
     /// server; a client-supplied value is ignored.
     pub server_timestamp_ms: i64,
 }
+
+/// A file in object storage, and the only copy of the key that opens it.
+///
+/// The fields of [`Payload::Attachment`] that describe the file, as a value of
+/// their own so a team post can carry several. Sealed the same way and opened
+/// the same way -- whole, or in segments when `segmented` says so -- and the
+/// same rule holds: the key never leaves an MLS message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SealedFile {
+    /// Where the ciphertext sits in the bucket.
+    pub s3_key: String,
+    /// The AES-256-GCM key, hex. **Never leaves an MLS message.**
+    pub key: String,
+    /// The nonce, hex. Fresh per file.
+    pub nonce: String,
+    /// SHA-256 of the *plaintext*, hex.
+    pub sha256: String,
+    /// The original file name. Inside the ciphertext, never beside it.
+    pub name: String,
+    /// MIME type, likewise inside.
+    pub mime: String,
+    /// Plaintext size in bytes.
+    pub size: u64,
+    /// Whether the object is sealed in segments. See [`Payload::Attachment`].
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub segmented: bool,
+}
+
+/// The most files a team post's reader draws.
+///
+/// A cap on the reader, because the sender is not trusted to keep one: a post
+/// built by something other than this app could name a thousand objects, and
+/// every one is a download. The files past the cap are not drawn and the post
+/// says how many were left out, rather than silently showing fewer.
+pub const TEAM_POST_MAX_FILES: usize = 10;
 
 /// What a recorded message carries besides its bytes.
 ///
@@ -473,6 +512,87 @@ pub enum Payload {
         /// to go, and only the reader can remove that.
         expires_at_ms: i64,
     },
+    /// What a team says about itself, beyond its name and picture.
+    ///
+    /// Only the description. The name is a [`Payload::Rename`] and the picture
+    /// a [`Payload::GroupAvatar`], because a team is a conversation and those
+    /// already say both -- a team twin of either would be a second way to
+    /// change the same thing, and a receiver would have to decide which one
+    /// wins. All three are inside the ciphertext, which is the point: a team's
+    /// name, description and picture are what its members chose to show each
+    /// other, and the server has no column for any of them.
+    ///
+    /// Last writer wins by envelope order, like a rename. An empty string
+    /// clears it.
+    TeamMeta {
+        /// What the team is for, in its members' words.
+        description: String,
+    },
+    /// A post on a team's board.
+    ///
+    /// The feed's shape -- an optional title, a body, some files -- inside an
+    /// MLS message, where the feed's is a row the server can read. That
+    /// difference is the whole feature, and it is why this is a payload and
+    /// not a table: see `docs/THREAT-MODEL.md` on teams.
+    ///
+    /// Reactions, edits and take-backs reach a post through the ordinary
+    /// [`Payload::Reaction`], [`Payload::Edit`] and [`Payload::Retract`],
+    /// which name their target by `id`. An edit replaces the body; the title
+    /// stays as posted.
+    TeamPost {
+        /// This sender's name for the post. Always present: a post nobody can
+        /// name could not be commented on, reacted to or pinned.
+        id: Uuid,
+        /// An optional headline.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// The post.
+        body: String,
+        /// Files, each sealed like an [`Payload::Attachment`]. At most
+        /// [`TEAM_POST_MAX_FILES`] are drawn.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<SealedFile>,
+    },
+    /// A comment on a team post, or an answer to one.
+    ///
+    /// One level of answers and no deeper: `parent` names a comment, and that
+    /// comment must itself answer the post directly. The receiver checks it,
+    /// because nobody else can -- the server never sees this. A comment that
+    /// breaks the rule is drawn as an answer to the post rather than dropped,
+    /// so what somebody said is not lost to a malformed reference.
+    TeamComment {
+        /// This sender's name for the comment.
+        id: Uuid,
+        /// The post it belongs to.
+        post: Uuid,
+        /// The top-level comment it answers, if it answers one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<Uuid>,
+        /// The comment.
+        body: String,
+    },
+    /// Pin a post to the top of the board, or unpin it.
+    ///
+    /// Honoured only from an owner or an admin **at the moment it arrives**,
+    /// judged by each receiver against the member list the server keeps. The
+    /// server cannot judge it: it cannot see that this is a pin.
+    TeamPin {
+        /// The post.
+        post: Uuid,
+        /// True to pin, false to unpin.
+        pinned: bool,
+    },
+    /// An admin's "remove for everyone" of a post or a comment.
+    ///
+    /// The same kind of promise as [`Payload::Retract`]: a request that every
+    /// Nexo installation honours and a modified one can ignore, and it cannot
+    /// reach a copy somebody already saved. Honoured only from an owner or an
+    /// admin, checked by the receiver exactly as for [`Payload::TeamPin`]. The
+    /// author's own take-back is a `Retract`, not this.
+    TeamRemove {
+        /// The post or comment, by its `id`.
+        target: Uuid,
+    },
     /// A payload this build cannot read.
     ///
     /// Produced only by [`Payload::decode`] and never sent — it is what a
@@ -547,6 +667,9 @@ impl Payload {
             | Payload::Reply { id, .. } => *id,
             // Always named -- see the variant.
             Payload::ViewOnce { id, .. } => Some(*id),
+            // Always named: a post or a comment is what comments, reactions,
+            // edits, pins and removals point at.
+            Payload::TeamPost { id, .. } | Payload::TeamComment { id, .. } => Some(*id),
             // Named `message_id` rather than `id`, because `id` on this variant
             // already means the sticker.
             Payload::Sticker { message_id, .. } => *message_id,
@@ -587,6 +710,13 @@ impl Payload {
             | Payload::Retract { .. }
             | Payload::Edit { .. }
             | Payload::Story { .. }
+            // A team is not in the conversation list at all -- the board is
+            // where its posts are read -- so none of these previews anything.
+            | Payload::TeamMeta { .. }
+            | Payload::TeamPost { .. }
+            | Payload::TeamComment { .. }
+            | Payload::TeamPin { .. }
+            | Payload::TeamRemove { .. }
             => "",
             // Nor is this. Whatever it says, this build cannot read it, and
             // guessing at a preview would be the same mistake in a smaller
@@ -772,6 +902,18 @@ pub enum ServerEvent {
         /// A machine-readable reason.
         reason: String,
     },
+    /// Who is in a conversation, or what they may do there, changed.
+    ///
+    /// A nudge and not the change: it names the conversation and nothing else,
+    /// and the client asks for the member list again. Carrying the change
+    /// itself would make this a second source for the member list, one that a
+    /// dropped socket silently misses; the list route is the one source, and
+    /// this only says when to read it. Sent to every member, including one who
+    /// has just been removed -- the next read is what tells them.
+    Membership {
+        /// Which conversation.
+        conversation_id: ConversationId,
+    },
 }
 
 /// What a client sends up the WebSocket (§5.2).
@@ -780,8 +922,9 @@ pub enum ServerEvent {
 pub enum ClientEvent {
     /// Confirms an envelope was received, so the server can stop holding it.
     ///
-    /// Delivered ciphertext is deleted on acknowledgement (§4.3); this is what
-    /// triggers that.
+    /// §4.3 means this to be what deletes delivered ciphertext. Today it only
+    /// marks it delivered -- nothing deletes it yet; see `acknowledge` in the
+    /// server's `stream` module.
     Ack {
         /// Which conversation.
         conversation_id: ConversationId,
@@ -1479,5 +1622,180 @@ mod tests {
             expires_at_ms: 7,
         };
         assert_eq!(Payload::decode(&payload.encode()), payload);
+    }
+
+    fn sealed(name: &str) -> SealedFile {
+        SealedFile {
+            s3_key: format!("enc/team/{name}"),
+            key: "aa".repeat(32),
+            nonce: "bb".repeat(12),
+            sha256: "cc".repeat(32),
+            name: name.into(),
+            mime: "image/png".into(),
+            size: 512,
+            segmented: false,
+        }
+    }
+
+    fn post(title: Option<&str>, files: Vec<SealedFile>) -> Payload {
+        Payload::TeamPost {
+            id: Uuid::new_v4(),
+            title: title.map(str::to_string),
+            body: "Standup moves to 10:00".into(),
+            files,
+        }
+    }
+
+    /// Every team payload survives the trip, and each carries the `kind` the
+    /// TypeScript mirror lists in `KNOWN`. A name that drifted on either side
+    /// would draw a perfectly good post as "needs a newer version".
+    #[test]
+    fn team_payloads_round_trip_under_their_wire_names() {
+        let target = Uuid::new_v4();
+        let cases = [
+            (
+                Payload::TeamMeta {
+                    description: "Design crew".into(),
+                },
+                "team_meta",
+            ),
+            (
+                post(Some("Monday"), vec![sealed("a.png"), sealed("b.png")]),
+                "team_post",
+            ),
+            (
+                Payload::TeamComment {
+                    id: Uuid::new_v4(),
+                    post: target,
+                    parent: Some(Uuid::new_v4()),
+                    body: "Works for me".into(),
+                },
+                "team_comment",
+            ),
+            (
+                Payload::TeamPin {
+                    post: target,
+                    pinned: true,
+                },
+                "team_pin",
+            ),
+            (Payload::TeamRemove { target }, "team_remove"),
+        ];
+        for (payload, kind) in cases {
+            let json: serde_json::Value = serde_json::from_slice(&payload.encode()).unwrap();
+            assert_eq!(json["kind"], kind);
+            assert_eq!(Payload::decode(&payload.encode()), payload);
+        }
+    }
+
+    /// The optional parts are absent from the wire when they are absent, so a
+    /// plain post is no larger than it needs to be and says nothing about the
+    /// title or files it does not have.
+    #[test]
+    fn a_plain_team_post_carries_no_empty_title_or_file_list() {
+        let json = String::from_utf8(post(None, vec![]).encode()).unwrap();
+        assert!(!json.contains("title"), "{json}");
+        assert!(!json.contains("files"), "{json}");
+
+        let comment = Payload::TeamComment {
+            id: Uuid::new_v4(),
+            post: Uuid::new_v4(),
+            parent: None,
+            body: "first".into(),
+        };
+        let json = String::from_utf8(comment.encode()).unwrap();
+        assert!(!json.contains("parent"), "{json}");
+        assert_eq!(Payload::decode(comment.encode_string().as_bytes()), comment);
+    }
+
+    /// The cap is the reader's, not the decoder's: a post with more files than
+    /// are drawn still decodes, so the reader can say how many it left out.
+    #[test]
+    fn a_team_post_past_the_file_cap_still_decodes() {
+        let files: Vec<SealedFile> = (0..TEAM_POST_MAX_FILES + 3)
+            .map(|i| sealed(&format!("{i}.png")))
+            .collect();
+        match Payload::decode(&post(None, files).encode()) {
+            Payload::TeamPost { files, .. } => {
+                assert_eq!(files.len(), TEAM_POST_MAX_FILES + 3)
+            }
+            other => panic!("expected a team post, got {other:?}"),
+        }
+    }
+
+    /// Posts and comments are what everything else points at, so they are
+    /// always named. The rest change state and are not themselves targets.
+    #[test]
+    fn team_posts_and_comments_are_named_and_the_rest_are_not() {
+        let named = post(None, vec![]);
+        assert!(named.id().is_some());
+        let comment = Payload::TeamComment {
+            id: Uuid::new_v4(),
+            post: Uuid::new_v4(),
+            parent: None,
+            body: "x".into(),
+        };
+        assert!(comment.id().is_some());
+
+        for payload in [
+            Payload::TeamMeta {
+                description: String::new(),
+            },
+            Payload::TeamPin {
+                post: Uuid::new_v4(),
+                pinned: false,
+            },
+            Payload::TeamRemove {
+                target: Uuid::new_v4(),
+            },
+        ] {
+            assert_eq!(payload.id(), None, "{payload:?}");
+        }
+    }
+
+    /// A team is read on its board, never in the conversation list.
+    #[test]
+    fn team_payloads_preview_as_nothing() {
+        assert_eq!(post(Some("Title"), vec![]).preview(), "");
+        assert_eq!(
+            Payload::TeamMeta {
+                description: "about".into()
+            }
+            .preview(),
+            ""
+        );
+    }
+
+    /// Adding the team variants changes nothing an older build sends: an
+    /// ordinary message is byte-for-byte what it was at protocol 5.
+    #[test]
+    fn an_ordinary_message_is_byte_identical_after_teams() {
+        let payload = Payload::Text {
+            body: "hello".into(),
+            id: Some(Uuid::from_u128(1)),
+            forwarded_from: None,
+            forwarded: false,
+        };
+        assert_eq!(
+            payload.encode_string(),
+            r#"{"kind":"text","body":"hello","id":"00000000-0000-0000-0000-000000000001"}"#
+        );
+    }
+
+    /// The membership nudge names the conversation and nothing else.
+    #[test]
+    fn a_membership_event_carries_only_the_conversation() {
+        let event = ServerEvent::Membership {
+            conversation_id: Uuid::from_u128(7),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "type": "membership",
+                "conversation_id": "00000000-0000-0000-0000-000000000007",
+            })
+        );
+        assert_eq!(serde_json::from_value::<ServerEvent>(json).unwrap(), event);
     }
 }

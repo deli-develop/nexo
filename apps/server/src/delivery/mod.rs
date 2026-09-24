@@ -63,11 +63,21 @@ pub enum DeliveryError {
     Invalid(String),
     /// Refused for a reason the caller is not told.
     ///
-    /// Today that means a block. The message is deliberately the same one any
-    /// other delivery failure would produce: someone who has been blocked
-    /// should not be able to tell that from a message that simply did not go
-    /// through. See `blocks.rs` for why that asymmetry is the point.
+    /// Today that means a block, or a private account that has not let the
+    /// caller in (`invites::may_reach`). The message is deliberately the same
+    /// one any other delivery failure would produce: someone who has been
+    /// blocked should not be able to tell that from a message that simply did
+    /// not go through, and nobody should learn from it who is private. See
+    /// `blocks.rs` for why that asymmetry is the point.
     Refused,
+    /// A team member tried something their role does not allow.
+    ///
+    /// Said plainly, unlike [`DeliveryError::Refused`]: everybody in a team can
+    /// see everybody's role, so there is nothing to hide in saying which rule
+    /// applied.
+    NotPermitted(&'static str),
+    /// A team already has [`crate::teams::MAX_MEMBERS`] people in it.
+    TeamFull,
     /// Over a rate limit (BRIEF 4.5).
     ///
     /// No detail and no retry-after: how much budget is left, and which limit
@@ -121,6 +131,18 @@ impl IntoResponse for DeliveryError {
                 StatusCode::FORBIDDEN,
                 "refused",
                 "That could not be delivered.".to_string(),
+                None,
+            ),
+            DeliveryError::NotPermitted(message) => (
+                StatusCode::FORBIDDEN,
+                "not_permitted",
+                message.to_string(),
+                None,
+            ),
+            DeliveryError::TeamFull => (
+                StatusCode::CONFLICT,
+                "team_full",
+                format!("A team holds at most {} people.", crate::teams::MAX_MEMBERS),
                 None,
             ),
             DeliveryError::TooManyRequests => (
@@ -570,16 +592,22 @@ async fn discard_conversation(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, DeliveryError> {
     let member = sqlx::query!(
-        "SELECT 1 AS \"present!\" FROM conversation_members
-         WHERE conversation_id = $1 AND user_id = $2",
+        "SELECT c.kind, m.role FROM conversation_members m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.conversation_id = $1 AND m.user_id = $2",
         id,
         caller.user_id
     )
     .fetch_optional(&state.db)
-    .await?;
-    if member.is_none() {
-        // The same answer a conversation that does not exist gives.
-        return Err(DeliveryError::NotAMember);
+    .await?
+    // The same answer a conversation that does not exist gives.
+    .ok_or(DeliveryError::NotAMember)?;
+    // A team that never carried anything is still its owner's to take back,
+    // not the first person added to it.
+    if member.kind == "team" && member.role != "owner" {
+        return Err(DeliveryError::NotPermitted(
+            "Only the owner can discard a team.",
+        ));
     }
 
     // One statement, so there is no window between the check and the delete in
@@ -680,17 +708,18 @@ async fn add_member(
 
     let mut tx = state.db.begin().await?;
 
-    // Only a member may add a member.
-    let member = sqlx::query!(
-        "SELECT 1 AS \"ok!\" FROM conversation_members
-         WHERE conversation_id = $1 AND user_id = $2",
-        conversation_id,
-        caller.user_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    if member.is_none() {
-        return Err(DeliveryError::NotAMember);
+    // Only a member may add a member -- and in a team, only its owner or an
+    // admin (`teams.rs`). A group keeps its old rule: anybody in it.
+    let kind = member_kind(&mut tx, conversation_id, caller.user_id).await?;
+    let team = kind == "team";
+    if team {
+        crate::teams::lock_team(&mut tx, conversation_id).await?;
+        let actor = crate::teams::role_in(&mut *tx, conversation_id, caller.user_id).await?;
+        if !crate::teams::may_add(actor) {
+            return Err(DeliveryError::NotPermitted(
+                "Only the owner and admins can add people to a team.",
+            ));
+        }
     }
 
     let user = sqlx::query!(
@@ -700,6 +729,41 @@ async fn add_member(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(DeliveryError::NotFound("user"))?;
+
+    // The door `create_conversation` checks, and for the same reason: a private
+    // account cannot be written to by somebody new. It used to be checked only
+    // there, so the way past it was to start a conversation with anybody at all
+    // and then add the private account to it -- which put a stranger's messages
+    // in front of them exactly as if the door had been open. Asked of the
+    // caller, because the caller is the one reaching; the other members are
+    // not vouched for by being in the room.
+    if !crate::invites::may_reach(&state.db, caller.user_id, user.id, None).await? {
+        return Err(DeliveryError::Refused);
+    }
+
+    if team {
+        // A block keeps somebody out of a team the way it keeps them out of a
+        // conversation: refused before anything is written, with the answer a
+        // block always gives. Only the adder and the added are asked. Inside a
+        // team, as inside a group, a block between two members cannot split one
+        // MLS state in two -- see `send`.
+        if crate::blocks::blocked_between(&state.db, caller.user_id, user.id).await? {
+            return Err(DeliveryError::Refused);
+        }
+        // Under the team's lock, so two adds cannot both take the last seat.
+        let seats = sqlx::query!(
+            "SELECT count(*) AS \"members!\",
+                    bool_or(user_id = $2) AS \"present!\"
+             FROM conversation_members WHERE conversation_id = $1",
+            conversation_id,
+            user.id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !seats.present && seats.members >= crate::teams::MAX_MEMBERS {
+            return Err(DeliveryError::TeamFull);
+        }
+    }
 
     sqlx::query!(
         "INSERT INTO conversation_members (conversation_id, user_id)
@@ -711,10 +775,12 @@ async fn add_member(
     .await?;
 
     // A 1:1 that gains a third person is a group. The distinction is for the
-    // UI; MLS treats them identically (brief 4.2).
+    // UI; MLS treats them identically (brief 4.2). Only a 1:1: a team with a
+    // third member is still a team, and turning it into a group would drop
+    // every role in it.
     sqlx::query!(
         "UPDATE conversations SET kind = 'group'
-         WHERE id = $1
+         WHERE id = $1 AND kind = 'dm'
            AND (SELECT count(*) FROM conversation_members WHERE conversation_id = $1) > 2",
         conversation_id
     )
@@ -722,7 +788,31 @@ async fn add_member(
     .await?;
 
     tx.commit().await?;
+    if team {
+        crate::teams::announce(&state, conversation_id);
+    }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// What kind of conversation this is, for a caller who is in it.
+///
+/// `NotAMember` otherwise -- the same answer a missing conversation gives.
+async fn member_kind(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    conversation_id: Uuid,
+    user_id: i64,
+) -> Result<String, DeliveryError> {
+    Ok(sqlx::query!(
+        "SELECT c.kind FROM conversation_members m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.conversation_id = $1 AND m.user_id = $2",
+        conversation_id,
+        user_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(DeliveryError::NotAMember)?
+    .kind)
 }
 
 /// Removes someone from a conversation.
@@ -744,17 +834,8 @@ async fn remove_member(
 
     let mut tx = state.db.begin().await?;
 
-    let member = sqlx::query!(
-        "SELECT 1 AS \"ok!\" FROM conversation_members
-         WHERE conversation_id = $1 AND user_id = $2",
-        conversation_id,
-        caller.user_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    if member.is_none() {
-        return Err(DeliveryError::NotAMember);
-    }
+    let kind = member_kind(&mut tx, conversation_id, caller.user_id).await?;
+    let team = kind == "team";
 
     let user = sqlx::query!(
         "SELECT id FROM users WHERE handle = $1",
@@ -763,6 +844,25 @@ async fn remove_member(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(DeliveryError::NotFound("user"))?;
+
+    // In a team, removal goes down the ladder only (`teams::may_remove`). In a
+    // group, anybody in it may remove anybody, as before.
+    if team {
+        crate::teams::lock_team(&mut tx, conversation_id).await?;
+        let actor = crate::teams::role_in(&mut *tx, conversation_id, caller.user_id).await?;
+        let target = match crate::teams::role_in(&mut *tx, conversation_id, user.id).await {
+            Ok(role) => role,
+            // Not in the team: nothing to remove, which is what a group says
+            // too.
+            Err(DeliveryError::NotAMember) => return Ok(StatusCode::NO_CONTENT),
+            Err(other) => return Err(other),
+        };
+        if !crate::teams::may_remove(actor, target, user.id == caller.user_id) {
+            return Err(DeliveryError::NotPermitted(
+                "Admins remove members; only the owner removes an admin, and nobody removes the owner.",
+            ));
+        }
+    }
 
     sqlx::query!(
         "DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2",
@@ -773,6 +873,9 @@ async fn remove_member(
     .await?;
 
     tx.commit().await?;
+    if team {
+        crate::teams::announce(&state, conversation_id);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -848,7 +951,17 @@ async fn send(
     )
     .fetch_all(&state.db)
     .await?;
+    // A team of two is still a team: one MLS state that a dropped envelope
+    // would split, exactly like the groups above. Blocks keep people out of a
+    // team at the door instead (`add_member`).
     if others.len() == 1
+        && !sqlx::query_scalar!(
+            "SELECT kind = 'team' AS \"team!\" FROM conversations WHERE id = $1",
+            conversation_id
+        )
+        .fetch_optional(&state.db)
+        .await?
+        .unwrap_or(false)
         && crate::blocks::blocked_between(&state.db, caller.user_id, others[0].user_id).await?
     {
         return Err(DeliveryError::Refused);

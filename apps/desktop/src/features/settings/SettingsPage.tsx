@@ -741,9 +741,10 @@ function Security() {
 /**
  * Storage (§6.4), measured rather than estimated.
  *
- * The two rows are deliberately not one total: the store is the only copy of
- * your messages — the server deletes ciphertext on acknowledgement — and the
- * cache is re-fetchable. Summing them would invite clearing the wrong one.
+ * The two rows are deliberately not one total: the store is the only readable
+ * copy of your messages — the server keeps ciphertext, but this device no
+ * longer has the keys that opened it — and the cache is re-fetchable. Summing
+ * them would invite clearing the wrong one.
  */
 function Storage() {
   const [info, setInfo] = useState<StorageInfo | null>(null);

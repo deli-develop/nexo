@@ -13,6 +13,8 @@ import { HomePage } from "./features/home/HomePage";
 import { MessagesHeader } from "./features/messages/MessagesHeader";
 import { MessagesPage } from "./features/messages/MessagesPage";
 import { useConversations } from "./app/useConversations";
+import { useTeams } from "./app/useTeams";
+import { TeamsHeader, TeamsPage } from "./features/teams/TeamsPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { PublicProfile } from "./features/profile/PublicProfile";
 import { AuthPage } from "./features/auth/AuthPage";
@@ -31,7 +33,7 @@ import { useChrome } from "./app/useChrome";
  *
  * A frameless window whose whole chrome is one card: a single top row carrying
  * the wordmark, the account, the conversation and the caption buttons, then
- * the 64px rail and one of four destinations. The panes float on `app-field`,
+ * the 64px rail and one of five destinations. The panes float on `app-field`,
  * a soft neutral gradient, which is what makes the glass visible at all:
  * `backdrop-filter` blurs whatever is behind a pane, and until the field
  * existed what was behind every pane was one flat fill, so the blur returned
@@ -40,7 +42,7 @@ import { useChrome } from "./app/useChrome";
  * backdrop is on, the field itself is a veil over the desktop, so "nothing
  * opaque" now reaches all the way out to `body` (see `useChrome`).
  *
- * There is no router: four destinations and no deep links do not need one, and
+ * There is no router: five destinations and no deep links do not need one, and
  * §7.4 asks for no page transitions anyway. When the feed grows permalinks, a
  * router goes in here and nothing below it changes.
  *
@@ -61,7 +63,20 @@ function AppShell({ account }: { account: Account }) {
   const layout = useLayout();
 
   const now = useMemo(() => new Date(), []);
-  const unread = totalUnread(unreadLedger);
+
+  // One live view of the teams, for the rail's badge and the Teams route.
+  const teams = useTeams();
+  // One ledger, two badges: a team's unread posts are the Teams destination's,
+  // not Messages'.
+  const unread = useMemo(
+    () => ({
+      messages: totalUnread(
+        Object.fromEntries(Object.entries(unreadLedger).filter(([id]) => !teams.ids.has(id))),
+      ),
+      teams: teams.unread,
+    }),
+    [teams.ids, teams.unread, unreadLedger],
+  );
 
   // One live view of the conversations, for the whole Messages route.
   //
@@ -129,17 +144,19 @@ function AppShell({ account }: { account: Account }) {
               }
             />
           ) : null}
+          {route === "teams" ? <TeamsHeader teams={teams} /> : null}
           {route === "profile" ? <PageTitleCell title="Profile" /> : null}
           {route === "settings" ? <SettingsHeader /> : null}
         </TopBar>
 
         {/* The rail runs down the side of the content; the bottom bar runs
-            under it. Same four destinations either way — see
+            under it. Same five destinations either way — see
             `chrome/destinations.ts`. */}
         <div className="flex min-h-0 flex-1">
           {layout.phone ? null : <IconRail unread={unread} />}
           {route === "home" ? <HomePage now={now} /> : null}
           {route === "messages" ? <MessagesPage now={now} live={live} /> : null}
+          {route === "teams" ? <TeamsPage now={now} teams={teams} /> : null}
           {route === "profile" ? (
             viewingHandle ? (
               <PublicProfile handle={viewingHandle} now={now} />

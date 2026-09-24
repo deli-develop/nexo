@@ -29,7 +29,7 @@ import { viewOnceBubble } from "./payload";
  * rewritten once anybody has climbed it, because a database created before the
  * edit took the old path and the two would disagree. Add a rung instead.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Every object store, and what makes a row unique in it. */
 export const STORES = {
@@ -80,6 +80,11 @@ export const STORES = {
   },
   /** The local unlock verifier and failed-attempt counter. */
   pin: { keyPath: "id" },
+  /**
+   * Pins and admin removals on a team's board, as honoured on arrival.
+   * Keyed `conversation|kind|target`, so the latest mark on a post wins.
+   */
+  teamMarks: { keyPath: "id", indexes: { byConversation: "conversationId" } },
 } as const;
 
 export type StoreName = keyof typeof STORES;
@@ -99,6 +104,9 @@ const V2_STORES: StoreName[] = [
   "forgottenConversations", "conversationPeers", "searchTerms",
   "pin",
 ];
+
+/** Teams. Only a new store: posts and comments are rows in `messages`. */
+const V4_STORES: StoreName[] = ["teamMarks"];
 
 /**
  * Opens the database, running the ladder if the version moved.
@@ -221,6 +229,10 @@ export function openDatabase(
           at.continue();
         };
       }
+      // Rung 4: teams. One new store for pins and admin removals. Nothing
+      // moves: a team's posts and comments are ordinary rows in `messages`,
+      // which is what lets reactions, edits and take-backs reach them unchanged.
+      if (event.oldVersion < 4) create(V4_STORES);
     };
 
     request.onsuccess = () => resolve(request.result);

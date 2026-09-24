@@ -53,8 +53,8 @@ Two things a neighbouring product could not truthfully copy:
   full screen, beside other work.
 - **A phone browser**, one-handed, in short bursts.
 - **A signed-in web app** at `nexo.delidev.net`; the API is `api.delidev.net`.
-- Four destinations and no deep links: Home (the public feed), Messages,
-  Profile, Settings.
+- Five destinations and no deep links: Home (the public feed), Messages,
+  Teams, Profile, Settings.
 
 ## Capabilities and Constraints
 
@@ -64,7 +64,8 @@ retraction, folders, drafts, conversation search, the public feed with posts,
 comments, votes and reactions, public profiles with per-field visibility, the
 follow graph, blocking in both directions, reporting, invitations past a
 private account's gate, 24-hour stories, a live WebSocket, an offline outbox,
-and an auto-lock with a PIN.
+an auto-lock with a PIN, and teams — private, end-to-end encrypted boards of
+posts for up to 200 people, with an owner and admins.
 
 Deliberately absent: Meet&Greet (a map of strangers) and voice/video calls,
 both built and then removed — see [`docs/REWORK.md`](docs/REWORK.md).

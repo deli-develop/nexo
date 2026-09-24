@@ -123,26 +123,13 @@ async fn run(socket: WebSocket, state: AppState, caller: Caller) {
     // single queue. They all end when `outgoing_tx` is dropped.
     let mut forwarders = Vec::new();
     for conversation_id in conversations {
-        let mut subscription = state.fanout.subscribe(conversation_id);
-        let tx = outgoing_tx.clone();
-        forwarders.push(tokio::spawn(async move {
-            loop {
-                match subscription.recv().await {
-                    Ok(event) => {
-                        // A full queue means this client is not keeping up.
-                        // Drop the connection rather than the server's memory;
-                        // it will reconnect and sync.
-                        if tx.send(event).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
-                        tracing::debug!(missed, "subscriber lagged; the client will resync");
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        }));
+        forwarders.push(tokio::spawn(forward(
+            state.fanout.subscribe(conversation_id),
+            outgoing_tx.clone(),
+            state.db.clone(),
+            conversation_id,
+            caller.user_id,
+        )));
     }
     drop(outgoing_tx);
 
@@ -190,6 +177,50 @@ async fn run(socket: WebSocket, state: AppState, caller: Caller) {
     tracing::debug!(user_id = caller.user_id, "stream closed");
 }
 
+/// Moves one conversation's hub events onto one socket's queue, until the
+/// socket goes, the channel closes, or the reader is no longer in it.
+///
+/// Membership is checked once, when the socket opens, and a socket can outlive
+/// a removal -- so a [`ServerEvent::Membership`] nudge is where it is checked
+/// again. Not on every envelope: a query per message per subscriber is the
+/// cost this avoids, and the nudge follows every change to a team's roster.
+/// The nudge itself is still passed on first, because it is how a removed
+/// client learns to look.
+///
+/// Groups do not publish the nudge yet, so a group member removed while
+/// connected goes on receiving that group's ciphertext -- ciphertext the
+/// removal commit already locked them out of -- until they reconnect.
+///
+/// Public so the removal can be tested without a WebSocket client.
+pub async fn forward(
+    mut subscription: tokio::sync::broadcast::Receiver<ServerEvent>,
+    queue: mpsc::Sender<ServerEvent>,
+    db: sqlx::PgPool,
+    conversation_id: ConversationId,
+    user_id: i64,
+) {
+    loop {
+        match subscription.recv().await {
+            Ok(event) => {
+                let recheck = matches!(event, ServerEvent::Membership { .. });
+                // A full queue means this client is not keeping up. Drop the
+                // connection rather than the server's memory; it will
+                // reconnect and sync.
+                if queue.send(event).await.is_err() {
+                    break;
+                }
+                if recheck && !still_member(&db, conversation_id, user_id).await {
+                    break;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                tracing::debug!(missed, "subscriber lagged; the client will resync");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
 /// Acts on something the client sent.
 async fn handle(
     state: &AppState,
@@ -224,8 +255,13 @@ async fn handle(
 
 /// Marks every envelope up to `envelope_id` delivered for this conversation.
 ///
-/// §4.3: delivered ciphertext is deleted on acknowledgement, and the sweep that
-/// does the deleting reads `delivered_at`. This is what sets it.
+/// §4.3 asks for delivered ciphertext to be deleted on acknowledgement. **It is
+/// not**: this sets `delivered_at` and nothing reads it, because no sweep was
+/// ever written and this server runs no scheduled work. The column cannot be
+/// what a sweep reads, either -- it is one stamp per envelope, set by whichever
+/// member acknowledges first, so in a group a sweep on it would delete messages
+/// the other members had not fetched yet. Deleting needs delivery recorded per
+/// recipient. `docs/THREAT-MODEL.md` §2.2 says what the server keeps meanwhile.
 ///
 /// Membership is re-checked in the statement rather than trusted from
 /// connection time, because a socket can outlive a removal. Returns how many
@@ -267,6 +303,30 @@ async fn member_conversations(
     .fetch_all(&state.db)
     .await?;
     Ok(rows.into_iter().map(|r| r.conversation_id).collect())
+}
+
+/// Whether this user is still in the conversation.
+///
+/// A database error answers "no": a forwarder that cannot tell whether its
+/// reader is still allowed stops, and the client's next sync -- which checks
+/// membership itself -- says what is true. Failing open would keep a removed
+/// member's ciphertext flowing on a guess.
+async fn still_member(db: &sqlx::PgPool, conversation_id: ConversationId, user_id: i64) -> bool {
+    match sqlx::query!(
+        "SELECT 1 AS \"ok!\" FROM conversation_members
+         WHERE conversation_id = $1 AND user_id = $2",
+        conversation_id,
+        user_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(row) => row.is_some(),
+        Err(error) => {
+            tracing::warn!(%error, "membership re-check failed; ending the subscription");
+            false
+        }
+    }
 }
 
 #[cfg(test)]

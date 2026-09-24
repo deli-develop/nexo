@@ -634,6 +634,38 @@ impl Group {
         })
     }
 
+    /// Removes a device, named the way `members` and `Decrypted::sender` name
+    /// it.
+    ///
+    /// A lookup and a pass-through: the device's leaf is found among the
+    /// members and `Conversation::remove_member` does the rest, so nothing here
+    /// touches key material. Returns a staged commit with no Welcome, confirmed
+    /// or abandoned exactly like an add. Once it is confirmed the group has
+    /// rekeyed, and the removed device cannot read anything sent after it.
+    #[wasm_bindgen(js_name = "removeMember")]
+    pub fn remove_member(
+        &mut self,
+        device: &Device,
+        device_id: &str,
+    ) -> Result<StagedCommit, JsError> {
+        let target = parse_uuid(device_id)?;
+        let leaf = self
+            .conversation
+            .members()
+            .into_iter()
+            .find(|member| member.device_id == target)
+            .ok_or_else(|| JsError::new("That device is not in this conversation."))?
+            .leaf_index;
+        let commit = self
+            .conversation
+            .remove_member(&device.provider, &device.signer, leaf)
+            .map_err(js_err)?;
+        Ok(StagedCommit {
+            message: commit.message,
+            welcome: commit.welcome,
+        })
+    }
+
     /// Applies the staged commit, because the server accepted it.
     ///
     /// Returns the epoch now in force, which is what the caller has to record

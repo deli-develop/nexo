@@ -1,4 +1,4 @@
-import { voiceMeta, type Payload } from "./payload";
+import { voiceMeta, type Payload, type SealedFile } from "./payload";
 import { TransportError } from "./errors";
 import type { Transport } from "./transport";
 
@@ -129,6 +129,32 @@ export async function sendAttachment(
   const voice = voiceMeta(meta.voice);
   if (voice) payload.voice = voice;
   return ctx.sendPayload(conversationId, payload);
+}
+
+/**
+ * Seals a file and puts it in the bucket, without sending anything.
+ *
+ * What a team post needs: several files, each sealed the way an attachment is,
+ * named together in one `team_post` rather than one message each. The key
+ * comes back to the caller to go inside that post -- and nowhere else.
+ */
+export async function sealFile(
+  ctx: AttachmentContext,
+  conversationId: string,
+  bytes: Uint8Array,
+  meta: { name: string; mime: string },
+): Promise<SealedFile> {
+  const sealed = ctx.crypto.seal(bytes);
+  const key = await upload(ctx, sealed, conversationId);
+  return {
+    s3_key: key,
+    key: hex(sealed.key),
+    nonce: hex(sealed.nonce),
+    sha256: hex(sealed.sha256),
+    name: meta.name,
+    mime: meta.mime,
+    size: sealed.size,
+  };
 }
 
 /**

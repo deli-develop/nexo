@@ -28,6 +28,14 @@ const glyphs = {
       <path d="M4.5 21a7.5 7.5 0 0 1 15 0" />
     </>
   ),
+  // Two people, the nearer one whole and the one behind showing a shoulder
+  // and the edge of a head: a team, not a crowd.
+  team: (
+    <>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20.5a6.5 6.5 0 0 1 13 0M15.5 4.7a3.5 3.5 0 0 1 0 6.6M18 14.6a6.5 6.5 0 0 1 3.5 5.9" />
+    </>
+  ),
   userPlus: (
     <>
       <circle cx="10" cy="8" r="3.6" />

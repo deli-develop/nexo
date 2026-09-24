@@ -25,7 +25,7 @@ for you. They list every file in the repository with one line about what it
 owns, so finding the right one costs a scan rather than a `grep` over the whole
 tree.
 
-`docs/` holds ~480 KB of prose, and this file is ~75 KB of it. The rule it
+`docs/` holds ~530 KB of prose, and this file is ~88 KB of it. The rule it
 teaches applies to itself: scan the one section you need, skip the rest.
 
 ## How to keep it
@@ -210,7 +210,7 @@ first**; the server and client follow it.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/lib.rs` | 1 938 | Every request and response body on the wire, `PROTOCOL_VERSION` (currently **3**), the envelope shape, the error codes. No plaintext message types — that is rule 4's enforcement point. |
+| `src/lib.rs` | 1 801 | Every request and response body on the wire, `PROTOCOL_VERSION` (currently **6**; only `/v1/health` reports it, nothing refuses on it), the envelope shape, `Payload` (what is inside a ciphertext, including the five `team_*` kinds and `SealedFile`), `ServerEvent` (including the `membership` nudge), the error codes. No plaintext message types on the server's side of the wire — that is rule 4's enforcement point. |
 | `src/window.rs` | 125 | How long a message may be taken back or edited. `features/messages/MessageList.tsx` mirrors this constant; the two must agree. |
 
 ---
@@ -241,7 +241,7 @@ it, and [`REWORK.md`](REWORK.md) makes one page serve web, Windows and Android.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/lib.rs` | 699 | `Device` (identity, credential, signer, MLS provider), `Group` (one conversation; `members()` answers each device and its signing key, for safety numbers), `Sealed` (`sealObject` / `openObject` for attachments and stories; `openSegmentedObject` for what the Rust client sealed in segments, and `sealSegmentedObject`, which only the tests call), `peek`, and `deriveVerifier`. Also the MLS state blob codec. |
+| `src/lib.rs` | 731 | `Device` (identity, credential, signer, MLS provider), `Group` (one conversation; `members()` answers each device and its signing key, for safety numbers; `removeMember` finds a device's leaf and passes it to `Conversation::remove_member` — the page had no way to remove anybody before teams), `Sealed` (`sealObject` / `openObject` for attachments and stories; `openSegmentedObject` for what the Rust client sealed in segments, and `sealSegmentedObject`, which only the tests call), `peek`, and `deriveVerifier`. Also the MLS state blob codec. |
 
 Three things to know before touching it:
 
@@ -292,17 +292,17 @@ That last row is the one with a consequence rather than a new home. See
 
 ### `apps/server` — the API and Delivery Service
 
-axum, Postgres via `sqlx`, Linux aarch64 in production. `src/lib.rs` (102 ln) is
+axum, Postgres via `sqlx`, Linux aarch64 in production. `src/lib.rs` (378 ln) is
 the router and the crate doc; `src/main.rs` (100 ln) is startup only. **Each
 module owns its own `router()`**, merged in `lib.rs`.
 
 | File | Ln | Owns |
 |---|---|---|
 | `src/posts.rs` | 1 232 | The Home feed, posts, comments, votes, reactions, pinning. |
-| `src/delivery/mod.rs` | 1 120 | The MLS Delivery Service: conversations, envelopes, members, key packages. Moves opaque bytes — rule 4. |
+| `src/delivery/mod.rs` | 1 193 | The MLS Delivery Service: conversations, envelopes, members, key packages. Moves opaque bytes — rule 4. **Also where a team's adds and removals land**: `add_member` and `remove_member` ask `teams.rs` when `kind = 'team'`. |
 | `src/delivery/epoch.rs` | 111 | The commit-ordering rule, isolated so it can be reasoned about alone. |
 | `src/profiles.rs` | 881 | Public profiles and per-field visibility (G2). The client never picks what is visible. |
-| `src/invites.rs` | 321 | Invitations, and `may_reach` — **the private-account gate the delivery service calls before creating any conversation**. |
+| `src/invites.rs` | 321 | Invitations, and `may_reach` — **the private-account gate the delivery service calls before creating a conversation or adding anybody to one**. |
 | `src/auth/mod.rs` | 754 | Register, login, refresh, logout, change-password, delete-account. |
 | `src/auth/tokens.rs` | 345 | Access and refresh tokens, **rotation, and the reuse-is-theft response**. |
 | `src/auth/bearer.rs` | 142 | Who is calling: the extractor every authenticated route depends on. |
@@ -310,11 +310,12 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `src/auth/salt.rs` | 98 | The per-account salt, and why an unknown handle still gets a (decoy) one. |
 | `src/media.rs` | 480 | Presigned S3 URLs for upload and download. |
 | `src/storage.rs` | 442 | Hetzner Object Storage. |
-| `src/limits.rs` | 345 | Rate limits (BRIEF 4.5). |
+| `src/teams.rs` | 575 | Teams: the owner/admin/member rules (`may_add`, `may_remove`, `may_set_role`, pure and unit-tested), the 200-member cap, the `/v1/teams` routes, and `announce` — the `membership` nudge after every roster change. **Reads no content**; a team's name and posts are ciphertext in `envelopes`. |
+| `src/limits.rs` | 344 | Rate limits (BRIEF 4.5). |
 | `src/stories.rs` | 294 | 24-hour encrypted stories. Owns the three access conditions. |
 | `src/stories/expiry.rs` | 65 | Whether a story is still available. |
 | `src/blocks.rs` | 243 | Blocking, in both directions. |
-| `src/stream/mod.rs` | 220 | The WebSocket at `/v1/stream`. |
+| `src/stream/mod.rs` | 371 | The WebSocket at `/v1/stream`. `forward` moves one conversation's events to one socket and **ends it when a `membership` nudge finds the reader removed** — groups do not publish that nudge yet. |
 | `src/stream/hub.rs` | 212 | Fan-out, from the socket that accepted an envelope to the ones that want it. |
 | `src/follows.rs` | 201 | The follow graph, and the feed that follows from it. |
 | `src/reports.rs` | 166 | Reporting (BRIEF 13). |
@@ -324,7 +325,7 @@ module owns its own `router()`**, merged in `lib.rs`.
 
 #### Every route
 
-49 paths. Methods on one path share a line, as they do in the router.
+48 paths. Methods on one path share a line, as they do in the router.
 
 | Path | Methods | Module |
 |---|---|---|
@@ -370,13 +371,21 @@ module owns its own `router()`**, merged in `lib.rs`.
 | `/v1/invites/{id}` | DELETE | `invites.rs` |
 | `/v1/reports` | POST | `reports.rs` |
 | `/v1/stream` | GET (upgrade) | `stream/mod.rs` |
+| `/v1/teams` | POST, GET | `teams.rs` |
+| `/v1/teams/{id}` | DELETE | `teams.rs` |
+| `/v1/teams/{id}/members` | GET | `teams.rs` |
+| `/v1/teams/{id}/members/{handle}` | PATCH | `teams.rs` |
+| `/v1/teams/{id}/transfer` | POST | `teams.rs` |
+| `/v1/teams/{id}/leave` | POST | `teams.rs` |
 
 **Before adding a route, check whether it already exists.** `/v1/stream` sat
-unused for months, and `follows` was the opposite case.
+unused for months, and `follows` was the opposite case. Teams add and remove
+people through `/v1/conversations/{id}/members` and `.../members/remove`, not a
+route of their own.
 
 #### Migrations
 
-`apps/server/migrations/`, applied with `sqlx-cli`. Seventeen files, oldest first:
+`apps/server/migrations/`, applied with `sqlx-cli`. Eighteen files, oldest first:
 
 ```
 20260825090806_create_users_devices             20260902120000_create_meet
@@ -391,7 +400,13 @@ unused for months, and `follows` was the opposite case.
 20260831130000_create_reports
 20260919120000_drop_meet_keep_invites
 20260920090000_rename_invite_constraints
+20260923120000_teams
 ```
+
+`teams` widens `kind` to `'team'`, gives `conversation_members.role` its
+first meaning (`owner`, `admin`, `member` — CHECKed), and allows at most one
+owner per team with a partial unique index. It creates no table: a team's
+content is ciphertext in `envelopes`.
 
 `drop_meet_keep_invites` is the only destructive migration in the list. It
 drops the map, the agreement and the intro requests, and **renames
@@ -418,7 +433,8 @@ They share one development database and never clean up, so a test must assert on
 
 | Test | Ln | Covers |
 |---|---|---|
-| `delivery.rs` | 839 | Envelopes, epochs, membership, key packages. |
+| `delivery.rs` | 936 | Envelopes, epochs, membership, key packages, the private-account gate on adding. |
+| `teams.rs` | 721 | Every role rule, the cap, blocks at the door, the one-owner race, and that a removed member's socket stops. Routing only — no MLS. Fills 198 seats with SQL rather than registering them. |
 | `auth_flow.rs` | 718 | Register → login → refresh → rotation → logout. |
 | `blocks.rs` | 588 | Blocking in both directions across every surface. |
 | `feed_profiles.rs` | 488 | Feed paging, visibility, profile fields. |
@@ -472,7 +488,7 @@ Cache API).
 
 ### `apps/desktop/src` — the React client
 
-React 19, TypeScript, Tailwind, Zustand. **There is no router**: four
+React 19, TypeScript, Tailwind, Zustand. **There is no router**: five
 destinations and no deep links do not need one, and §7.4 asks for no page
 transitions anyway.
 
@@ -496,8 +512,9 @@ package, and `main.tsx` imports them.
 
 | File | Ln | Owns |
 |---|---|---|
-| `store.ts` | 479 | The Zustand store: `account`, `locked`, `route`, panel state, the unread ledger, `conversationOverrides`, and `preferences`. **Only `preferences` and `conversationOverrides` are persisted** (localStorage), merged by hand so a blob from an older build keeps the new defaults. `Route = "home" \| "messages" \| "profile" \| "settings"`. |
-| `useConversations.ts` | 415 | Live conversation data in the shapes the UI renders. **Mounted once, in `AppShell`**, and handed to both the header and the page — two instances meant two of every call and two copies of the truth. |
+| `store.ts` | 603 | The Zustand store: `account`, `locked`, `route`, panel state, the open conversation and the open team (`activeTeamId`, `teamPane`), whether a team has been `opened` here (the Invites tab), the unread ledger, `conversationOverrides`, and `preferences`. **Only `preferences` and `conversationOverrides` are persisted** (localStorage), merged by hand so a blob from an older build keeps the new defaults. `Route = "home" \| "messages" \| "teams" \| "profile" \| "settings"`. The unread ledger holds teams too; `App.tsx` splits it into the Messages and Teams badges. |
+| `useConversations.ts` | 426 | Live conversation data in the shapes the UI renders. **Mounted once, in `AppShell`**, and handed to both the header and the page — two instances meant two of every call and two copies of the truth. **Leaves teams out**: a team is a conversation underneath and never a row in Messages. |
+| `useTeams.ts` | 101 | The teams this device is in, mounted once like `useConversations`. Re-reads on every sync; on a `membership` nudge reads the roster again, **forgets a team whose roster answers "not found"**, and has an owner's or admin's device commit out whoever left (`reconcile`). |
 | `useFeed.ts` | 292 | The Home feed, against the real server. |
 | `syncAgent.ts` | 215 | The one sync loop (M8): flush the outbox, pull, badge, toast. Stops when signed out or locked. |
 | `useChrome.ts` | 160 | Theme, accent hue, depth and transparency, applied to the document root. Runs above the shell so the sign-in and lock screens get the same appearance. |
@@ -516,7 +533,7 @@ package, and `main.tsx` imports them.
 `chrome/`: `TopBar.tsx` (142 ln — one top row across the whole app; the mark sits in a disc in the 64px cell above the rail, and on a phone the cell goes, since it only lines up with the rail),
 `IconRail.tsx` (221 ln — the 64px rail, at 768px and up: raised discs, the current one inverted, Home and Messages centred, Settings, sign-out and your own avatar (Profile) at the foot), `BottomBar.tsx`
 (92 ln — the same destinations across the bottom, below 768px) and
-`destinations.ts` (27 ln — **the four destinations, shared by both**, so which
+`destinations.ts` (30 ln — **the five destinations, shared by both**, so which
 tab is second does not change when a window is resized).
 
 Sign-out is in `features/settings/SettingsPage.tsx`, and on the rail as well.
@@ -598,6 +615,26 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `pan.ts` | 69 | The arithmetic behind zooming and dragging a picture. |
 | `jump.ts` | 40 | Landing on one message in a wall of them — quotes and search results both, so they land the same way. |
 
+**`teams/`** — a team's board. The fold that decides what it shows is `packages/core/src/board.ts`; these draw it.
+
+| File | Ln | Owns |
+|---|---|---|
+| `TeamsPage.tsx` | 144 | The list beside the open team — board, members or settings (`teamPane`), each a screen of its own on a phone — one pane at a time on a phone; opening a team marks it opened, reads its roster, clears its unread. Also `TeamsHeader`, its cell of the top row (a way back on a phone, "New team" everywhere). |
+| `TeamList.tsx` | 151 | Search, *Teams* / *Invites*, and Board · Members hung under the open team — Invites is teams you were added to and have not opened on this device (`opened` in `conversationOverrides`). |
+| `TeamBoard.tsx` | 162 | The header (the team's marker, member count, the switcher, the one line on what the server sees), the composer, pinned posts, the rest, an unreadable post **in its place**, and "Posts from before you joined aren't on this device." |
+| `TeamComposer.tsx` | 117 | Title, words, files — and **"Visible to the N members of … End-to-end encrypted."** where you write, the mirror of the feed's "Posts are public". Files are sealed and uploaded before the post names them. |
+| `TeamPostCard.tsx` | 139 | One post. No votes, no public line; taken back and admin-removed posts stay as a line saying so. |
+| `TeamComments.tsx` | 213 | Comments and one level of answers; "Reply" only on the top level. |
+| `entry.tsx` | 204 | What posts and comments share: the menu, reactions, editing in place. Edits, take-backs and reactions are the ordinary message ones, named by the post's `id`. |
+| `postMenu.ts` | 75 | What the menu offers and in what order — **destructive last**: the author's "Take back" before an admin's "Remove for everyone". Tested like `messages/menu.ts`. |
+| `TeamFiles.tsx` | 106 | A post's files, opened on this device; a picture that will not open says so. |
+| `CreateTeamDialog.tsx` | 81 | Name and description; says what a team is before anybody makes one. |
+| `TeamMembers.tsx` | 229 | Owner, Admins, Members, each with a sentence on what the role may do; per person handle and *Joined*, and a role and remove button **only where the viewer may act**. No "last active", ever. |
+| `AddPeopleDialog.tsx` | 290 | *Search* or *From a group*; a typed handle is offered as-is (private accounts are not in search); every row that cannot be added **says why**. "They'll see posts from now on, not earlier ones." |
+| `TeamSettings.tsx` | 215 | Name, description, picture (owner and admins), hand on (owner), leave, delete (owner) — each saying what it can and cannot reach. |
+| `roles.ts` | 83 | The server's role rules mirrored for what the UI offers, and `addRow` — a person's state in the add dialog (addable, already in, blocked by you, full, refused). Tested. |
+| `Author.tsx`, `useTeamBoard.ts` | 85 | Who wrote something (a device, through the team's device list, or "Somebody who has left"), and the board re-read after every sync. |
+
 **`profile/`**: `ProfilePage.tsx` (922), `PublicProfile.tsx` (363),
 `PrivacyPanel.tsx` (226), `MyStories.tsx` (206 — your own stories as a gallery,
 one tile per story; **posting lives here, never in the strip**),
@@ -632,6 +669,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
+| `teams.ts` | 152 | Teams: `listTeams` (from this device's store — a team with no name yet is `null`, drawn as "New team"), and thin wrappers over `packages/core/src/teams.ts` for everything else. |
 | `blocks.ts` | 53 | Blocking, and `confirmBlock`: the one wording every place that offers it asks with (a profile, a post's menu). |
 | `cn.ts` | 5 | Class-name join. |
 
@@ -644,7 +682,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-25 vitest files, 168 tests, run by `pnpm test`. They cluster on the pure
+27 vitest files, 184 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -652,6 +690,7 @@ app/          mute · syncAgent · useChrome · useFeed · useLinkPreview · use
 components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection · shared
+              teams: postMenu · roles
 lib/          auth · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```
@@ -673,17 +712,20 @@ Node's test runner. [`REWORK.md`](REWORK.md) wave 6.
 
 | File | Ln | Owns |
 |---|---|---|
-| `src/conversations.ts` | 1 249 | The MLS orchestration: start, send, sync, discover, and the revision rules. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
-| `src/store.ts` | 951 | Everything this device keeps, over IndexedDB. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
-| `src/payload.ts` | 369 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
+| `src/conversations.ts` | 1 463 | The MLS orchestration: start, send, sync, discover, and the revision rules; `removeFrom` / `removeDevice` (routing first, then the commit). Also where a team's payloads land: `team_pin` / `team_remove` — and in a team, `rename`, `team_meta` and `group_avatar` — are **checked against the roster as they arrive** and dropped from anybody who does not moderate; an unreadable envelope in a team leaves a placeholder row; a Welcome's envelope id is kept as `joinedAt`. The two invariants it exists to hold are at the top of the file — **a commit is staged until the server takes it**, and **the ratchet moves even when nothing is stored**. |
+| `src/store.ts` | 1 052 | Everything this device keeps, over IndexedDB. `teamMarks` holds a board's honoured pins and removals; a taken-back team post or comment keeps its skeleton (kind, id, post) so the board can place it. Deliberately the same vocabulary the deleted `crates/store` used, which is what made wave 7 a swap rather than a rewrite. |
+| `src/payload.ts` | 449 | What is inside a ciphertext, mirroring `Payload` in `crates/protocol`, the team kinds included. `forwardedText` builds a forward as `Payload::forwarded` does — a name of its own. `voiceMeta` holds a voice note to `VoiceMeta`'s shape both ways — `decodePayload` checks nothing past the kind. Snake_case kinds, because that is what serde emits — a kind missing from `KNOWN` renders an ordinary message as "needs a newer version". |
 | `src/transport.ts` | 232 | `fetch` against the API: bearer tokens, the single-flight refresh, and the **rotated-token hand-off**. A rotation that is not persisted is replayed on the next start, and the server reads a reused refresh token as theft — it revokes every session for the account. |
-| `src/idb.ts` | 301 | A promise over IndexedDB and the schema ladder, written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
+| `src/idb.ts` | 313 | A promise over IndexedDB and the schema ladder (`SCHEMA_VERSION` **4**), written rather than pulled in — eighty lines of what a library offers, and rule 8 makes a dependency a decision. |
 | `src/types.ts` | 140 | The wire, mirroring `crates/protocol`, which stays the authority. |
 | `src/auth.ts` | 83 | Salt, register, login, logout. The password never reaches this file. |
 | `src/crypto.ts` | 85 | The MLS **seam**: `CryptoModule`, `Device`, `Group`. Nothing in core imports the wasm package, because the glue is generated per target and a core that imported one could only run where that one runs. |
 | `src/errors.ts` | 54 | `TransportError` and its five kinds, ported from `transport.rs`. |
+| `src/teams.ts` | 330 | Teams over `conversations.ts`: create, add people (then resend name, description, picture), remove, roles, transfer, leave, delete, `reconcile` (an admin's device commits out whoever left), post, comment, pin, remove for everyone, and `board`. No second delivery path, no second group creation. |
+| `src/board.ts` | 275 | `buildBoard`: the pure fold from stored rows to a team's board — pinned first, newest first, one level of answers, edits, take-backs, admin removals, an unreadable card in its place, and `joinedLate`. |
+| `src/roster.ts` | 62 | A team's roster as last read (`refreshRoster`), and which device is whose. Its own module so the receive path can use it without an import cycle. |
 | `src/wasm.ts` | 126 | `bindWasm`, `bindObjectWasm` and `bindPasswordWasm`: the lines between the facade's static constructors and the seam above. |
-| tests | 2 726 | 124 cases in 11 files. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
+| tests | 3 219 | 150 cases in 12 files; `board.test.ts` is the board fold on rows alone. Most were learned by the Rust client being wrong about them first; `conversations.test.ts` is about **ordering**, which is the only way this package loses a message. |
 
 **Two things about the store that were not true of the old Rust one, and both are
 load-bearing:**
@@ -713,6 +755,7 @@ scripts/build.mjs          cargo build --target wasm32 + wasm-bindgen, into pkg/
 src/conversation.test.ts   Two devices, one real MLS conversation, in wasm
 src/orchestration.test.ts  packages/core driving the real module, nothing faked but the network
 src/segmented.test.ts      Segmented attachments opened whole, through core's reader
+src/teams.test.ts          A team, three devices, real MLS: who can read what after an add, a removal and a late add
 pkg/, web/                 Generated. Git-ignored; CI builds them and so does a clone.
 ```
 
@@ -764,7 +807,8 @@ it is expensive.
 | **Auth, login, tokens** | `apps/server/src/auth/` → `packages/core/src/session.ts` → `apps/desktop/src/lib/auth.ts` → `apps/desktop/src/features/auth/` | — |
 | **Lock screen / PIN** | `packages/core/src/pin.ts` → `apps/desktop/src/lib/auth.ts` (`lockSession`, `unlockWithPin`) → `apps/desktop/src/features/auth/` | `PIN-ROTATION.md` — that is TLS key pinning, an unrelated subject |
 | **Search, invitations, reporting** | `apps/server/src/invites.rs` or `profiles.rs` → `packages/core/src/people.ts` → `apps/desktop/src/lib/people.ts` | `BRIEF.md` |
-| **Who may open a conversation with whom** | `apps/server/src/invites.rs::may_reach` → its call site in `apps/server/src/delivery/mod.rs`, before anything is written | The client — the rule is the server's or it is nothing |
+| **Who may open a conversation with whom** | `apps/server/src/invites.rs::may_reach` → its two call sites in `apps/server/src/delivery/mod.rs`, `create_conversation` and `add_member`, both before anything is written | The client — the rule is the server's or it is nothing |
+| **Teams** | `apps/server/src/teams.rs` (roles, cap, routes) and the team branches of `add_member` / `remove_member` → `packages/core/src/teams.ts` (built on `conversations.ts`) → `packages/core/src/board.ts` (the fold) → `apps/desktop/src/lib/teams.ts` → `app/useTeams.ts` → `features/teams/`. A pin or admin removal is judged **on arrival** in `conversations.ts`, not by the server | A second delivery path — there is none, and there must not be |
 | **Stories** | `packages/core/src/stories.ts` → `apps/server/src/stories.rs` → `features/home/storyGroups.ts` (read it before changing grouping) → `features/home/Stories.tsx` | — |
 | **Attachments or media playback** | `crates/crypto/src/attachment.rs` (which encoding?) → `packages/core/src/attachments.ts` → `apps/desktop/src/lib/conversations.ts` → `apps/desktop/src/lib/media.ts` | — |
 | The **live socket** | `apps/server/src/stream/` → `packages/core/src/stream.ts` → `apps/desktop/src/lib/stream.ts` | — |
@@ -1018,7 +1062,8 @@ failed silently.
   climbed is never edited — add one. A rung that adds an index over existing
   rows backfills them, as rung 2 does for `searchTerms`, or older data is
   invisible to the new read; rung 3 rewrites rows, moving view-once keys out of
-  `messages` into `viewOnce`. `openDatabase` takes an optional version so a
+  `messages` into `viewOnce`; rung 4 adds `teamMarks` and moves nothing,
+  because a team's posts and comments are ordinary rows in `messages`. `openDatabase` takes an optional version so a
   test can build a database as an older build left it. No test checks that the
   constant and the last rung agree: bump both in the same change.
 - **`sqlx` is compile-time checked, offline by default.** `.cargo/config.toml`
@@ -1035,14 +1080,18 @@ failed silently.
   ```
 
   Forgetting this fails on someone else's machine, not yours.
-- **A conversation can have one member, and `kind` has three values.**
-  `'dm'`, `'group'` and `'self'` — the last is the conversation somebody has
-  with themselves, an ordinary one-member MLS group whose fan-out reaches
-  nobody. `create_conversation` reads an empty member list as that, and hands
-  back the existing one rather than making a second, the same way it does for
-  a DM. Anything matching on `kind` has to answer for the third case; the
-  CHECK constraint in `20260906120000_self_conversations.sql` is what stops a
-  fourth appearing by accident.
+- **A conversation can have one member, and `kind` has four values.**
+  `'dm'`, `'group'`, `'self'` and `'team'`. `'self'` is the conversation
+  somebody has with themselves, an ordinary one-member MLS group whose fan-out
+  reaches nobody; `create_conversation` reads an empty member list as that,
+  and hands back the existing one rather than making a second, the same way it
+  does for a DM. `'team'` is made only by `POST /v1/teams`, and is the one
+  kind whose `conversation_members.role` means anything. Anything matching on
+  `kind` has to answer for every case — `add_member` used to turn any
+  conversation that reached three people into a `'group'`, which would have
+  dropped every role in a team; it now does that to a `'dm'` only. The CHECK
+  constraint, last widened in `20260923120000_teams.sql`, is what stops a
+  fifth appearing by accident.
 - **The server's tests share one development database and never clean up.**
   `apps/server/tests/*` connect to `DATABASE_URL` and skip when it is absent;
   they invent unique handles so they do not collide, but every run leaves its
@@ -1148,6 +1197,20 @@ failed silently.
   whatever the specificity, because unlayered CSS beats layered CSS. Answering
   one of those rules takes another unlayered rule. The one there is
   `[data-scrollbar="none"]`, used by `Tabs`.
+- **The server deletes no ciphertext, whatever §4.3 says.** `acknowledge` in
+  `stream/mod.rs` sets `envelopes.delivered_at` and nothing reads it; there is
+  no sweep and no 30-day purge, because the server runs no scheduled work.
+  Whoever builds the deletion must not key it on that column: it is one stamp
+  per envelope, set by the first member to acknowledge, so in a group it would
+  delete what the others had not fetched. `BRIEF.md` and `PLAN.md` still state
+  the intent; `THREAT-MODEL.md` §2.2 states what is true.
+- **A team is a conversation, and every list of conversations has to decide
+  about it.** `kind = 'team'` rows are in `/v1/conversations`, the store's
+  `conversations()`, `listConversations()` and the search index, because the
+  sync machinery needs them there. The Messages list, the forward picker and
+  global message search each leave them out on purpose; `toConversation`
+  would otherwise have drawn a team as a DM. A new place that lists
+  conversations inherits the question.
 - **`pnpm dev` registers the service worker too, and it serves stale
   modules.** `main.tsx` registers `public/sw.js` whenever it is not in Tauri,
   and the worker answers same-origin GETs from its cache and refreshes behind
@@ -1170,9 +1233,9 @@ Read cost matters. Sizes are approximate and current.
 
 | Document | Size | Answers |
 |---|---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 75 KB | This file. Where things are, and what not to break. |
+| [`CONTEXT.md`](CONTEXT.md) | 88 KB | This file. Where things are, and what not to break. |
 | [`REWORK.md`](REWORK.md) | 19 KB | **Current.** Why this repository is becoming one TypeScript client for web, Windows and phone, what that costs the invariants, and the eleven waves that get there. Read before starting anything large. |
-| [`STATUS.md`](STATUS.md) | 117 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
+| [`STATUS.md`](STATUS.md) | 127 KB | What works today, what is known broken, and what was checked and cleared. **Read before assuming a feature is missing.** |
 | [`COMPONENTS.md`](COMPONENTS.md) | 11 KB | The UI component reference. |
 | [`RELEASING.md`](RELEASING.md) | 10 KB | Tag, build, sign, publish, updater manifest. |
 | [`PIN-ROTATION.md`](PIN-ROTATION.md) | 3 KB | Why the client does **not** pin TLS keys, and what any future pinning must do. Nothing to do with the unlock PIN — that is `packages/core/src/pin.ts` and `THREAT-MODEL.md` §3. |
@@ -1181,7 +1244,7 @@ Read cost matters. Sizes are approximate and current.
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 11 KB | What must ship beside the `.exe`. |
 | [`README.md`](../README.md) | 5 KB | What Nexo is, who it is for, what it does and does not protect. No build steps. |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | 10 KB | Setup, prerequisites, the three builds (Windows, web, Android), troubleshooting. For humans on a new machine. |
-| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 36 KB | Adversaries in and out of scope; what is deliberately not protected. |
+| [`THREAT-MODEL.md`](THREAT-MODEL.md) | 39 KB | Adversaries in and out of scope; what is deliberately not protected. §2.16 is teams. |
 | [`TUTORIAL.md`](TUTORIAL.md) | 19 KB | Every value you personally have to supply: accounts, costs, domains, secrets — and which of them block you today. |
 | [`DEPLOY.md`](DEPLOY.md) | 22 KB | **The straight line from a fresh server to a live API, and from CI to the website.** Eight steps, exact commands, and the failure table. Read this at the terminal; read `OPS.md` when a step misbehaves. |
 | [`OPS.md`](OPS.md) | 27 KB | The Hetzner runbook — the reasoning behind every step `DEPLOY.md` takes, plus TLS, backups and incidents. |

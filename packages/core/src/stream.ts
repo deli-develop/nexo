@@ -57,7 +57,21 @@ export interface ReceiptEvent {
   user_id: number;
 }
 
-export type ServerEvent = EnvelopeEvent | TypingEvent | PresenceEvent | ReceiptEvent;
+/**
+ * Who is in a conversation, or what they may do there, changed. A nudge to read
+ * the member list again — it carries nothing else, so a missed one costs only
+ * promptness.
+ */
+export interface MembershipEvent {
+  type: "membership";
+  conversation_id: string;
+}
+export type ServerEvent =
+  | EnvelopeEvent
+  | TypingEvent
+  | PresenceEvent
+  | ReceiptEvent
+  | MembershipEvent;
 
 export interface StreamOptions {
   /** The API base, `https://…`. Rewritten to `wss://` here, not by callers. */
@@ -89,6 +103,15 @@ export interface WebSocketLike {
 /** First retry, and the ceiling. Both deliberately unhurried. */
 const FIRST_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
+
+/** Every `type` this build handles. Anything else is dropped — see `onmessage`. */
+const KNOWN_EVENTS: ReadonlySet<string> = new Set<ServerEvent["type"]>([
+  "envelope",
+  "typing",
+  "presence",
+  "receipt",
+  "membership",
+]);
 
 export class Stream {
   readonly #options: StreamOptions;
@@ -202,9 +225,7 @@ export class Stream {
       // An unknown `type` is a newer server talking to an older client. It is
       // dropped, not reported: the sync underneath already carries whatever it
       // meant, in a form this build does understand.
-      if (type !== "envelope" && type !== "typing" && type !== "presence" && type !== "receipt") {
-        return;
-      }
+      if (!KNOWN_EVENTS.has(type as string)) return;
       this.#options.onEvent?.(parsed as ServerEvent);
     };
 

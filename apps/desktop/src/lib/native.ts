@@ -372,8 +372,9 @@ export async function storageInfo(): Promise<StorageInfo | null> {
  * Clears the cached shell. Messages are untouched.
  *
  * The one thing here that is safe to delete: the shell re-downloads, and
- * everything else in this origin *is* the only copy — the server deletes
- * ciphertext on acknowledgement, so there is nothing to re-fetch it from.
+ * everything else in this origin *is* the only readable copy. The server still
+ * holds the ciphertext, but the epoch keys that opened it are gone from this
+ * device — MLS forgets them on purpose — so there is nothing to re-read it from.
  */
 export async function clearMediaCache(): Promise<boolean> {
   if (!("caches" in globalThis)) return false;

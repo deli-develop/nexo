@@ -29,15 +29,25 @@ invariant rather than a preference:
 |---|---|
 | The server to read messages | Rule 4. Nexo's server moves opaque envelopes. |
 | Remote code or a third-party fetch | Rule 3 and the CSP. Nothing in the page may reach a stranger's host. |
-| Message history in the cloud | There is no cloud copy: the server deletes ciphertext on acknowledgement, and the store is the only copy. |
+| Message history in the cloud | There is no readable cloud copy: the server keeps sealed envelopes (`THREAT-MODEL.md` §2.2) but no key that opens them, and a device that has moved past an epoch no longer has the keys either. The store is the only readable copy. |
 | A second device on one account | One device, one account today. Changing that is a design, not a feature. |
 | Claiming more protection than exists | Rule 5. |
 
 Two more, which are about this app rather than about cryptography:
 
-- **Group scale.** Nexo groups are small. Topics, slow mode, admin hierarchies
-  and anti-spam tooling solve problems it does not have — and the public feed
-  already covers broadcasting.
+- **Group scale.** Nexo groups are small. Topics, slow mode and anti-spam
+  tooling solve problems it does not have — and the public feed already covers
+  broadcasting.
+
+  **One exception, taken on purpose: roles, for Teams.** A team is a private
+  board of posts for up to 200 people, and somebody has to be able to decide
+  who is in it. So a team has exactly three roles — owner, admin, member — and
+  the server enforces who may add and remove. That is the whole of it. No
+  custom roles or per-permission toggles, no topics or sub-groups inside a
+  team, no slow mode, no channels at 200k, no anti-spam tooling; a team is
+  capped at 200 members because commit size and fan-out grow with the group,
+  and broadcasting is still the feed's job. Ordinary groups keep no roles at
+  all.
 - **Payload weight.** Everything ships in the binary; there is no CDN. A
   feature that wants forty megabytes of animation assets pays for itself on
   every install and every update.
@@ -172,9 +182,9 @@ the countdown visible on the message.
 
 **Fits well** — better than most things on this list, because the machinery is
 familiar: stories already expire at 24 hours and view-once media already burns
-on open. And unlike Telegram's cloud chats, deletion here is genuine: the
-server holds ciphertext it deletes on acknowledgement, so the copies that
-matter are the local ones.
+on open. And unlike Telegram's cloud chats, deletion here is genuine where it
+counts: the server holds only ciphertext it cannot open (and, today, keeps it —
+`THREAT-MODEL.md` §2.2), so the readable copies are the local ones.
 
 **Must be said plainly:** like "delete for everyone", this is a request other
 Nexo clients honour, not a guarantee against a modified client. The existing
@@ -236,7 +246,7 @@ Written down so nobody has to re-derive it.
 | GIF search, third-party sticker packs | A request to a stranger's server. `THREAT-MODEL.md` §2.3 settled this once; stickers are drawn in the repo for this reason. |
 | Message translation, voice-to-text | Sends message content to a third party. Rule 4 in spirit and rule 3 in fact. |
 | Cloud chat history, multi-device sync | The server cannot read messages, and there is one device per account. Both would be designs, not features. |
-| Channels at 200k, topics, slow mode, anti-spam | The public feed already covers broadcasting, and Nexo's groups are small. |
+| Channels at 200k, topics, slow mode, anti-spam | The public feed already covers broadcasting, and Nexo's groups are small. Teams take one thing from this family — owner, admin and member — and nothing else; see *Group scale* above. |
 | Link-preview images | `img-src` names no remote host on purpose, and previews are opt-in already. |
 | Premium cosmetics — name colours, custom emoji packs | No monetisation, and the payload ships in the binary. |
 | Phone-number contact discovery | Nexo collects no phone numbers and says so. |

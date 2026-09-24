@@ -132,7 +132,7 @@ than from the principle. What LUKS would protect, and what it would not:
 
 | On the disk | Value to someone holding it | Encrypted already? |
 |---|---|---|
-| `envelopes.ciphertext` | **None.** MLS ciphertext; the group keys exist only on the devices. Undelivered rows are purged after 30 days, delivered ones on acknowledgement. | Yes, end to end |
+| `envelopes.ciphertext` | **None.** MLS ciphertext; the group keys exist only on the devices. **Kept indefinitely today:** §4.3's delete-on-acknowledgement and 30-day purge are not built — see `THREAT-MODEL.md` §2.2. | Yes, end to end |
 | `jwt-ed25519.pem` | **The highest.** Forges an access token for any account — but still cannot read a message. | No |
 | `nexo.env` | Postgres password, S3 credentials | No |
 | Profiles: handle, display name, `bio`, `location` | Public by design, except where per-field visibility restricts *other users* — never the server | No |
@@ -636,8 +636,9 @@ BorgBackup, with unlimited traffic. Nightly `pg_dump` into Borg is enough at thi
 scale.
 
 Back up: the Postgres dump, `/etc/nexo/`, `/etc/caddy/`.
-Do not back up: undelivered envelopes are purged after 30 days by design, so a
-restore is allowed to lose them.
+The envelopes are in that dump. §4.3 means undelivered ciphertext to be purged
+after 30 days, so a restore is allowed to lose recent envelopes; the purge is
+not built yet, so until it is the table — and the dump — only grow.
 
 **Test a restore before you need one.** An untested backup is a belief, not a
 backup.

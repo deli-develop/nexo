@@ -2,7 +2,7 @@ import type { Route } from "../../app/store";
 import type { IconName } from "../ui/Icon";
 
 /**
- * The four destinations, in the order both navigations draw them.
+ * The five destinations, in the order both navigations draw them.
  *
  * One array, two shapes: a 64px rail down the left at 768px and up, a tab bar
  * across the bottom below that. `IconRail.tsx`'s header promised this would be
@@ -22,6 +22,9 @@ export interface Destination {
 export const DESTINATIONS: Destination[] = [
   { route: "home", icon: "home", label: "Home" },
   { route: "messages", icon: "messages", label: "Messages" },
+  // Beside Messages because it is the other private place, and after it
+  // because Messages stays second -- the muscle memory this order protects.
+  { route: "teams", icon: "team", label: "Teams" },
   { route: "profile", icon: "user", label: "Profile" },
   { route: "settings", icon: "settings", label: "Settings" },
 ];

@@ -714,6 +714,103 @@ async fn a_conversation_lists_for_its_members_only() {
     }
 }
 
+/// A private account cannot be written to by somebody new, and adding it to a
+/// conversation is writing to it.
+///
+/// `create_conversation` always asked `may_reach`; `add_member` did not, so the
+/// way past the door was a conversation with anybody, then an add. The refusal
+/// is asked of whoever does the adding: somebody already in touch with the
+/// private account may bring it in, a stranger may not.
+#[tokio::test]
+async fn a_private_account_cannot_be_added_by_somebody_new() {
+    let app = app_or_skip!();
+    let alice = register(&app).await;
+    let bob = register(&app).await;
+    let carol = register(&app).await;
+    let dave = register(&app).await;
+
+    let (status, _) = call(
+        &app,
+        "PATCH",
+        "/v1/me",
+        Some(&carol.token),
+        Some(json!({ "is_private": true })),
+    )
+    .await;
+    assert!(status.is_success(), "carol goes private: {status}");
+
+    let conversation_id = Uuid::new_v4();
+    call(
+        &app,
+        "POST",
+        "/v1/conversations",
+        Some(&alice.token),
+        Some(json!({ "conversation_id": conversation_id, "members": [bob.handle] })),
+    )
+    .await;
+
+    let listed = |party: &Party| {
+        let token = party.token.clone();
+        let app = app.clone();
+        async move {
+            let (_, list) = call(&app, "GET", "/v1/conversations", Some(&token), None).await;
+            list.as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c["conversation_id"] == conversation_id.to_string())
+        }
+    };
+
+    // Alice has never been in touch with carol.
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/v1/conversations/{conversation_id}/members"),
+        Some(&alice.token),
+        Some(json!({ "handle": carol.handle })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        body["error"], "refused",
+        "the same answer a block gives, so nobody learns who is private"
+    );
+    assert!(!listed(&carol).await, "a refused add must write nothing");
+
+    // A public account is still added exactly as before.
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/conversations/{conversation_id}/members"),
+        Some(&alice.token),
+        Some(json!({ "handle": dave.handle })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(listed(&dave).await);
+
+    // Bob is in touch with carol -- she started a conversation with him -- so
+    // he may bring her into this one.
+    call(
+        &app,
+        "POST",
+        "/v1/conversations",
+        Some(&carol.token),
+        Some(json!({ "conversation_id": Uuid::new_v4(), "members": [bob.handle] })),
+    )
+    .await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/conversations/{conversation_id}/members"),
+        Some(&bob.token),
+        Some(json!({ "handle": carol.handle })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(listed(&carol).await);
+}
+
 /// The socket is a latency optimisation over `sync`, so what matters is that an
 /// accepted envelope reaches a subscriber *without* a poll.
 #[tokio::test]

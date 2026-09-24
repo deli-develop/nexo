@@ -18,6 +18,7 @@ Everything described here is built and tested unless a line says otherwise.
 | Data | Protection | Server can read it? |
 |---|---|---|
 | Direct and group message bodies | End-to-end encrypted with MLS (RFC 9420) via OpenMLS | **No** |
+| A team's name, description, picture, posts, comments, reactions and pins | The same MLS encryption: a team is a conversation, and all of this travels as its messages (§2.16) | **No** — the server knows the team exists, who is in it and their roles, not a word of what is in it |
 | Message attachments | AES-256-GCM, key inside the MLS-encrypted message (M6; the round-trip test refetches the raw object and proves it is ciphertext) | **No** |
 | Private identity keys | Generated on device, never transmitted (M2). Kept in the same unencrypted local store as the history below | **No** |
 | Local message history | **Not encrypted at rest.** IndexedDB in the app's WebView profile — or the browser's, on the web — readable by anyone who can read this account's files. Windows disk encryption, where it is on, protects a powered-off machine; Nexo adds nothing to it. This was SQLCipher under a DPAPI-wrapped key until the client moved into the page, which has no keystore to hold a key (`docs/REWORK.md`) | n/a — never leaves the machine |
@@ -67,6 +68,19 @@ The server sees, and therefore anyone controlling the server sees:
 - message sizes and timing
 - when each account is online
 - group membership and when it changes
+
+**It also keeps the ciphertext.** BRIEF §4.3 asks for delivered ciphertext to
+be deleted on acknowledgement and undelivered ciphertext after 30 days. Neither
+is built: acknowledging marks an envelope delivered and nothing deletes it, so
+every envelope stays in the database until its conversation, or the sending
+device, is deleted. It is still MLS ciphertext and the server still has no key
+that opens it, and a device that has moved past an epoch no longer has the keys
+either — so this is a store of sealed envelopes, not a cloud history. But it is
+more than the design promised, it grows without bound, and a copy of the
+database is a copy of all of it. The obvious fix is not available: the
+`delivered_at` stamp is one per envelope, set by whoever acknowledges first, so
+deleting on it would take messages from group members who had not fetched them
+yet. Deletion needs delivery recorded per recipient.
 
 Message *content* stays unreadable throughout. But metadata is often enough to
 infer what matters, and Nexo does not claim otherwise. Sealed-sender-style
@@ -288,6 +302,12 @@ switch for handle and display name precisely because it could not be kept, and
 a "private" that only hid you from a directory while leaving you writable would
 be the same empty switch.
 
+Being **added** to a conversation is being written to, and it is asked the same
+question of whoever does the adding. Up to and including v0.1.31 it was not:
+starting a conversation checked, adding someone to one did not, so anybody
+could start a conversation with anyone and then add a private account to it.
+That gap is closed on the server (`add_member`), not in the client.
+
 What it does not cover, and the panel says so rather than letting it be
 assumed:
 
@@ -445,6 +465,51 @@ a token in the URL. A browser could not do that on a WebSocket and would have to
 put the token in the query string, where every proxy on the way logs it; a Rust
 client does not have to make that trade, and does not.
 
+### 2.16 Teams: private boards, and what their roles can and cannot hold
+
+A team is an MLS conversation with `kind = 'team'`. Its name, description,
+picture, and every post, comment, reaction, pin and removal are messages in
+it, encrypted exactly like a group's. The server has no column for any of
+them.
+
+**What the server sees**, beyond what it sees for any group (§2.2): that the
+team exists; who is in it; **who is its owner and who are its admins**; when
+envelopes flow and how large they are. A post and a comment are
+indistinguishable to it, and so are a pin and a message.
+
+**What the server enforces.** Who may add and remove people (the owner and
+admins; an admin cannot remove the owner or another admin), who may change a
+role, a cap of 200 people, and that a block or a private account keeps somebody
+out of a team exactly as it keeps them out of a conversation. These are
+routing rules, and the server holds them, because a rule only the client
+applied would be one a modified client ignored.
+
+**What the server cannot enforce, and nothing here pretends it can:**
+
+- **The inside of an MLS commit.** A member running a modified client can
+  build a commit that removes somebody from the group; the server orders
+  commits without reading them. Every group here has this property. The
+  routing table still stops a removed person fetching anything.
+- **Who may pin, remove for everyone, or rename.** These are content. Every
+  Nexo installation checks, as each one arrives, whether the device that sent
+  it belongs to an owner or admin *now*, and drops it otherwise. A modified
+  client can ignore that check on its own screen, and nothing else.
+- **"Remove for everyone"** is a request, like taking back your own message
+  (§2.10): honoured by every Nexo app, not by a modified one, and it cannot
+  reach a copy somebody already saved. The dialog says so.
+
+**Somebody added later reads nothing from before.** MLS gives a new member
+no earlier keys, and the ciphertext the server still holds (§2.2) does not
+help them. The board says so, where that history would have been. Somebody
+removed stops receiving the team — an open socket included — and the removal
+commit rekeys the group, so they cannot read what is posted after it even
+with the ciphertext in hand (`packages/crypto-wasm/src/teams.test.ts`).
+
+**Deleting a team** deletes its conversation, membership and envelopes on the
+server. What members already have on their devices stays there, and the
+objects its posts' files point at stay in the bucket as ciphertext nobody
+holds a key for.
+
 ## 3. Adversaries in scope
 
 **A network attacker.** Defeated by TLS 1.3 for transport plus MLS for content.
@@ -579,7 +644,8 @@ you own.
 
 **A user who loses their only device.** One device per account, and the identity
 key is local-only. Losing it loses the account and all history, because
-server-side ciphertext is deleted on acknowledgement. This is the correct
+the keys that open the server's ciphertext (§2.2) existed only on that device.
+This is the correct
 security posture and a permanent support burden; the registration UI must say so
 before it happens. Encrypted key backup behind a recovery code is a v0.2 answer.
 

@@ -36,7 +36,7 @@ import { DESTINATIONS, type Destination } from "./destinations";
  * this is a layout change rather than a rewrite is what the shared
  * `destinations.ts` buys.
  */
-export function IconRail({ unread }: { unread: number }) {
+export function IconRail({ unread }: { unread: Partial<Record<Route, number>> }) {
   const route = useApp((s) => s.route);
   const viewingHandle = useApp((s) => s.viewingHandle);
   const go = useApp((s) => s.go);
@@ -59,7 +59,7 @@ export function IconRail({ unread }: { unread: number }) {
             key={d.route}
             {...d}
             active={route === d.route}
-            unread={d.route === "messages" ? unread : 0}
+            unread={unread[d.route] ?? 0}
             onClick={() => go(d.route)}
           />
         ))}

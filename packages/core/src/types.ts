@@ -9,7 +9,7 @@
  */
 
 /** Bumped on any breaking change to the types below. Must match the server. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** What `/v1/auth/*` hands back. */
 export interface SessionTokens {

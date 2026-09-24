@@ -530,7 +530,7 @@ package, and `main.tsx` imports them.
 
 #### `components/`
 
-`chrome/`: `TopBar.tsx` (165 ln — one top row across the whole app; the mark sits flat in the 64px cell above the rail, and on a phone the cell goes, since it only lines up with the rail),
+`chrome/`: `TopBar.tsx` (165 ln — one top row across the whole app; the mark in the 64px cell above the rail is a button to Home, drawn like a rail button, and on a phone the cell goes, since it only lines up with the rail),
 `IconRail.tsx` (221 ln — the 64px rail, at 768px and up, drawn like `IconButton`: flat, a fill on hover, the current one tinted in the accent; Home, Messages and Teams centred, Settings, sign-out and your own avatar (Profile) at the foot), `BottomBar.tsx`
 (92 ln — the same destinations across the bottom, below 768px) and
 `destinations.ts` (30 ln — **the five destinations, shared by both**, so which

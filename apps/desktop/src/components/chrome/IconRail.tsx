@@ -102,7 +102,7 @@ function destination(route: Route): Destination {
  * disabled control keeps its cursor and its title, and loses only its
  * response.
  */
-const railButton =
+export const railButton =
   "relative flex size-11 shrink-0 items-center justify-center rounded-control outline-none " +
   "transition-[background-color,color] duration-[var(--motion-fast)] ease-[var(--ease-state)] " +
   "focus-visible:ring-2 focus-visible:ring-accent " +

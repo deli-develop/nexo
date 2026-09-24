@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
+import { useApp } from "../../app/store";
 import { useLayout } from "../../app/useLayout";
 import { windowAction } from "../../app/useWindow";
 import { cn } from "../../lib/cn";
 import { inTauri } from "../../lib/runtime";
 import { BrandMark } from "../ui/BrandMark";
 import { Icon, type IconName } from "../ui/Icon";
+import { railButton } from "./IconRail";
 
 /**
  * One top row across the whole app (§7.3).
@@ -36,6 +38,8 @@ export function TopBar({
   maximized: boolean;
 }) {
   const layout = useLayout();
+  const account = useApp((s) => s.account);
+  const go = useApp((s) => s.go);
   // The mark's cell is the rail's width, and its hairline is the rail's edge
   // carried up into this row. A phone has no rail, so the cell had nothing to
   // line up with and cost a sixth of the row — the conversation's title was
@@ -50,9 +54,31 @@ export function TopBar({
           {/* The mark, not a logo lockup: one letter and a full stop. Drawn as
               paths rather than typeset, because no font is bundled and the
               display face fell through to whatever the OS had — see
-              `BrandMark`. Flat, like the rail below it; it used to sit in a
-              raised white disc. */}
-          <BrandMark size={16} className="text-text-hi" />
+              `BrandMark`.
+
+              It takes you Home, as the mark does in every app people use, and
+              it is drawn as one of the rail's buttons — flat, a fill under the
+              pointer — so the top of the column reads as the rail's first
+              stop. It used to be a `div` in a raised white disc that went
+              nowhere. `no-drag`, because this row is drag region and a click
+              on a drag region moves the window instead. Before there is an
+              account there is no Home to go to, and it is only the mark. */}
+          {account ? (
+            <button
+              type="button"
+              onClick={() => go("home")}
+              aria-label="Home"
+              title="Home"
+              className={cn(
+                railButton,
+                "no-drag text-text-hi enabled:hover:bg-fill-hover enabled:active:bg-fill-active",
+              )}
+            >
+              <BrandMark size={16} />
+            </button>
+          ) : (
+            <BrandMark size={16} className="text-text-hi" />
+          )}
         </div>
       ) : null}
 

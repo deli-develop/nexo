@@ -2190,6 +2190,10 @@ now happens.
   in the accent on your own profile. `--shadow-chip` is gone with them.
   **Seen** at 1280×760 in both themes with the shell on stand-in data. Not
   seen in the desktop app.
+- **The mark goes Home.** It was a `div` that went nowhere; it is a button
+  now, `no-drag` in the drag region, labelled "Home". Before sign-in it is
+  only the mark. **Seen** hovered in both themes; not clicked in the desktop
+  app, where the drag region is the thing to check.
 
 ---
 

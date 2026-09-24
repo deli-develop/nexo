@@ -2194,6 +2194,11 @@ now happens.
   now, `no-drag` in the drag region, labelled "Home". Before sign-in it is
   only the mark. **Seen** hovered in both themes; not clicked in the desktop
   app, where the drag region is the thing to check.
+- **The top of the Messages list says "Messages".** It was your own name and
+  handle with a "⋯" of Profile, Settings and Sign out -- a second copy of the
+  face at the foot of the rail, and three things each a rail button away.
+  Every other destination's cell names the page, and now this one does.
+  **Seen** at 1280×760 in both themes with the shell on stand-in data.
 
 ---
 

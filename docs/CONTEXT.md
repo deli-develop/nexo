@@ -602,7 +602,7 @@ it, because nothing readable may sit in the DOM behind a gate.
 | `ConversationList.tsx` | 962 | The list, the folders, the multi-selection. |
 | `MessagesPage.tsx` | 614 | Rail, list, chat, context panel. |
 | `Lightbox.tsx` | 468 | One attachment, full size, over everything. |
-| `MessagesHeader.tsx` | 489 | The Messages cells of the top row. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
+| `MessagesHeader.tsx` | 488 | The Messages cells of the top row: the title ("Messages" — it used to be your own name and a "⋯" menu), the conversation, the actions. Each button only where it can act: no actions cell without a conversation, and on a phone everything but search in one menu. |
 | `Composer.tsx` | 390 | Typing, attaching, recording. |
 | `ContextPanel.tsx` | 504 | The 280px panel from 1280px up; below that the same panel as a sheet over the chat (`shape="sheet"`) or, on a phone, a screen of its own (`"screen"`), opened through `contextSheetOpen`. |
 | `useRecorder.ts` | 213 | Voice recording, and the waveform that describes it. |

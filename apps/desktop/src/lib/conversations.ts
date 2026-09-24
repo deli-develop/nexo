@@ -5,6 +5,7 @@ import {
   conversations as core,
   decodePayload,
   forwardedText,
+  preview,
   voiceMeta,
   type Payload,
   type StoredMessage,
@@ -304,7 +305,7 @@ function toMessage(
           retracted: target.retractedAtMs !== undefined,
           // Short: a quote line is one line, and a quoted essay would push
           // the message that answers it off the screen.
-          excerpt: target.body.slice(0, 120),
+          excerpt: quoteOf(target).slice(0, 120),
         }
       : // A quote of something this device never received. The bubble says
         // "message unavailable" rather than drawing an empty quote, which
@@ -328,6 +329,7 @@ function toMessage(
         const voice = voiceMeta(payload.voice);
         if (voice) message.attachment.voice = voice;
       }
+      message.body = wordsOf(row, payload);
       break;
     case "view_once":
       message.view_once = {
@@ -357,6 +359,27 @@ function toMessage(
       break;
   }
   return message;
+}
+
+/**
+ * The words somebody wrote on a message, as opposed to what a list calls it.
+ *
+ * An attachment's row keeps `preview()` in `body` -- its caption, or else its
+ * file name or "Voice message" -- because that is what the conversation list
+ * and search read. The bubble drew that as if somebody had typed it, so every
+ * voice note arrived with a second bubble saying `voice-message.webm`, and
+ * every picture with its file name. A caption stays, edited or not: an edit
+ * rewrites `body`, and what it says is no longer either fallback.
+ */
+function wordsOf(row: StoredMessage, payload: Payload | null): string {
+  if (payload?.kind !== "attachment" || payload.body) return row.body;
+  return row.body === payload.name || row.body === preview(payload) ? "" : row.body;
+}
+
+/** What a quote of this message says: its words, or else what it is. */
+function quoteOf(row: StoredMessage): string {
+  const payload = row.payload ? decodePayload(row.payload) : null;
+  return wordsOf(row, payload) || (payload ? preview(payload) : "");
 }
 
 export async function searchMessages(

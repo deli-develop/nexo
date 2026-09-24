@@ -2104,6 +2104,23 @@ uploaded and opened.
 @mentions, "only admins can post". Also not built: a keyboard chord for the
 destination — none of the destinations has one.
 
+### Since v0.1.33: ten reports from a test pass
+
+One round of reports from using the app, sorted into fixes and changes and
+landed one at a time. Each entry says what was wrong or asked for, and what
+now happens.
+
+- **A voice message arrived with a second bubble saying
+  `voice-message.webm`.** An attachment's row keeps the list preview in
+  `body` -- its caption, or else its file name -- and the bubble drew that as
+  if somebody had typed it, so every picture came with its file name too. The
+  bubble now draws only words somebody wrote (`wordsOf` in
+  `lib/conversations.ts`), an edited caption included. A voice note with no
+  caption is previewed and quoted as "Voice message" (`preview` in
+  `core/src/payload.ts`), and a quote of one says that rather than the file
+  name. **Verified** by `lib/attachmentText.test.ts` and a `payload.test.ts`
+  case.
+
 ---
 
 ## Relay (M5)

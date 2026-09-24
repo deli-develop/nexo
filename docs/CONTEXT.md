@@ -61,7 +61,7 @@ logged-in user, and the UI says so rather than implying otherwise. Conversation
 metadata (who, when, how big) is visible to the server. Android is a later port
 that must not require a rewrite, which is why the layering below is strict.
 
-Current version: `0.1.32`. The authority is `[workspace.package] version` in
+Current version: `0.1.33`. The authority is `[workspace.package] version` in
 `Cargo.toml`, and `apps/desktop/src-tauri/tauri.conf.json` has to agree with it
 — the release workflow refuses a tag that does not match.
 Current state: [`STATUS.md`](STATUS.md). Milestones: [`PLAN.md`](PLAN.md).
@@ -682,7 +682,7 @@ are deliberately reviving it.
 
 #### Frontend tests
 
-27 vitest files, 184 tests, run by `pnpm test`. They cluster on the pure
+28 vitest files, 188 tests, run by `pnpm test`. They cluster on the pure
 functions rather than on the components:
 
 ```
@@ -691,7 +691,7 @@ components/   stickers
 features/     home: CommentThread · compose · storyGroups
               messages: grouping · menu · pan · peer · pinned · selection · shared
               teams: postMenu · roles
-lib/          auth · dialogs · format · forward · images · media · viewonce
+lib/          attachmentText · auth · dialogs · format · forward · images · media · viewonce
 mock/         data
 ```
 

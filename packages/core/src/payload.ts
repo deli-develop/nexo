@@ -381,6 +381,9 @@ export function decodePayload(bytes: Uint8Array | string): Payload {
   return parsed as Payload;
 }
 
+/** What a voice note with no caption is called in a list or a quote. */
+export const VOICE_PREVIEW = "Voice message";
+
 /**
  * What a conversation list shows for this payload.
  *
@@ -395,9 +398,12 @@ export function preview(payload: Payload): string {
     case "reply":
       return payload.body;
     // A caption if there is one, the filename otherwise — never nothing, or
-    // the row reads as an empty message rather than as a file.
+    // the row reads as an empty message rather than as a file. A recording
+    // says what it is: the name the recorder gave it, `voice-message.webm`,
+    // is not something anybody wrote or wants to read in the list.
     case "attachment":
-      return payload.body && payload.body !== "" ? payload.body : payload.name;
+      if (payload.body && payload.body !== "") return payload.body;
+      return payload.voice ? VOICE_PREVIEW : payload.name;
     default:
       return "";
   }

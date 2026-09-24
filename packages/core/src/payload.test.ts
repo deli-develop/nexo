@@ -84,6 +84,22 @@ describe("payload", () => {
     expect(preview({ kind: "unsupported", unsupportedKind: "hologram" })).toBe("");
   });
 
+  it("previews a file by its caption or its name, and a voice note as one", () => {
+    const file = {
+      kind: "attachment" as const, s3_key: "k", key: "aa", nonce: "bb", sha256: "cc",
+      name: "report.pdf", mime: "application/pdf", size: 3,
+    };
+    expect(preview(file)).toBe("report.pdf");
+    expect(preview({ ...file, body: "the numbers" })).toBe("the numbers");
+    // The recorder's file name is not something anybody wrote.
+    const voice = {
+      ...file, name: "voice-message.webm", mime: "audio/webm",
+      voice: { duration_ms: 1200, peaks: [1, 2, 3] },
+    };
+    expect(preview(voice)).toBe("Voice message");
+    expect(preview({ ...voice, body: "listen" })).toBe("listen");
+  });
+
   it("recognises a story with and without the later server id", () => {
     const story = {
       kind: "story" as const, story_id: 42, s3_key: "story/x", key: "aa",

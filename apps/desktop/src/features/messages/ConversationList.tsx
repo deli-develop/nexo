@@ -938,6 +938,7 @@ export function ConversationRow({
         kind={conversation.kind}
         title={conversation.title}
         hasAvatar={conversation.hasAvatar ?? false}
+        version={conversation.avatarVersion}
         size={46}
       />
 

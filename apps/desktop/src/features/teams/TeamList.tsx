@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { useApp } from "../../app/store";
-import { Avatar } from "../../components/ui/Avatar";
+import { ConversationAvatar } from "../../components/ui/ConversationAvatar";
 import { Button } from "../../components/ui/Button";
 import { Field, Tabs } from "../../components/ui/Controls";
 import { EmptyState } from "../../components/ui/Feedback";
@@ -105,7 +105,14 @@ export function TeamList({
                     team.id === activeId ? "bg-fill-active" : "hover:bg-fill-hover",
                   )}
                 >
-                  <Avatar seed={team.id} name={name} size={36} />
+                  <ConversationAvatar
+                    conversationId={team.id}
+                    kind="team"
+                    title={name}
+                    hasAvatar={team.hasAvatar}
+                    version={team.avatarVersion}
+                    size={36}
+                  />
                   <span className="min-w-0 flex-1">
                     <span className={cn("block truncate text-body", count > 0 ? "text-text-hi font-semibold" : "text-text-hi font-medium")}>
                       {name}

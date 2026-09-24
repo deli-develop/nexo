@@ -232,6 +232,8 @@ export interface Conversation {
   safetyDigits: string;
   /** Whether the conversation has a picture of its own. */
   hasAvatar?: boolean;
+  /** Which picture, so a new one is drawn rather than the first for ever. */
+  avatarVersion?: string;
   /**
    * The newest message, as the core already computed it.
    *

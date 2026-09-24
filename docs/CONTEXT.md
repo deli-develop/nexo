@@ -559,7 +559,7 @@ this is the index.
 | `DialogHost.tsx` | 98 | Where everything the app has to say is drawn. Modals **queue**, they do not stack. |
 | `Button.tsx` | 88 | `Button`, `IconButton`. |
 | `Surface.tsx` | 69 | `Panel` — the glass pane. Asks for `glass-0`…`glass-3`, never writes `backdrop-filter` itself. |
-| `ConversationAvatar.tsx` | 69 | Whatever a conversation should look like. |
+| `ConversationAvatar.tsx` | 110 | Whatever a conversation — or a team — should look like. Keyed on `version` (the picture's object key, `avatarVersion` in `lib/conversations.ts`): `hasAvatar` stays true from the first picture to the last, so without it a changed picture was never drawn. Revokes the `blob:` it replaces. |
 | `Avatar.tsx` | 62 | A generated avatar, from a seed. |
 | `Modal.tsx` | 59 | A dialog drawn over the whole window. |
 | `BrandMark.tsx` | 59 | The Nexo mark, as paths rather than type. |
@@ -621,8 +621,8 @@ it, because nothing readable may sit in the DOM behind a gate.
 | File | Ln | Owns |
 |---|---|---|
 | `TeamsPage.tsx` | 144 | The list beside the open team — board, members or settings (`teamPane`), each a screen of its own on a phone — one pane at a time on a phone; opening a team marks it opened, reads its roster, clears its unread. Also `TeamsHeader`, its cell of the top row (a way back on a phone, "New team" everywhere). |
-| `TeamList.tsx` | 151 | Search, *Teams* / *Invites*, and Board · Members hung under the open team — Invites is teams you were added to and have not opened on this device (`opened` in `conversationOverrides`). |
-| `TeamBoard.tsx` | 162 | The header (the team's marker, member count, the switcher, the one line on what the server sees), the composer, pinned posts, the rest, an unreadable post **in its place**, and "Posts from before you joined aren't on this device." |
+| `TeamList.tsx` | 158 | Search, *Teams* / *Invites*, and Board · Members hung under the open team — Invites is teams you were added to and have not opened on this device (`opened` in `conversationOverrides`). |
+| `TeamBoard.tsx` | 169 | The header (the team's marker, member count, the switcher, the one line on what the server sees), the composer, pinned posts, the rest, an unreadable post **in its place**, and "Posts from before you joined aren't on this device." |
 | `TeamComposer.tsx` | 117 | Title, words, files — and **"Visible to the N members of … End-to-end encrypted."** where you write, the mirror of the feed's "Posts are public". Files are sealed and uploaded before the post names them. |
 | `TeamPostCard.tsx` | 139 | One post. No votes, no public line; taken back and admin-removed posts stay as a line saying so. |
 | `TeamComments.tsx` | 213 | Comments and one level of answers; "Reply" only on the top level. |
@@ -656,7 +656,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 
 | File | Ln | Wraps |
 |---|---|---|
-| `conversations.ts` | 780 | The 45 conversation commands. |
+| `conversations.ts` | 901 | The 45 conversation commands. |
 | `native.ts` | 381 | File pickers, save dialogs, clipboard, tray, lock, backdrop, autostart, updater. |
 | `feed.ts` | 341 | Feed, posts, comments, profiles; uploading a picture, and fetching one as a `blob:` URL. |
 | `images.ts` | 102 | Pictures from object storage for `RemoteImage`: one `blob:` URL per key, shared and reference-counted, revoked once nothing draws it. |
@@ -670,7 +670,7 @@ The IPC seam as the page sees it. **Nothing here holds a secret.**
 | `profiles.ts` | 70 | Profiles by handle, fetched once and remembered. |
 | `media.ts` | 61 | **No `invoke`** — just the rule that picks which player a bubble draws for an attachment. |
 | `stream.ts` | 45 | The live socket, as the page sees it. |
-| `teams.ts` | 152 | Teams: `listTeams` (from this device's store — a team with no name yet is `null`, drawn as "New team"), and thin wrappers over `packages/core/src/teams.ts` for everything else. |
+| `teams.ts` | 187 | Teams: `listTeams` (from this device's store — a team with no name yet is `null`, drawn as "New team"), and thin wrappers over `packages/core/src/teams.ts` for everything else. |
 | `blocks.ts` | 53 | Blocking, and `confirmBlock`: the one wording every place that offers it asks with (a profile, a post's menu). |
 | `cn.ts` | 5 | Class-name join. |
 

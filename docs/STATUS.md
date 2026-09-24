@@ -2135,6 +2135,16 @@ now happens.
   file once so seeking works. **Seen** in a browser in both themes, playing a
   generated tone. Not heard in the desktop app.
 
+- **A team's picture was never drawn.** Setting one worked -- the encrypted
+  `group_avatar` went out and every member stored it -- but the board and
+  the team list drew the generated gradient whatever was set. Both now draw
+  it through `ConversationAvatar`. A changed picture was not re-read anywhere
+  either, groups included: the avatar fetched once per `hasAvatar`, which
+  stays true from the first picture to the last, and the rename dialog's
+  "remount" was two state changes React batched into none. Avatars are now
+  keyed on the picture's object key (`avatarVersion`), and the `blob:` URL
+  they replace is revoked rather than kept for the life of the page.
+
 ---
 
 ## Relay (M5)

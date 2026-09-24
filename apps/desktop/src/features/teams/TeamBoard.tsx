@@ -1,7 +1,7 @@
 import type { BoardItem } from "@nexo/core";
 
 import { useApp } from "../../app/store";
-import { Avatar } from "../../components/ui/Avatar";
+import { ConversationAvatar } from "../../components/ui/ConversationAvatar";
 import { IconButton } from "../../components/ui/Button";
 import { Callout, EmptyState, Skeleton } from "../../components/ui/Feedback";
 import { Icon } from "../../components/ui/Icon";
@@ -50,7 +50,14 @@ export function TeamBoard({
       <div className="mx-auto flex w-full max-w-[680px] flex-col gap-4 px-4 py-5 sm:px-6">
         <header className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <Avatar seed={team.id} name={name} size={44} />
+            <ConversationAvatar
+              conversationId={team.id}
+              kind="team"
+              title={name}
+              hasAvatar={team.hasAvatar}
+              version={team.avatarVersion}
+              size={44}
+            />
             <div className="min-w-0 flex-1">
               <button
                 type="button"

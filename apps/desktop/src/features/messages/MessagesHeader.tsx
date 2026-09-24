@@ -174,6 +174,7 @@ export function MessagesHeader({
               kind={conversation.kind}
               title={conversation.title}
               hasAvatar={conversation.hasAvatar ?? false}
+              version={conversation.avatarVersion}
               size={layout.phone ? 32 : 36}
             />
             <div className="min-w-0 flex-1">
@@ -428,6 +429,10 @@ function RenameConversation({
   // chosen here — so the preview beside the button shows the new picture
   // rather than the one the dialog opened with.
   const [hasPicture, setHasPicture] = useState(hadPicture);
+  // Bumped when a picture is chosen here, which is what makes the preview
+  // fetch the new bytes. Flipping `hasPicture` off and on again did nothing:
+  // React batches the two, so the preview never saw it change.
+  const [pictureVersion, setPictureVersion] = useState(0);
 
   async function changePicture() {
     const file = await pickFile({ title: "Choose a picture", images: true });
@@ -436,9 +441,8 @@ function RenameConversation({
     setError(null);
     try {
       await setConversationAvatar(conversation.id, file);
-      // Remounts the preview, which is what makes it fetch the new bytes.
-      setHasPicture(false);
       setHasPicture(true);
+      setPictureVersion((version) => version + 1);
     } catch (raw) {
       setError(asConversationError(raw).message);
     } finally {
@@ -489,6 +493,7 @@ function RenameConversation({
             kind="group"
             title={conversation.title}
             hasAvatar={hasPicture}
+            version={String(pictureVersion)}
             size={44}
           />
           <Button icon="camera" disabled={busy} onClick={() => void changePicture()}>

@@ -46,6 +46,8 @@ export interface Conversation {
   last_message_outgoing: boolean | null;
   /** Whether a picture has been set. */
   has_avatar: boolean;
+  /** Which picture: changes when a new one is set, so a drawn one is re-read. */
+  avatar_version: string | null;
   /** Whether every current key here was confirmed out of band. */
   verified: boolean;
   /** Whether somebody's key changed since it was last acknowledged. */
@@ -211,6 +213,7 @@ export async function listConversations(): Promise<Conversation[]> {
         last_message_at_ms: row.updatedAtMs === 0 ? null : row.updatedAtMs,
         last_message_outgoing: row.lastMessageOutgoing ?? null,
         has_avatar: row.avatar !== undefined,
+        avatar_version: avatarVersion(row.avatar),
         // Verified means the key confirmed out of band is still the key in
         // use. A stale confirmation is not a confirmation, which is the whole
         // point of keeping both.
@@ -682,6 +685,23 @@ export async function openViewOnce(clientId: string): Promise<string> {
   });
   await it.store.burnViewOnce(clientId, Date.now());
   return URL.createObjectURL(new Blob([bytes as unknown as BlobPart], { type: record.mime }));
+}
+
+/**
+ * Which picture a stored `group_avatar` is, as a short string.
+ *
+ * The object key: every new picture is a new object. A drawn avatar is keyed
+ * on this, because `hasAvatar` alone stays `true` from the first picture to
+ * the last, and the first one was drawn for ever.
+ */
+export function avatarVersion(encoded: string | undefined): string | null {
+  if (encoded === undefined) return null;
+  try {
+    const payload = decodePayload(encoded);
+    return payload.kind === "group_avatar" ? payload.s3_key : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function conversationAvatar(conversationId: string): Promise<string | null> {
